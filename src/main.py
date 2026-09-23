@@ -36,4 +36,4 @@ app.include_router(router, prefix="/api/v1")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "env": settings.app_env}
+    return {"status": "healthy", "version": "0.1.0", "environment": settings.app_env}
