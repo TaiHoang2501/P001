@@ -25,6 +25,18 @@ cuộc gọi từ Sale.
 
 ### 1.2. Current journey
 
+```mermaid
+flowchart LR
+    S1["1. Khách tự tìm kiếm<br/>BĐS trên nhiều kênh"] --> S2["2. Khách xác định căn<br/>có vẻ phù hợp"]
+    S2 --> S3["3. Khách liên hệ Sale"]
+    S3 --> S4["4. Sale tư vấn &<br/>kiểm tra căn"]
+    S4 --> S5["5. Khách / Sale trao đổi<br/>tìm thời gian xem"]
+    S5 --> S6["6. Sale / Operator kiểm tra<br/>availability nhiều nguồn lực"]
+    S6 --> S7["7. Hai bên<br/>xác nhận lịch"]
+    S7 --> S8["8. Khách nhận thông tin<br/>lịch & đi xem"]
+    S8 --> S9["9. Cập nhật booking<br/>(Completed / No-show)"]
+```
+
 1.  Khách tự tìm kiếm BĐS trên nhiều kênh.
 2.  Khách xác định một hoặc nhiều căn có vẻ phù hợp.
 3.  Khách liên hệ Sale.
