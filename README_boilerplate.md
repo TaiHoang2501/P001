@@ -25,11 +25,11 @@ Sản phẩm giải quyết vấn đề như thế nào bằng AI:
 
 | Layer | Technology |
 |-------|-----------|
-| AI Agent | LangGraph + [LLM] |
-| Backend | FastAPI + Python 3.11+ |
-| Frontend | React/Next.js + TypeScript |
-| Database | PostgreSQL / SQLite |
-| DevOps | Docker + GitHub Actions |
+| **AI Agent** | LangGraph + OpenAI (gpt-4o-mini / gpt-4o) |
+| **Backend** | FastAPI + Python 3.11+ (Xử lý API và tích hợp Database) |
+| **Frontend** | React/Next.js + TypeScript (Giao diện Chat thân thiện) |
+| **Database** | PostgreSQL / SQLite (Lưu trữ rổ hàng BĐS đã xác thực & Lịch Booking) |
+| **DevOps** | Docker + GitHub Actions (CI/CD) |
 
 ## Project Structure
 
@@ -58,9 +58,11 @@ Sản phẩm giải quyết vấn đề như thế nào bằng AI:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /health | Health check |
-| POST | /api/v1/chat | Chat with agent |
-| POST | /api/v1/analyze | Analyze input |
+| GET | `/health` | Health check hệ thống |
+| POST | `/api/v1/chat` | Endpoint chính cho luồng giao tiếp với người dùng (nhận nhu cầu bằng ngôn ngữ tự nhiên) |
+| GET | `/api/v1/properties/match` | Trả về danh sách BĐS được AI chấm điểm phù hợp cao nhất (Slot 1) |
+| POST | `/api/v1/booking` | Gửi yêu cầu đặt lịch xem nhà trực tiếp và lưu vào hệ thống (Slot 2) |
+| GET | `/api/v1/booking/{id}/status` | Kiểm tra trạng thái xác nhận lịch hẹn từ Ban quản lý (Slot 3) |
 
 ## Deliverables Checklist
 
