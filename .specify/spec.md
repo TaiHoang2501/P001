@@ -31,7 +31,7 @@ flowchart LR
     S2 --> S3["3. Khách liên hệ Sale"]
     S3 --> S4["4. Sale tư vấn &<br/>kiểm tra căn"]
     S4 --> S5["5. Khách / Sale trao đổi<br/>tìm thời gian xem"]
-    S5 --> S6["6. Sale / Operator kiểm tra<br/>availability nhiều nguồn lực"]
+    S5 --> S6["6. Chủ nhà kiểm tra<br/>availability nhiều nguồn lực"]
     S6 --> S7["7. Hai bên<br/>xác nhận lịch"]
     S7 --> S8["8. Khách nhận thông tin<br/>lịch & đi xem"]
     S8 --> S9["9. Cập nhật booking<br/>(Completed / No-show)"]
@@ -42,7 +42,7 @@ flowchart LR
 3.  Khách liên hệ Sale.
 4.  Sale tư vấn và kiểm tra căn.
 5.  Khách/Sale trao đổi để tìm thời gian xem.
-6.  Sale/Operator kiểm tra availability của nhiều nguồn lực.
+6.  Chủ nhà kiểm tra availability của nhiều nguồn lực.
 7.  Hai bên xác nhận lịch.
 8.  Khách nhận thông tin lịch và đi xem.
 9.  Sau lịch xem, booking được cập nhật thành completed hoặc no-show.
@@ -64,7 +64,7 @@ flowchart LR
 
 Prototype hiện chưa kết nối dữ liệu production của Vinhomes.
 
-**Product hypothesis cần kiểm chứng:** pain point có hai phía: (H1) customer giảm thời gian tìm kiếm/trao đổi để đặt lịch; (H2) Sale/Operator giảm thời gian điều phối và xử lý exception. Prototype phải đo riêng hai nhóm này thay vì mặc định rằng cải thiện vận hành sẽ tự động làm tăng conversion mua BĐS.
+**Product hypothesis cần kiểm chứng:** pain point có hai phía: (H1) customer giảm thời gian tìm kiếm/trao đổi để đặt lịch; (H2) chủ nhà giảm thời gian điều phối và xử lý exception. Prototype phải đo riêng hai nhóm này thay vì mặc định rằng cải thiện vận hành sẽ tự động làm tăng conversion mua BĐS.
 
 **Competitive boundary:** prototype không tuyên bố rằng BookingBot thay thế hệ thống booking hiện có của Vinhomes; giá trị cần chứng minh là khả năng conversational orchestration + multi-resource availability + exception/HITL + anti-double-booking trong một workflow có kiểm soát.
 
@@ -94,7 +94,7 @@ xác thực.
 
 BookingBot tập trung vào bài toán **điều phối booking xem BĐS**, không định vị là một công cụ search BĐS đơn thuần:
 
-> **Khách nêu nhu cầu → AI chuẩn hóa yêu cầu → Backend tìm căn → khách chọn căn → kiểm tra availability đa nguồn lực → soft-hold → Sale/Operator xử lý HITL khi cần → xác nhận booking → thông báo → reschedule/cancel khi phát sinh.**
+> **Khách nêu nhu cầu → AI chuẩn hóa yêu cầu → Backend tìm căn → khách chọn căn → kiểm tra availability đa nguồn lực → soft-hold → chủ nhà xử lý HITL khi cần → xác nhận booking → thông báo → reschedule/cancel khi phát sinh.**
 
 Giá trị kỹ thuật cốt lõi là orchestration giữa nhiều resource và xử lý exception an toàn. AI làm conversational orchestration; Backend quyết định business rules và transaction state.
 
@@ -357,7 +357,7 @@ Khi AI không chắc:
 3.  Nếu thiếu dữ liệu: hỏi lại hoặc thử tool phù hợp.
 4.  Nếu vẫn không xác minh được: không suy đoán.
 5.  Thông báo rõ cho khách.
-6.  Escalate Sale/Operator nếu cần.
+6.  Escalate chủ nhà nếu cần.
 
 ## 5.3. Double-booking prevention
 
@@ -436,7 +436,7 @@ Customer có booking
 Request
 → AI phát hiện case đặc biệt
 → tạo HITL task
-→ Sale/Operator xử lý
+→ chủ nhà xử lý
 → approve/reject
 → AI thông báo customer
 ```
@@ -453,7 +453,7 @@ Tool/API/LLM failure
 → giữ trạng thái an toàn
 → thông báo customer
 → tạo escalation
-→ Sale/Operator xử lý thủ công
+→ chủ nhà xử lý thủ công
 ```
 
 ------------------------------------------------------------------------
@@ -1154,7 +1154,7 @@ UI CRUD có thể đơn giản; không coi CRUD là selling point.
 
 # Staff Dashboard
 
-Mục tiêu của Dashboard là **cho Sale/Operator can thiệp đúng lúc**, không phải xây CRM.
+Mục tiêu của Dashboard là **cho chủ nhà can thiệp đúng lúc**, không phải xây CRM.
 
 ## Dashboard overview
 - Booking hôm nay.
@@ -1309,7 +1309,7 @@ Chỉ cần KPI + bảng/biểu đồ tối thiểu phục vụ evaluation. Khô
 1. Customer yêu cầu VIP/special case/outside-hours.
 2. Agent không tự confirm.
 3. Tạo HITL task.
-4. Operator/Sale approve/reject.
+4. Chủ nhà approve/reject.
 5. Backend commit theo kết quả human decision.
 6. Agent thông báo customer.
 
@@ -1484,7 +1484,7 @@ Backend validates
         ↓
 HITL requirement check
         ↓
-Sale/Operator approval nếu bắt buộc
+Chủ nhà approval nếu bắt buộc
         ↓
 Backend transaction
         ↓
