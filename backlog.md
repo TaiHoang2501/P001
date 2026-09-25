@@ -1,8 +1,8 @@
 # Backlog: BookingBot AI Agent
 
-Danh sách các công việc được chia nhỏ dựa trên Roadmap của `spec_2.md`.
-**Deadline prototype:** 25/10/2026.
-**Scope rule:** Nếu trễ tiến độ, cắt Phase 4/5 (RAG, analytics UI) trước; **không bao giờ cắt Phase 2** (availability, soft-hold, locking, state machine, HITL).
+Danh sách các công việc được chia nhỏ dựa trên Roadmap và **Architecture Patch — AI Agent Orchestrator v2** của `.specify/spec.md`.
+- **Deadline prototype:** 25/10/2026.
+- **Scope rule:** Nếu trễ tiến độ, cắt Phase 4/5 (RAG, analytics UI) trước; **không bao giờ cắt Phase 2** (availability, soft-hold, locking, state machine, HITL).
 
 ---
 
@@ -11,8 +11,8 @@ Danh sách các công việc được chia nhỏ dựa trên Roadmap của `spec
 - [ ] **Task 1.1: Repo & Database Schema**
   - Khởi tạo repo Git + branching workflow.
   - Khởi tạo dự án Next.js + TypeScript (frontend) và FastAPI + Python 3.11+ (backend).
-  - Cấu hình `docker-compose.yml` (PostgreSQL + pgvector, Redis optional).
-  - Viết DDL cho toàn bộ bảng theo Data Model spec_2:
+  - Cấu hình `docker-compose.yml` (PostgreSQL 15+ có pgvector, Redis optional).
+  - Viết DDL cho toàn bộ bảng theo Data Model `spec.md`:
     - `users`, `roles`, `customers`, `sales`
     - `projects`, `properties`, `property_images`
     - `viewing_resources`, `project_capacities`, `vehicles`
@@ -32,47 +32,45 @@ Danh sách các công việc được chia nhỏ dựa trên Roadmap của `spec
 
 - [ ] **Task 1.3: UI Framework**
   - Thiết lập thư viện UI/Component cho Next.js (Tailwind, shadcn/ui hoặc tương đương).
-  - Tạo layout chính cho Web Chat và Staff Dashboard.
-  - Hỗ trợ streaming cho chat UI.
+  - Tạo layout chính cho Web Chat (hỗ trợ streaming) và Staff Dashboard.
 
 ---
 
-## Phase 2: Core Transaction (Nghiệp vụ cốt lõi Backend) — **HIGHEST PRIORITY**
+## Phase 2: Core Transaction (Nghiệp vụ cốt lõi Backend) — **HIGHEST PRIORITY (Source of Truth)**
 
-- [ ] **Task 2.1: Property Search & Detail APIs**
-  - API `search_properties(criteria)`: lọc BĐS theo dự án, loại căn, khoảng giá, diện tích, tầng, hướng/ban công, nội thất, tình trạng, mục đích mua.
-  - API `get_property(property_id)`: trả Property Card đầy đủ (mã căn, dự án, loại, DT, giá, tầng, hướng, nội thất, trạng thái, hình ảnh/mô tả).
-  - **Rule:** LLM chỉ extract constraints; Backend/SQL thực hiện filtering. Không dùng LLM để ranking hay phát minh property facts.
+- [ ] **Task 2.1: Property Search & Detail Services**
+  - Service/API `search_property(criteria)`: lọc BĐS theo dự án, loại căn, khoảng giá, diện tích, tầng, hướng/ban công, nội thất, tình trạng, mục đích mua.
+  - Service/API `get_property_detail(property_id)`: trả Property Card đầy đủ (mã căn, dự án, loại, diện tích, giá, tầng, hướng, nội thất, trạng thái, hình ảnh/mô tả).
+  - **Rule:** LLM chỉ trích xuất constraints; Backend/SQL thực hiện filtering. Tuyệt đối không dùng LLM để ranking hay phát minh facts về BĐS.
 
 - [ ] **Task 2.2: Availability Engine**
   - Kiểm tra đồng thời 4 resource: Property/Showroom + Sale + Project Capacity + Vehicle (mock adapter).
   - Vehicle availability qua **mock/simulation adapter** (adapter pattern để sau này thay bằng integration thật).
-  - Phát hiện conflict khi resource không khả dụng.
+  - Phát hiện conflict khi bất kỳ resource nào không khả dụng.
 
 - [ ] **Task 2.3: Booking State Machine**
-  - Implement state machine:
+  - Implement state machine chặt chẽ:
     ```
-    Draft → Soft-held → Pending Sale Approval → Confirmed → Completed/No-show/Cancelled
+    Draft → Soft-held → Pending Sale Approval → Confirmed → Completed / No-show / Cancelled
     Soft-held --expiry--> Expired
     Pending Sale Approval → Rejected
     Confirmed --reschedule--> Rescheduled (lưu dạng booking event/version)
     Confirmed --cancel--> Cancelled
     ```
-  - `Rescheduled` lưu dưới dạng booking event/version; booking giữ trạng thái active cuối cùng.
-  - Mọi state transition phải ghi Booking Event (audit trail).
+  - Mọi state transition phải ghi nhận vào `booking_events` (audit trail).
 
 - [ ] **Task 2.4: Soft-hold & Anti-Double-Booking**
-  - Soft-hold service: tạo hold với expiry **configurable trên Staff Dashboard**.
-  - Khi hết hạn: giải phóng Sale slot + Unit/showroom slot + Project capacity + Vehicle reservation.
+  - Soft-hold service: tạo hold với thời gian hết hạn **configurable trên Staff Dashboard**.
+  - Khi hết hạn: tự động giải phóng Sale slot + Unit slot + Project capacity + Vehicle reservation.
   - Anti-double-booking sequence:
     ```
-    check availability → BEGIN TRANSACTION → lock resource rows → re-check availability → create hold/booking → COMMIT → release locks
+    check availability → BEGIN TRANSACTION → lock resource rows (SELECT ... FOR UPDATE) → re-check availability → create hold/booking → COMMIT → release locks
     ```
-  - Sử dụng PostgreSQL transaction/row-level locking. Không dựa vào prompt/LLM để chống double-booking.
+  - Sử dụng PostgreSQL transaction/row-level locking. Không bao giờ dựa vào prompt/LLM để chống double-booking.
 
 - [ ] **Task 2.5: Sale Approval & HITL Workflow**
   - API `request_sale_approval(booking_id)`.
-  - Sale approve/reject soft-hold.
+  - Sale approve/reject soft-hold từ Staff Dashboard.
   - HITL kích hoạt khi: VIP, slot ngoài giờ, căn đặc biệt, không tìm được slot tự động, availability conflict, special request, thay đổi VIP status.
   - Backend authorization + business-rule validation trước khi commit mọi mutation quan trọng.
 
@@ -82,150 +80,140 @@ Danh sách các công việc được chia nhỏ dựa trên Roadmap của `spec
     - Soft-hold slot mới trước khi commit.
     - Rollback khi bước mới thất bại.
     - Chỉ release slot cũ sau khi slot mới đủ điều kiện.
-  - `cancel_booking(booking_id)`: xác thực quyền → hủy booking → giải phóng resource → notification.
+  - `cancel_booking(booking_id)`: xác thực quyền → hủy booking → giải phóng resource → gửi notification.
 
-- [ ] **Task 2.7: Audit Log & Booking Events**
-  - Ghi Booking Event cho mọi state change (`booking_events` table).
-  - Audit log cho tất cả critical actions.
-  - Mỗi tool call phải: validate input → check authorization → check business rules → return structured output → emit audit/event log.
+- [ ] **Task 2.7: Audit Log & Tool Execution Security Pipeline**
+  - Thiết lập pipeline bảo mật cho mọi Tool Call:
+    ```
+    Agent Request → Tool Schema Validation → Auth/RBAC Check → Business Rule & Availability Check → Row Lock & Transaction → Execute Mutation → Structured Response → Audit Log
+    ```
+  - Ghi nhận `ai_runs`, `tool_calls`, `audit_logs` cho mọi hành động.
 
 ---
 
-## Phase 3: AI Agent (LangGraph & LLM)
+## Phase 3: AI Agent Orchestrator (LangGraph & LLM) — **Patch v2 Aligned**
 
-- [ ] **Task 3.1: LLM Adapter & Agent State**
-  - Model-agnostic adapter (Provider A/B/C swap không đổi business logic).
-  - Dùng OpenAI (gpt-4o-mini/gpt-4o) làm default.
-  - Định nghĩa Agent State (`TypedDict`): chat history, extracted criteria, current workflow step.
+- [ ] **Task 3.1: Model-Agnostic LLM Adapter & Agent State**
+  - Model-agnostic adapter (OpenAI gpt-4o-mini default, dễ dàng đổi sang Claude/Gemini không ảnh hưởng logic).
+  - Định nghĩa Agent State (`TypedDict` trong LangGraph): chat history, extracted criteria, missing fields, tool results, current workflow step.
 
-- [ ] **Task 3.2: Tool Contracts**
-  - Bọc services Phase 2 thành LangChain `@tool`:
-    - `search_properties(criteria)`
-    - `get_property(property_id)`
-    - `check_availability(property_id, datetime, guest_count, vehicle_requirement)`
-    - `create_soft_hold(request)`
-    - `request_sale_approval(booking_id)`
-    - `confirm_booking(booking_id)`
-    - `reschedule_booking(booking_id, new_slot)`
-    - `cancel_booking(booking_id)`
-    - `send_notification(notification)`
-    - `get_customer_booking(customer_id)`
-    - `search_knowledge(query)`
-    - `escalate_to_human(reason)`
+- [ ] **Task 3.2: Tool Contracts (8 Standard Functions from Patch v2)**
+  - Đóng gói các services Phase 2 thành standard tools:
+    1. `search_property(criteria)`
+    2. `get_property_detail(property_id)`
+    3. `check_availability(property_id, datetime, guest_count, vehicle_requirement)`
+    4. `create_soft_hold(property_id, slot_id, customer_info)`
+    5. `request_sale_approval(booking_id, reason)`
+    6. `reschedule_booking(booking_id, new_slot)`
+    7. `cancel_booking(booking_id, reason)`
+    8. `send_notification(recipient, channel, template_id, params)`
+    - Bổ sung tool tri thức & escalate: `search_knowledge(query)`, `escalate_to_human(reason)`.
 
-- [ ] **Task 3.3: Agent Orchestration & Guardrails**
-  - Định nghĩa LangGraph workflow (Nodes, Edges).
-  - AI được phép: hiểu intent, extract constraints, gọi tools, đề xuất slot, giải thích conflict.
-  - AI **không được**: tự tạo giá, availability, booking state, quyền truy cập, VIP status, business rule.
-  - Global guardrail: Verify → Fail safely → Escalate.
-  - Xử lý failure: AI không hiểu → thiếu info → không tìm thấy căn → hết slot → conflict → timeout → thay đổi giữa chừng.
+- [ ] **Task 3.3: Agentic Loop Implementation**
+  - Xây dựng vòng lặp agentic theo chuẩn Patch v2:
+    `Customer Request → Understand Intent → Update State → Determine Missing Fields → Select Tool → Backend Validates & Executes → Tool Result → Agent Observes Result → Determine Next Action / Response`.
+  - Ngăn chặn suy luận Tool chỉ từ từ khóa đơn lẻ; bắt buộc kết hợp context & state.
 
-- [ ] **Task 3.4: HITL Routing**
-  - Edge riêng cho HITL trong LangGraph.
-  - Route VIP, out-of-hours, căn đặc biệt, no auto-slot, availability conflict, special request vào queue cho Sale/Operator.
-  - AI không tự confirm các case yêu cầu human approval.
+- [ ] **Task 3.4: Confirmation Rule Guardrail (Anti-Hallucination)**
+  - **Quy tắc bắt buộc:** Agent **không được tự ý commit `Confirmed`**.
+  - Agent chỉ thông báo booking thành công khi Backend trả `success=true` và transaction đã commit (`booking.status = Confirmed`).
+  - Luồng: Request confirmation → Backend validates → HITL check → Sale approval nếu cần → Backend commit → Agent quan sát kết quả và thông báo.
+
+- [ ] **Task 3.5: Failure Modes & Exception Handling (F1–F16)**
+  - F13: Agent chọn sai function → Tool schema & Auth chặn lại, trả lỗi có cấu trúc, Agent điều hướng lại.
+  - F14: Tool Call thiếu tham số → Backend từ chối, Agent xác định field thiếu và hỏi lại khách.
+  - F15: Agent hiểu sai ngữ cảnh (vd: "đổi sang 16h" nhưng chưa rõ booking nào) → Agent hỏi rõ booking context trước khi gọi tool.
+  - F16: Agent tưởng Tool thành công khi Backend thất bại → Tool trả trạng thái rõ ràng, Agent xử lý fail-safe.
+
+- [ ] **Task 3.6: HITL Routing**
+  - Edge riêng cho HITL trong đồ thị LangGraph.
+  - Route các case: VIP, ngoài giờ, căn đặc biệt, conflict, special request vào queue của Staff.
 
 ---
 
 ## Phase 4: RAG & Notifications
 
 - [ ] **Task 4.1: Knowledge Base Setup**
-  - Knowledge sources: project info, amenities, viewing policies/rules, transportation/pickup, booking/reschedule/cancel policies, property FAQ.
-  - Schema metadata: `document_id`, `project_id`, `document_type`, `title`, `source`, `version`, `effective_from/to`, `chunk_id`, `updated_at`.
+  - Knowledge sources: project info, tiện ích, chính sách xem nhà, quy định đưa đón, FAQ BĐS.
   - Pipeline: Documents → Cleaning → Metadata → Chunking → Embedding → pgvector.
 
-- [ ] **Task 4.2: RAG Integration vào Agent**
-  - Tool `search_knowledge(query)` cho Agent trả lời FAQ.
-  - **RAG guardrails:** RAG không được quyết định price, live availability, booking state, Sale assignment, capacity, vehicle availability. Những dữ liệu này phải từ transactional backend.
-  - Không tìm thấy tài liệu → nói rõ chưa có dữ liệu; không hallucinate.
+- [ ] **Task 4.2: RAG Integration & Boundaries**
+  - Tool `search_knowledge(query)` trả lời FAQ.
+  - **RAG Guardrail:** RAG chỉ hỗ trợ tri thức tĩnh/chính sách, tuyệt đối không quyết định giá, live availability, booking state hay phân bổ Sale.
+  - Không tìm thấy tài liệu → thông báo rõ chưa có thông tin, không bịa đặt.
 
 - [ ] **Task 4.3: Notification Engine**
-  - Provider abstraction: `WebNotificationProvider`, `EmailProvider`, `SMSProvider` (mock), `ZaloProvider` (mock).
-  - Events trigger: booking confirmed/rejected/cancelled/rescheduled, soft-hold expiring, reminder 24h, HITL update.
-  - Email tích hợp thật; SMS/Zalo mock nếu chưa có credentials.
+  - Provider abstraction: `WebNotificationProvider`, `EmailProvider` (thực tế), `SMSProvider` (mock), `ZaloProvider` (mock).
+  - Triggers: booking confirmed/rejected/cancelled/rescheduled, soft-hold sắp hết hạn, nhắc lịch 24h, cập nhật HITL.
 
 ---
 
 ## Phase 5: Dashboard & Analytics (Staff UI)
 
 - [ ] **Task 5.1: Dashboard Overview**
-  - Booking hôm nay, pending approvals, active soft-holds, HITL queue.
+  - Tổng quan booking trong ngày, pending approvals, active soft-holds, HITL queue.
   - Core KPI cards: processing time, booking success, double-booking rate, HITL rate.
 
 - [ ] **Task 5.2: Booking Management & HITL UI**
-  - Booking list/filter/detail/approve/reject/reschedule/cancel/status update.
-  - HITL Queue: reason, customer, property, requested slot, current status, approve/reject/escalate.
+  - Danh sách booking, bộ lọc, xem chi tiết, approve/reject/reschedule/cancel.
+  - HITL Queue: lý do escalate, thông tin khách, căn hộ, slot yêu cầu, nút thao tác duyệt/từ chối.
 
 - [ ] **Task 5.3: Resource Calendar & CRUD**
-  - Calendar view: Sale availability, Property/showroom, Project capacity, Vehicle mock.
-  - Data Management CRUD: Properties, Projects, Sale, Vehicles, Capacity, Knowledge Base metadata.
-  - Soft-hold duration configurable trên Dashboard.
+  - Calendar view: Sale availability, căn hộ/showroom, công suất dự án, xe đưa đón.
+  - Quản lý dữ liệu CRUD cơ bản (Properties, Projects, Sales, Vehicles).
+  - Cấu hình Soft-hold duration trực tiếp trên giao diện Dashboard.
 
 - [ ] **Task 5.4: Analytics & Evaluation**
-  - KPI: request→booking conversion, avg Operator processing time, request SLA ≤5 phút, double-booking rate, availability accuracy, HITL rate, AI self-resolution rate, tool/API latency, error rate.
-  - Chart/bảng tối thiểu phục vụ evaluation. Không xây analytics suite lớn.
+  - Thống kê tỷ lệ chuyển đổi, thời gian xử lý của Operator (SLA ≤ 5 phút), double-booking rate (= 0), AI self-resolution rate, tool latency.
 
 ---
 
-## Phase 6: QA & Demo
+## Phase 6: QA, Tests & Demo
 
 - [ ] **Task 6.1: Functional Tests**
-  - Search property, property detail, booking, approval, reschedule, cancel, reminder, no-show, CRUD, RBAC.
+  - Test search property, property detail, booking, approval, reschedule, cancel, reminder, CRUD, RBAC.
 
-- [ ] **Task 6.2: AI Tests**
-  - Intent recognition, missing information recovery, tool selection, tool argument correctness, multi-turn correction, hallucination prevention, RAG grounding, HITL routing.
+- [ ] **Task 6.2: AI & Orchestrator Tests**
+  - **Intent → Tool Selection Test Set:** Đánh giá độ chính xác chọn tool theo 8 function chuẩn.
+  - **Tool Safety Matrix:** Kiểm thử sai tool, thiếu argument, sai kiểu, booking không tồn tại, booking không thuộc user, slot bị giữ, soft-hold hết hạn, sale không có quyền, concurrent booking.
+  - **Anti-Hallucination Test:** Xác minh Agent không bao giờ thông báo đặt lịch thành công khi Backend chưa commit `success=true`.
 
-- [ ] **Task 6.3: Reliability Tests**
-  - API/LLM/tool timeout, concurrent booking (anti-double-booking), soft-hold expiry, availability conflict.
+- [ ] **Task 6.3: Reliability & Concurrency Tests**
+  - Test concurrent booking (chống double-booking với 2 khách cùng tranh 1 slot).
+  - Test hết hạn soft-hold tự động giải phóng tài nguyên.
+  - Test rollback khi reschedule thất bại.
+  - Test timeout API/LLM/tool.
 
 - [ ] **Task 6.4: Security Tests**
-  - Authentication, password hashing, RBAC, unauthorized booking access, Sale data isolation, audit logging, HTTPS, sensitive-data encryption.
+  - Authentication, password hashing, RBAC, phân quyền Sale data isolation, audit logging.
 
-- [ ] **Task 6.5: Demo Scenarios (end-to-end)**
+- [ ] **Task 6.5: End-to-End Demo Scenarios**
   - **Scenario A:** Conversational search → booking (happy path).
-  - **Scenario B:** Concurrent booking — 2 customers cùng slot → chỉ 1 thành công, 1 nhận conflict + đề xuất alternative (**primary demo**).
-  - **Scenario C:** HITL exception — VIP/special/outside-hours → HITL queue → Sale/Operator approve/reject.
-  - **Scenario D:** Reschedule — đổi slot → check resource mới → soft-hold → commit → release slot cũ.
-  - **Scenario E:** RAG boundary — FAQ trả lời từ KB; câu hỏi availability gọi tool, **không dùng RAG**.
+  - **Scenario B:** Concurrent booking — 2 khách tranh 1 slot → chỉ 1 thành công, 1 nhận conflict + gợi ý slot khác (**primary demo**).
+  - **Scenario C:** HITL exception — VIP/ngoài giờ → HITL queue → Sale duyệt trên Dashboard.
+  - **Scenario D:** Reschedule — đổi slot an toàn (check mới trước, release cũ sau).
+  - **Scenario E:** RAG boundary — câu hỏi FAQ trả lời từ KB; câu hỏi availability bắt buộc gọi tool.
 
-- [ ] **Task 6.6: Deploy & Final**
-  - Local: Docker Compose chạy đầy đủ.
-  - Online: Frontend → Vercel, Backend → managed container/cloud, DB → managed PostgreSQL.
-  - GitHub CI.
-  - Final report/slide/demo script.
+- [ ] **Task 6.6: Deployment & Final Deliverables**
+  - Local: Docker Compose hoàn chỉnh.
+  - Online: Frontend trên Vercel, Backend trên Cloud/Container, Database PostgreSQL trên Cloud.
+  - GitHub CI kiểm tra lint/test.
+  - Slide thuyết trình, báo cáo kỹ thuật và video demo.
 
 ---
 
-## Definition of Done (from spec_2.md)
+## Updated Definition of Done — AI Agent (From spec.md v2)
 
-### Core thesis
-- [ ] Customer search được property qua Web Chat.
-- [ ] LLM extract được structured requirements.
-- [ ] Property results đến từ backend data.
-- [ ] Availability Engine kiểm tra Property + Sale + Capacity.
-- [ ] Vehicle path chạy qua mock adapter.
-- [ ] Soft-hold configurable.
-- [ ] Booking state machine hoạt động.
-- [ ] PostgreSQL transaction/locking chống double-booking.
-- [ ] Sale approval/HITL hoạt động.
-- [ ] Reschedule và cancel hoạt động.
-
-### Supporting system
-- [ ] RBAC hoạt động.
-- [ ] Staff Dashboard: Booking List/Detail, Calendar, HITL Queue.
-- [ ] Basic CRUD hoạt động.
-- [ ] RAG trả lời knowledge questions; không can thiệp transaction facts.
-- [ ] Web/Email notification hoạt động; SMS/Zalo mock nếu cần.
-- [ ] Audit + AI/tool logs được lưu.
-- [ ] Core analytics/evaluation được đo.
-
-### Quality
-- [ ] Test concurrent booking.
-- [ ] Test soft-hold expiry.
-- [ ] Test reschedule rollback.
-- [ ] Test API/LLM/tool timeout.
-- [ ] Test hallucination prevention.
-- [ ] Test RBAC/data isolation.
-- [ ] Chạy local.
-- [ ] Deploy online.
-- [ ] Demo end-to-end reproducible.
+Tính năng AI Agent được coi là hoàn thành khi đáp ứng đủ 12 tiêu chí:
+1. - [ ] Agent nhận diện đúng intent trong toàn bộ các test cases MVP.
+2. - [ ] Agent chọn đúng Function/Tool với tỷ lệ mục tiêu do team xác định qua test set.
+3. - [ ] Tool arguments hợp lệ và tuân thủ chặt chẽ Pydantic schema.
+4. - [ ] Backend validate toàn bộ Tool Call (không để Agent gọi thẳng DB).
+5. - [ ] Agent xử lý mượt mà multi-turn conversation (giữ context qua nhiều lượt chat).
+6. - [ ] Agent xử lý missing information bằng cách hỏi lại khách thay vì tự suy đoán.
+7. - [ ] Agent xử lý có cấu trúc các lỗi trả về từ Tool (Tool Error).
+8. - [ ] Agent tuyệt đối không hallucinate báo thành công khi transaction Backend thất bại.
+9. - [ ] HITL được kích hoạt chính xác theo các điều kiện định trước (VIP, ngoài giờ, conflict...).
+10. - [ ] Booking state không bị Agent tự ý thay đổi ngoài quyền hạn.
+11. - [ ] Concurrent booking không bao giờ tạo ra double-booking (bảo vệ ở tầng DB transaction).
+12. - [ ] Audit log ghi nhận đầy đủ chuỗi: `Agent action → Tool Call → Backend result → Final state`.
