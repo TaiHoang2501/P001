@@ -49,16 +49,16 @@ flowchart LR
 
 ### 1.3. Core pain points
 
-  Pain point                    Hệ quả
-  ----------------------------- ------------------------
-  Thông tin căn phân tán        Khó tìm đúng căn
-  Nhiều bên trung gian          Tăng số lần trao đổi
-  Chờ Sale phản hồi             Tăng thời gian xử lý
-  Kiểm tra nhiều resource       Dễ xung đột lịch
-  Khách bị nhiều Sale liên hệ   Trải nghiệm không tốt
-  Điều phối thủ công            Tốn thời gian Operator
-  Availability thay đổi         Nguy cơ double-booking
-  Đổi/hủy lịch thủ công         Tăng workload
+| Pain point | Hệ quả |
+|---|---|
+| Thông tin căn phân tán | Khó tìm đúng căn |
+| Nhiều bên trung gian | Tăng số lần trao đổi |
+| Chờ Sale phản hồi | Tăng thời gian xử lý |
+| Kiểm tra nhiều resource | Dễ xung đột lịch |
+| Khách bị nhiều Sale liên hệ | Trải nghiệm không tốt |
+| Điều phối thủ công | Tốn thời gian Operator |
+| Availability thay đổi | Nguy cơ double-booking |
+| Đổi/hủy lịch thủ công | Tăng workload |
 
 ### 1.4. Evidence gap
 
@@ -586,21 +586,12 @@ Không cần xây analytics suite lớn trong MVP; chart/UI chỉ nhằm chứng
 
 ## 8.1. Team
 
-  -----------------------------------------------------------------------
-  Thành viên              Vai trò                 Trách nhiệm
-  ----------------------- ----------------------- -----------------------
-  Hoàng Anh Tài           Trưởng nhóm             Tổng hợp, báo cáo,
-                                                  slide, Spec
-
-  Trần Thị Thu Trang      QA / Testing            User Story, Spec,
-                                                  Test/Evaluation
-
-  Ngọ Doãn Ngọc           Backend / AI Engineer   Backend, AI Agent
-  
-
-  Nguyễn Văn Bảo          Data / Knowledge Base   Data preparation,
-                                                  Metadata, RAG KB
-  -----------------------------------------------------------------------
+| Thành viên | Vai trò | Trách nhiệm |
+|---|---|---|
+| Hoàng Anh Tài | Trưởng nhóm | Tổng hợp, báo cáo, slide, Spec |
+| Trần Thị Thu Trang | QA / Testing | User Story, Spec, Test/Evaluation |
+| Ngọ Doãn Ngọc | Backend / AI Engineer | Backend, AI Agent |
+| Nguyễn Văn Bảo | Data / Knowledge Base | Data preparation, Metadata, RAG KB |
 
 ## 8.2. Recommended architecture
 
