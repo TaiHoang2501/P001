@@ -1,107 +1,78 @@
-# System Overview Diagram
+# Sơ đồ Kiến trúc Tổng thể (System Overview Diagram)
+
+> Sơ đồ dưới đây minh họa kiến trúc tổng thể của hệ thống **BookingBot AI Agent** theo đúng cấu trúc phân tầng (Frontend, Backend, AI Agent) và nội dung đặc tả kỹ thuật từ [spec.md](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/.specify/spec.md).
 
 ```mermaid
-graph TD
-    %% Clients
-    subgraph ClientLayer["Client Layer (Web Application)"]
-        WC["Customer Web Chat (Streaming UI)"]
-        SD["Staff Dashboard (Calendar, HITL Queue, Config)"]
+flowchart TD
+    %% ==========================================
+    %% 1. FRONTEND LAYER
+    %% ==========================================
+    subgraph Frontend["Frontend (React / Next.js)"]
+        UI["Giao diện người dùng<br/><i>(Web UI / Tra cứu BĐS)</i>"]
+        CHAT["Chat Interface<br/><i>(Customer Web Chat - Streaming SSE)</i>"]
+        DASH["Dashboard<br/><i>(Staff Dashboard / HITL Queue / Calendar)</i>"]
     end
 
-    %% Frontend App
-    subgraph FrontendApp["Frontend Application (Next.js + TypeScript)"]
-        FE_ROUTER["Next.js App Router / Pages"]
-        FE_STATE["Client State & Streaming Handler"]
-        FE_API_CLIENT["REST & WebSocket / SSE Client"]
+    %% ==========================================
+    %% 2. BACKEND LAYER (SOURCE OF TRUTH)
+    %% ==========================================
+    subgraph Backend["Backend (FastAPI)"]
+        API["API Endpoints<br/><i>(FastAPI Routers & Middleware)</i>"]
+        AUTH["Xác thực & Phân quyền<br/><i>(Customer OTP / Staff RBAC JWT)</i>"]
+        DB[("Database<br/><i>(PostgreSQL 15+ & pgvector)</i>")]
+        CACHE[("Cache<br/><i>(Redis - Optional)</i>")]
     end
 
-    WC --> FE_ROUTER
-    SD --> FE_ROUTER
-    FE_ROUTER --> FE_STATE
-    FE_STATE --> FE_API_CLIENT
-
-    %% API Gateway & Backend
-    FE_API_CLIENT --> FAST_API
-
-    subgraph BackendSystem["FastAPI Backend Layer (Source of Truth)"]
-        FAST_API["FastAPI Routing & Middleware Layer"]
-
-        subgraph ToolPipeline["Tool Execution & Security Pipeline"]
-            VAL_SCHEMA["Tool Schema Validator (Pydantic)"]
-            AUTH_RBAC["Auth & RBAC (Customer OTP / Staff JWT)"]
-            BIZ_VALIDATOR["Business Rule & State Guardrails"]
-        end
-
-        subgraph CoreServices["Deterministic Business Services"]
-            SVC_SEARCH["Property Search & Detail Service"]
-            SVC_AVAIL["Availability Engine (Unit + Sale + Capacity + Vehicle)"]
-            SVC_HOLD["Soft-hold & Locking Service (PostgreSQL Tx)"]
-            SVC_SM["Booking State Machine (Audit Trail)"]
-            SVC_HITL["HITL & Approval Manager"]
-            SVC_NOTIF["Notification Service Dispatcher"]
-        end
+    %% ==========================================
+    %% 3. AI AGENT LAYER (ORCHESTRATOR)
+    %% ==========================================
+    subgraph Agent["AI Agent (LangGraph)"]
+        ROUTER["Intent Router<br/><i>(StateGraph Orchestrator)</i>"]
+        MEM["Agent Memory<br/><i>(Conversation State & Checkpointer)</i>"]
+        TOOLS["Agent Tools<br/><i>(8 Standard Tools Contract)</i>"]
+        LLM["LLM Provider<br/><i>(Model-Agnostic / OpenAI gpt-4o-mini)</i>"]
     end
 
-    FAST_API --> VAL_SCHEMA
-    VAL_SCHEMA --> AUTH_RBAC
-    AUTH_RBAC --> BIZ_VALIDATOR
-    BIZ_VALIDATOR --> CoreServices
+    %% ==========================================
+    %% CONNECTIONS (Theo đúng luồng mẫu)
+    %% ==========================================
+    %% Frontend -> Backend API Endpoints
+    UI --> API
+    CHAT --> API
+    DASH --> API
 
-    %% AI Agent Orchestrator
-    subgraph AgentOrchestrator["AI Agent Orchestrator Layer (LangGraph)"]
-        ORCH["Agent Orchestrator / State Graph"]
-        INTENT_EXT["Intent & Constraint Extractor"]
-        TOOL_SEL["Tool Selector & Decision Engine"]
-        RES_OBS["Result Observer & Guardrails"]
-    end
+    %% Backend API Endpoints nội bộ
+    API --> AUTH
+    API --> DB
+    API -.-> CACHE
 
-    FAST_API <--> ORCH
-    ORCH --> INTENT_EXT
-    INTENT_EXT --> TOOL_SEL
-    TOOL_SEL -- "Standardized Tool Calls" --> FAST_API
-    CoreServices -- "Structured Tool Results" --> RES_OBS
-    RES_OBS --> ORCH
+    %% Backend <-> AI Agent
+    API <--> ROUTER
 
-    %% External LLM Provider
-    subgraph ModelLayer["Model Layer (Model-Agnostic Adapter)"]
-        LLM_ADAPTER["LLM Adapter Interface"]
-        LLM_OPENAI["OpenAI API (gpt-4o-mini / gpt-4o)"]
-        LLM_ALT["Alternative Providers (Claude / Gemini)"]
-    end
+    %% Trong AI Agent (LangGraph)
+    ROUTER --> MEM
+    ROUTER --> TOOLS
+    ROUTER --> LLM
+    TOOLS --> LLM
 
-    ORCH <--> LLM_ADAPTER
-    LLM_ADAPTER --> LLM_OPENAI
-    LLM_ADAPTER -.-> LLM_ALT
-
-    %% Data Layer
-    subgraph DataLayer["Data Layer (PostgreSQL & pgvector)"]
-        DB_CORE[("PostgreSQL Core Database
-        - Properties, Sales, Projects
-        - Bookings & Booking Events
-        - Soft-holds & Resource Locks
-        - Audit Logs, AI Runs, Tool Calls")]
-        
-        DB_VECTOR[("pgvector Extension
-        - Knowledge Documents & Chunks
-        - Policy FAQs, Project Guides")]
-    end
-
-    CoreServices --> DB_CORE
-    SVC_SEARCH --> DB_CORE
-    SVC_AVAIL --> DB_CORE
-    SVC_HOLD --> DB_CORE
-    SVC_SM --> DB_CORE
-    TOOL_SEL -. "search_knowledge" .-> DB_VECTOR
-
-    %% External Adapters
-    subgraph ExternalAdapters["External Services & Mock Adapters"]
-        ADAPT_VEHICLE["Vehicle Simulation / Mock Adapter"]
-        ADAPT_NOTIF["Notification Providers:
-        - Email (Real)
-        - Web Push / In-app
-        - SMS / Zalo (Mock Adapter)"]
-    end
-
-    SVC_AVAIL --> ADAPT_VEHICLE
-    SVC_NOTIF --> ADAPT_NOTIF
+    %% Tool execution phản hồi về Backend để kiểm tra business rules
+    TOOLS -. "Thực thi nghiệp vụ & kiểm tra rules" .-> API
 ```
+
+---
+
+## Bóc tách chi tiết thành phần theo `spec.md`
+
+| Phân tầng | Thành phần trong sơ đồ | Vai trò & Đặc tả từ `spec.md` |
+|---|---|---|
+| **Frontend (React / Next.js)** | **Giao diện người dùng** | Cung cấp giao diện duyệt, tìm kiếm căn hộ Vinhomes, thông tin tiện ích và chính sách dự án. |
+| | **Chat Interface** | Giao diện hội thoại tự nhiên với khách hàng qua Web Chat; hỗ trợ **streaming (SSE)** hiển thị câu trả lời tức thì, nhận diện context và thẻ căn hộ (Property Cards). |
+| | **Dashboard** | Bảng điều khiển tác nghiệp của Sale / Operator: Calendar lịch trống 4 tài nguyên, danh sách duyệt yêu cầu (**HITL Queue**), cấu hình thời gian soft-hold. |
+| **Backend (FastAPI)** | **API Endpoints** | Cổng giao tiếp RESTful API; đóng vai trò **Gatekeeper** xác thực schema Pydantic, điều phối luồng và kiểm soát giao dịch. |
+| | **Xác thực & Phân quyền** | Quản lý định danh: Khách hàng xác thực không cần login (qua Booking Code / SMS OTP); Sale & Operator đăng nhập phân quyền RBAC (Data Isolation theo dự án). |
+| | **Database** | **PostgreSQL 15+**: Lưu trữ dữ liệu quan hệ (Properties, Sales, Bookings, Audit Logs, AI Runs); **pgvector**: Lưu trữ embedding phục vụ tra cứu RAG FAQ tri thức tĩnh. Áp dụng **Row-level locking (`SELECT ... FOR UPDATE`)** chống double-booking. |
+| | **Cache** | **Redis (Optional)**: Cache tạm thời cho session và hỗ trợ distributed lock khi scale. |
+| **AI Agent (LangGraph)** | **Intent Router** | **Orchestrator v2**: Phân loại intent từ câu chat của khách, duy trì đồ thị trạng thái hội thoại, kiểm tra thông tin còn thiếu (Missing Entities). |
+| | **Agent Memory** | Lưu trữ ngữ cảnh đa lượt (Multi-turn state), lưu các tiêu chí đã bóc tách (`extracted_criteria`) và lịch sử qua Checkpointer của LangGraph. |
+| | **Agent Tools** | Tập hợp **8 Tools chuẩn theo Patch v2**: `search_property`, `get_property_detail`, `check_availability`, `create_soft_hold`, `request_sale_approval`, `reschedule_booking`, `cancel_booking`, `send_notification` (+ RAG `search_knowledge`). |
+| | **LLM Provider** | Lớp Adapter độc lập mô hình: Mặc định sử dụng **OpenAI `gpt-4o-mini`** (hoặc `gpt-4o`), có thể hoán đổi sang Claude / Gemini mà không ảnh hưởng logic lõi. |

@@ -584,6 +584,7 @@ Không cần xây analytics suite lớn trong MVP; chart/UI chỉ nhằm chứng
                                                   Test/Evaluation
 
   Ngọ Doãn Ngọc           Backend / AI Engineer   Backend, AI Agent
+  
 
   Nguyễn Văn Bảo          Data / Knowledge Base   Data preparation,
                                                   Metadata, RAG KB
