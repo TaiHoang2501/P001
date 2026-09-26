@@ -50,24 +50,11 @@ AI tự động xử lý phần lớn hành trình. Các hành động nghiệp 
 
 ## 1.1 Actors
 
-  -----------------------------------------------------------------------
-  Actor                   Mục tiêu                Quyền chính
-  ----------------------- ----------------------- -----------------------
-  **Customer**            Tìm căn phù hợp, đặt    Chat AI, search/filter,
-                          lịch, xem nhà và kết    xem căn, booking, hold
-                          nối mua                 xem nhà, yêu cầu mua,
-                                                  chat sau booking
-
-  **Owner**               Đăng bán căn, quản lý   CRUD căn, lịch xem, xác
-                          lịch và xử lý khách     nhận/từ chối booking,
-                                                  xem khách, yêu cầu mua,
-                                                  chat
-
-  **Investor / Operator** Quản trị nguồn cung và  Quản lý dự án/tòa/căn,
-                          giám sát vận hành       duyệt tin, quản lý
-                                                  owner, booking/hold,
-                                                  analytics
-  -----------------------------------------------------------------------
+| Actor | Mục tiêu | Quyền chính |
+|---|---|---|
+| **Customer** | Tìm căn phù hợp, đặt lịch, xem nhà và kết nối mua | Chat AI, search/filter, xem căn, booking, hold xem nhà, yêu cầu mua, chat sau booking |
+| **Owner** | Đăng bán căn, quản lý lịch và xử lý khách | CRUD căn, lịch xem, xác nhận/từ chối booking, xem khách, yêu cầu mua, chat |
+| **Investor / Operator** | Quản trị nguồn cung và giám sát vận hành | Quản lý dự án/tòa/căn, duyệt tin, quản lý owner, booking/hold, analytics |
 
 > **Operator = Chủ đầu tư** trong scope này.
 
@@ -304,24 +291,24 @@ flowchart LR
 
 ## 4.3 Augment / Automate / Human-in-the-loop
 
-  Tác vụ                      Mode                        Quy tắc
-  --------------------------- --------------------------- ------------------------------------
-  Hiểu nhu cầu khách          Automate                    AI trích xuất criteria
-  Tìm căn                     Automate                    Tool/API + hard filters
-  Ranking                     Automate                    Scoring engine
-  Giải thích recommendation   Automate                    Chỉ dựa trên dữ liệu có thật
-  Kiểm tra availability       Automate                    Read-only tool
-  Tạo booking request         Automate                    Kiểm tra quyền + availability
-  Xác nhận booking            **Human-in-the-loop**       Owner bắt buộc xác nhận
-  Hold căn                    Automate sau confirmation   Atomic hold
-  Nhắc lịch                   Automate                    24h + 2h
-  Hủy booking                 Automate                    Customer có thể tự hủy
-  Đổi lịch                    HITL                        Owner phải xác nhận
-  Purchase request            Automate                    Tạo request sau khi viewing hợp lệ
-  Mở chat                     Automate theo rule          Chỉ sau booking xem nhà thành công
-  Đàm phán giá                Không làm                   Chủ nhà và khách tự trao đổi
-  Xác nhận giao dịch          Không làm                   Ngoài scope
-  System failure              Fallback                    Operator xử lý
+| Tác vụ | Mode | Quy tắc |
+|---|---|---|
+| Hiểu nhu cầu khách | Automate | AI trích xuất criteria |
+| Tìm căn | Automate | Tool/API + hard filters |
+| Ranking | Automate | Scoring engine |
+| Giải thích recommendation | Automate | Chỉ dựa trên dữ liệu có thật |
+| Kiểm tra availability | Automate | Read-only tool |
+| Tạo booking request | Automate | Kiểm tra quyền + availability |
+| Xác nhận booking | **Human-in-the-loop** | Owner bắt buộc xác nhận |
+| Hold căn | Automate sau confirmation | Atomic hold |
+| Nhắc lịch | Automate | 24h + 2h |
+| Hủy booking | Automate | Customer có thể tự hủy |
+| Đổi lịch | HITL | Owner phải xác nhận |
+| Purchase request | Automate | Tạo request sau khi viewing hợp lệ |
+| Mở chat | Automate theo rule | Chỉ sau booking xem nhà thành công |
+| Đàm phán giá | Không làm | Chủ nhà và khách tự trao đổi |
+| Xác nhận giao dịch | Không làm | Ngoài scope |
+| System failure | Fallback | Operator xử lý |
 
 ## 4.4 Customer journey
 
@@ -667,11 +654,11 @@ Customer 1 ── N AIConversation
 
 ## 4.14 Authentication & authorization
 
-  Actor               Authentication
-  ------------------- ---------------------------------
-  Customer            Phone + OTP
-  Owner               Phone/Email + Password hoặc OTP
-  Investor/Operator   Email + Password + 2FA
+| Actor | Authentication |
+|---|---|
+| Customer | Phone + OTP |
+| Owner | Phone/Email + Password hoặc OTP |
+| Investor/Operator | Email + Password + 2FA |
 
 -   RBAC.
 -   Một account chỉ có một role.
@@ -797,37 +784,19 @@ AI **không được**:
 
 # §5. Kiểu lỗi
 
-  -----------------------------------------------------------------------
-  Error type              Ví dụ                   Expected behavior
-  ----------------------- ----------------------- -----------------------
-  Missing information     Thiếu ngân sách/dự án   AI hỏi bổ sung
-
-  No match                Không có căn đạt hard   AI giải thích + đề xuất
-                          constraints             nới soft criteria
-
-  Stale availability      Slot vừa mất            Re-check + đề xuất slot
-                                                  khác
-
-  Owner rejection         Owner từ chối           Đề xuất alternative
-
-  Concurrent booking      Hai customer cùng       Atomic transaction; một
-                          booking                 request fail/re-route
-
-  Invalid listing         Dữ liệu căn sai/thiếu   Không đưa vào
-                                                  recommendation
-
-  Unauthorized action     AI/user gọi tool ngoài  Reject
-                          quyền                   
-
-  Notification failure    SMS/Zalo lỗi            Retry/fallback policy
-
-  System failure          API/DB/LLM lỗi          Fallback Operator
-
-  State conflict          Booking đã cancelled    Reject transition
-                          nhưng action confirm    
-
-  Chat access violation   User chưa có booking    Deny access
-  -----------------------------------------------------------------------
+| Error type | Ví dụ | Expected behavior |
+|---|---|---|
+| Missing information | Thiếu ngân sách/dự án | AI hỏi bổ sung |
+| No match | Không có căn đạt hard constraints | AI giải thích + đề xuất nới soft criteria |
+| Stale availability | Slot vừa mất | Re-check + đề xuất slot khác |
+| Owner rejection | Owner từ chối | Đề xuất alternative |
+| Concurrent booking | Hai customer cùng booking | Atomic transaction; một request fail/re-route |
+| Invalid listing | Dữ liệu căn sai/thiếu | Không đưa vào recommendation |
+| Unauthorized action | AI/user gọi tool ngoài quyền | Reject |
+| Notification failure | SMS/Zalo lỗi | Retry/fallback policy |
+| System failure | API/DB/LLM lỗi | Fallback Operator |
+| State conflict | Booking đã cancelled nhưng action confirm | Reject transition |
+| Chat access violation | User chưa có booking | Deny access |
 
 ------------------------------------------------------------------------
 
@@ -1026,16 +995,16 @@ xử lý lỗi/fallback Operator.
 
 ## 8.1 Workstreams
 
-  Workstream     Scope
-  -------------- -------------------------------------------------------
-  Product / PM   Requirement, business rules, KPI, acceptance criteria
-  AI / Agent     Prompt, orchestration, tools, evaluation
-  Backend        API, booking, hold, RBAC, database
-  Frontend       AI chat, property cards, booking, dashboards
-  Data           Property/project schema, search/ranking
-  QA             Functional, integration, concurrency, AI eval
-  DevOps         Docker, CI/CD, monitoring, secrets
-  Security       Auth, RBAC, PII, audit
+| Workstream | Scope |
+|---|---|
+| Product / PM | Requirement, business rules, KPI, acceptance criteria |
+| AI / Agent | Prompt, orchestration, tools, evaluation |
+| Backend | API, booking, hold, RBAC, database |
+| Frontend | AI chat, property cards, booking, dashboards |
+| Data | Property/project schema, search/ranking |
+| QA | Functional, integration, concurrency, AI eval |
+| DevOps | Docker, CI/CD, monitoring, secrets |
+| Security | Auth, RBAC, PII, audit |
 
 **Tên người phụ trách:** `[FILL]`
 
@@ -1116,54 +1085,22 @@ xử lý lỗi/fallback Operator.
 
 ## 10.1 Recommended stack
 
-  -----------------------------------------------------------------------------------
-  Layer                   Recommendation          Lý do
-  ----------------------- ----------------------- -----------------------------------
-  Frontend                **Next.js +             Phù hợp responsive web, component
-                          TypeScript**            architecture, dễ tích hợp API
-
-  Backend                 **Python + FastAPI**    Phù hợp AI/data workload, API rõ
-                                                  ràng, async support
-
-  Database                **PostgreSQL**          Transaction, relational data và
-                                                  state machine booking phù hợp
-
-  Search                  **PostgreSQL            MVP chưa cần thêm search cluster;
-                          Full-text + pg_trgm**   giảm operational complexity
-
-  Vector DB               **Không dùng trong      Không có RAG/knowledge-base;
-                          MVP**                   recommendation chủ yếu là
-                                                  structured filtering/ranking
-
-  LLM                     **OpenAI API**          Phù hợp conversational extraction +
-                                                  tool calling; model cụ thể để
-                                                  benchmark theo cost/quality
-
-  Agent orchestration     **LangGraph**           Phù hợp stateful workflow, tool
-                                                  calling, branching và fallback
-
-  Auth                    **JWT + OTP**           Phù hợp web/API và role-based
-                                                  session
-
-  Password                **Argon2id/bcrypt**     Hash password an toàn; không lưu
-                                                  plaintext
-
-  Media                   **Amazon S3**           Phù hợp ảnh/video và tách media
-                                                  khỏi DB
-
-  Realtime chat           **WebSocket qua         Đủ cho MVP, tránh thêm Firebase nếu
-                          FastAPI**               không cần
-
-  Notifications           In-app + provider       Provider cụ thể: **TBD**
-                          SMS/Zalo                
-
-  Deployment              **Docker + AWS**        Có thể triển khai
-                                                  frontend/backend/database/storage
-                                                  theo từng service
-
-  Observability           Structured logs +       Cần theo dõi booking, errors,
-                          metrics + audit log     latency và AI actions
-  -----------------------------------------------------------------------------------
+| Layer | Recommendation | Lý do |
+|---|---|---|
+| Frontend | **Next.js + TypeScript** | Phù hợp responsive web, component architecture, dễ tích hợp API |
+| Backend | **Python + FastAPI** | Phù hợp AI/data workload, API rõ ràng, async support |
+| Database | **PostgreSQL** | Transaction, relational data và state machine booking phù hợp |
+| Search | **PostgreSQL Full-text + pg_trgm** | MVP chưa cần thêm search cluster; giảm operational complexity |
+| Vector DB | **Không dùng trong MVP** | Không có RAG/knowledge-base; recommendation chủ yếu là structured filtering/ranking |
+| LLM | **OpenAI API** | Phù hợp conversational extraction + tool calling; model cụ thể để benchmark theo cost/quality |
+| Agent orchestration | **LangGraph** | Phù hợp stateful workflow, tool calling, branching và fallback |
+| Auth | **JWT + OTP** | Phù hợp web/API và role-based session |
+| Password | **Argon2id/bcrypt** | Hash password an toàn; không lưu plaintext |
+| Media | **Amazon S3** | Phù hợp ảnh/video và tách media khỏi DB |
+| Realtime chat | **WebSocket qua FastAPI** | Đủ cho MVP, tránh thêm Firebase nếu không cần |
+| Notifications | In-app + provider SMS/Zalo | Provider cụ thể: **TBD** |
+| Deployment | **Docker + AWS** | Có thể triển khai frontend/backend/database/storage theo từng service |
+| Observability | Structured logs + metrics + audit log | Cần theo dõi booking, errors, latency và AI actions |
 
 ## 10.2 Architecture
 
