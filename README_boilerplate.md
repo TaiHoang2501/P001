@@ -93,7 +93,7 @@
 |---|---|---|
 | **Hoàng Anh Tài** | Leader | Tổng hợp kiến trúc, Quản trị dự án, Báo cáo & Spec |
 | **Trần Thị Thu Trang** | BA / QA | Đặc tả User Stories, Tiêu chuẩn nghiệm thu, Test Suite |
-| **Ngọ Doãn Ngọc** | Backend / AI | Xây dựng FastAPI, LangGraph Agent, Booking Engine |
+| **Ngọ Doãn Ngọc** | Frontend & Backend / AI | Xây dựng Next.js Web, FastAPI, LangGraph Agent, Booking Engine |
 | **Nguyễn Văn Bảo** | Data / Systems | Thiết kế Schema PostgreSQL, Thuật toán Ranking, Tích hợp S3 |
 
 ---

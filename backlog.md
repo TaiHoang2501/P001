@@ -1,6 +1,5 @@
 # Product Backlog: BookingBot AI Agent
 
-> Tài liệu Backlog chính thức của dự án **BookingBot AI Agent**, được xây dựng và chuẩn hóa toàn diện căn cứ theo **[spec.md / spec_updated.md](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/.specify/spec.md)**.
 > - **Phạm vi (Scope):** Vinhomes-only · MVP Web responsive · AI-first.
 > - **3 Actors chính:** Customer (Khách hàng), Owner (Chủ nhà), Investor / Operator (Ban quản trị / Vận hành).
 > - **Nguyên tắc cốt lõi:** Backend là Source of Truth; AI Agent là Orchestrator; Owner Approval là bắt buộc (HITL); Viewing Hold nguyên tử; Chat Gating chặt chẽ; RAG/Vector DB không dùng trong MVP.
@@ -28,7 +27,7 @@
 | **Product / PM** | Yêu cầu nghiệp vụ, Business rules, KPIs, Acceptance criteria, Spec | Hoàng Anh Tài (Leader) |
 | **AI / Agent** | System Prompt, LangGraph StateGraph, Tool schemas, AI Evaluation | Ngọ Doãn Ngọc |
 | **Backend** | FastAPI routes, Booking Engine, Viewing Hold, RBAC, WebSocket chat | Ngọ Doãn Ngọc |
-| **Frontend** | Responsive Web Next.js, Streaming chat SSE, Property Cards, Dashboards | Hoàng Anh Tài / Team |
+| **Frontend** | Responsive Web Next.js, Streaming chat SSE, Property Cards, Dashboards | Ngọ Doãn Ngọc |
 | **Data & Systems** | PostgreSQL schema, Full-text Search + `pg_trgm`, Tích hợp Amazon S3 | Nguyễn Văn Bảo |
 | **QA / Testing** | Unit tests, Integration tests, Concurrency test race condition, Test report | Trần Thị Thu Trang |
 | **DevOps & Security** | Docker, CI/CD GitHub Actions, AWS S3, Auth JWT/OTP, PII & Audit logs | Hoàng Anh Tài / Team |
