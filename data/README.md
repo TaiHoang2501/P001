@@ -1,41 +1,40 @@
-# Hướng dẫn Nhập Dữ liệu Căn hộ: `properties_seed.csv`
+# Bộ Dữ liệu Mẫu (Seed Datasets): BookingBot AI Agent
 
-> File dữ liệu nguồn cho dự án **BookingBot AI Agent**, được thiết kế để mở và chỉnh sửa trực tiếp bằng **Microsoft Excel** hoặc **Google Sheets**.
-
----
-
-## 1. Danh sách các cột & Quy ước giá trị
-
-| Tên cột trong CSV | Bắt buộc | Kiểu / Giá trị cho phép | Ví dụ | Ý nghĩa nghiệp vụ |
-|---|---|---|---|---|
-| `property_code` | **Bắt buộc** | Text (Unique) | `S2.01-12A08` | Mã định danh căn hộ chuẩn |
-| `project_name` | **Bắt buộc** | Text | `Vinhomes Ocean Park 1`, `Vinhomes Smart City`, `Vinhomes West Point` | Dự án đại đô thị |
-| `zone` | Tùy chọn | Text | `The Sapphire 1`, `The Tonkin`, `The Miami` | Phân khu căn hộ |
-| `building` | **Bắt buộc** | Text | `S2.01`, `GS3`, `TK1` | Tòa nhà |
-| `floor_display` | **Bắt buộc** | Text | `08`, `12A`, `15` | Tầng thực tế hiển thị cho người dùng |
-| `floor_range` | **Bắt buộc** | `LOW` / `MID` / `HIGH` | `MID` | Phân nhóm: `LOW` (2-10), `MID` (11-25), `HIGH` (26+) để AI tìm theo tầng |
-| `property_type` | **Bắt buộc** | `APARTMENT` / `STUDIO` / `VILLA` / `SHOPHOUSE` | `APARTMENT` | Loại hình bất động sản |
-| `layout_type` | **Bắt buộc** | `STUDIO`, `1PN`, `1PN_PLUS`, `2PN_1WC`, `2PN_2WC`, `2PN_PLUS`, `3PN` | `2PN_PLUS` | Cực kỳ quan trọng để AI phân biệt căn `+1` |
-| `bedrooms` | **Bắt buộc** | Số nguyên (0, 1, 2, 3...) | `2` | Số phòng ngủ chính |
-| `has_plus_one` | **Bắt buộc** | `TRUE` / `FALSE` | `TRUE` | Có không gian phụ đa năng (kê thêm giường/bàn học) |
-| `bathrooms` | **Bắt buộc** | Số nguyên (1, 2...) | `2` | Số nhà vệ sinh |
-| `area_sqm` | **Bắt buộc** | Số thực (m²) | `69.5` | Diện tích thông thủy |
-| `selling_price` | **Bắt buộc** | Số nguyên (VNĐ) | `4200000000` | Giá bán niêm yết (4 tỷ 200 triệu) |
-| `is_all_in_price` | **Bắt buộc** | `TRUE` / `FALSE` | `TRUE` | `TRUE`: Giá đã bao toàn bộ thuế phí sang tên; `FALSE`: Khách chịu phí |
-| `tenure_type` | **Bắt buộc** | `PERPETUAL` / `50_YEARS` | `PERPETUAL` | `PERPETUAL`: Sổ hồng lâu dài; `50_YEARS`: Căn Officetel/50 năm |
-| `legal_status` | **Bắt buộc** | `RED_BOOK` / `SPA` | `RED_BOOK` | `RED_BOOK`: Đã có Sổ đỏ/Sổ hồng; `SPA`: Đang là HĐMB |
-| `direction_balcony`| Tùy chọn | Text | `Đông Nam`, `Tây Bắc`, `Nam`... | Hướng ban công chính để AI tính điểm hướng mát |
-| `view_description` | Tùy chọn | Text | `View hồ san hô`, `View vườn hoa nội khu` | Mô tả tầm nhìn thực tế |
-| `furnishing_status`| **Bắt buộc** | `RAW` / `BASIC` / `FULL` | `FULL` | `RAW` (thô), `BASIC` (cơ bản CĐT), `FULL` (đầy đủ đồ) |
-| `key_highlights`   | **Bắt buộc** | Text (ngăn cách bởi dấu `;`) | `Căn góc 2 mặt thoáng; Đã có sổ hồng; Giá bao phí` | AI sẽ trích xuất trực tiếp câu này để **giải thích lý do đề xuất (Explainability)** |
-| `nearby_amenities` | Tùy chọn | Text (ngăn cách bởi dấu `;`) | `Hồ Ngọc Trai: 350m; Vinschool: 200m` | Tiện ích nổi bật gần căn hộ |
-| `viewing_weekdays` | **Bắt buộc** | Text | `18:30 - 20:30` | Khung giờ chủ nhà rảnh các ngày trong tuần |
-| `viewing_weekends` | **Bắt buộc** | Text | `09:00 - 11:30 \| 14:30 - 17:30` | Khung giờ chủ nhà rảnh thứ 7 & Chủ nhật |
-| `listing_status`   | **Bắt buộc** | `AVAILABLE` | `AVAILABLE` | Trạng thái hiển thị tìm kiếm |
+> Bộ dữ liệu nguồn dạng **CSV / Excel** phục vụ việc khởi tạo database ban đầu, test thuật toán AI Recommendation, luồng duyệt tin của Investor/Operator và luồng Booking & Viewing Hold.
 
 ---
 
-## 2. Mẹo chỉnh sửa bằng Excel / Google Sheets
-1. **Mở trên Google Sheets:** Tải file `properties_seed.csv` lên Google Drive $\rightarrow$ Chuột phải $\rightarrow$ Chọn *Open with Google Sheets*.
-2. **Khi điền các trường danh sách (như `key_highlights` hoặc `nearby_amenities`):** Ngăn cách các ý bằng dấu chấm phẩy `;` (không dùng dấu phẩy `,` để tránh xung đột định dạng CSV).
-3. **Khi lưu / Export:** Chọn **File $\rightarrow$ Download $\rightarrow$ Comma-separated values (.csv)**.
+## 1. Danh sách các file trong thư mục `data/`
+
+| Tên file | Đối tượng sử dụng | Mô tả chức năng |
+|---|---|---|
+| [`properties_seed.csv`](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/data/properties_seed.csv) | Khách hàng, Chủ nhà & Operator | Danh sách căn hộ đăng bán gồm căn `AVAILABLE` (cho AI tìm kiếm), căn `PENDING_REVIEW` (để Operator test duyệt tin) và căn `REJECTED`. |
+| [`projects_buildings_seed.csv`](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/data/projects_buildings_seed.csv) | **Investor / Operator** | Danh mục chuẩn các đại dự án (Ocean Park 1, Smart City, West Point, Grand Park), phân khu, tòa nhà và tọa độ GPS (`lat`, `long`). |
+| [`amenities_seed.csv`](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/data/amenities_seed.csv) | **Investor / Operator** & AI | Danh mục các tiện ích hạt nhân của Vinhomes (Biển hồ, Hồ Ngọc Trai, Vincom, VinUni, Vinmec...) kèm tọa độ GPS để Backend tính `Proximity Scoring` thật. |
+| [`users_seed.csv`](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/data/users_seed.csv) | Hệ thống Auth & RBAC | Tài khoản mẫu cho cả 3 vai trò: `INVESTOR_OPERATOR` (Admin quản trị & kiểm duyệt), `OWNER` (Chủ nhà) và `CUSTOMER` (Khách tìm mua). |
+
+---
+
+## 2. Chi tiết dữ liệu cho vai trò Investor / Operator (Chủ đầu tư / Ban quản trị)
+
+Theo đặc tả §4.11 & §4.13 của `spec_updated.md`, Investor/Operator có 3 nhiệm vụ trọng tâm được hỗ trợ bởi các file dữ liệu này:
+
+### A. Kiểm duyệt tin đăng căn hộ (`Listing Moderation`)
+Trong file `properties_seed.csv`:
+- Các căn có `listing_status = 'PENDING_REVIEW'` (như căn `S2.05-1809` và `SA2-2508`): Dùng để test màn hình **Operator Dashboard**, nơi Operator xem chi tiết thông tin căn và bấm nút **Phê duyệt (Approve)** hoặc **Từ chối (Reject)**.
+- Các căn có `listing_status = 'REJECTED'` (như căn `S1.02-0402`): Kiểm tra hiển thị lý do từ chối (thiếu ảnh sổ hồng, giá bất thường).
+
+### B. Quản trị Danh mục Dự án & Tòa nhà (`projects_buildings_seed.csv`)
+- Operator là bên duy nhất có quyền thêm/sửa danh mục Dự án và Tòa nhà.
+- Toàn bộ căn hộ đăng bán của Chủ nhà bắt buộc phải liên kết (Foreign Key) với Tòa nhà và Dự án hợp lệ trong danh mục này.
+- Có sẵn tọa độ `latitude` và `longitude` của từng tòa nhà.
+
+### C. Quản lý Tiện ích & Vận hành AI Scoring (`amenities_seed.csv`)
+- Thay vì để AI "đoán mò" khoảng cách, Operator khai báo tọa độ các tiện ích trọng điểm (Vincom, Vinschool, Hồ điều hòa...).
+- Khi khách hỏi: *"Tìm căn gần công viên hoặc gần trường Vinschool"*, hệ thống đo khoảng cách hình học từ Tòa nhà tới Tiện ích để xếp hạng căn hộ.
+
+---
+
+## 3. Mẹo mở và chỉnh sửa trên Excel / Google Sheets
+- Mở trực tiếp bằng Microsoft Excel hoặc tải lên Google Drive để mở bằng Google Sheets.
+- Nhập thêm dòng hoặc sửa thông tin tùy ý, sau đó lưu lại dưới dạng file **CSV (Comma delimited)**.
