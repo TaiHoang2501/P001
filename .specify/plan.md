@@ -1,49 +1,77 @@
-# Kế hoạch Triển khai (Implementation Plan): BookingBot AI
+# Kế hoạch Triển khai (Implementation Plan): BookingBot AI Agent
+
+> Căn cứ theo đặc tả kỹ thuật toàn diện tại [spec_updated.md](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/.specify/spec_updated.md).
+
+---
 
 ## 1. Kiến trúc Hệ thống (System Architecture)
-Hệ thống tuân thủ mô hình 3 lớp (3-Tier) theo tiêu chuẩn của P-001:
-- **Agent Layer (`src/agents/`)**: Sử dụng LangGraph. Quản lý hội thoại, bóc tách nhu cầu và gọi Tools.
-- **Service/Business Layer (`src/services/`)**: Các hàm xử lý nghiệp vụ độc lập như tìm kiếm BĐS trong Database, kiểm tra lịch trống, và gửi thông báo xác nhận.
-- **API/Routing Layer (`src/api/`)**: FastAPI endpoints tiếp nhận request từ phía Frontend/Chat interface.
+Hệ thống tuân thủ kiến trúc phân tầng an toàn:
+- **Frontend Layer**: Next.js + TypeScript (Responsive Web gồm: Customer AI Chat hỗ trợ streaming SSE, Owner Approval & Listing Dashboard, Operator Moderation & Monitoring Dashboard).
+- **AI Agent Layer (`src/agents/`)**: Sử dụng **LangGraph**. Đóng vai trò **Orchestrator**: Bóc tách nhu cầu tự nhiên thành `CustomerPreference`, duy trì hội thoại đa lượt, chọn công cụ (Tools), giải thích đề xuất (Explainability).
+- **Service/Business Layer (`src/services/`)**: Thực thi nghiệp vụ xác định: Tìm kiếm & xếp hạng hybrid (SQL Hard Filter + Soft Scoring), Availability Engine, Booking State Machine, Viewing Hold Engine, Quản lý kênh Chat WebSocket.
+- **API Layer (`src/api/`)**: FastAPI endpoints tiếp nhận request từ Frontend, kiểm soát Auth & RBAC (JWT + OTP, Argon2id/bcrypt), Pydantic Schemas, đóng vai trò **Source of Truth** (tuyệt đối không cho AI ghi đè dữ liệu trực tiếp).
+- **Database & Storage**: PostgreSQL (Relational tables, Full-text Search + `pg_trgm`, ACID transactions, Row-level locking) + Amazon S3 (Lưu trữ ảnh & video căn hộ).
 
-## 2. Thiết kế Cơ sở dữ liệu (Database Design)
-Sử dụng PostgreSQL/SQLite với các bảng (tables) chính:
-- **Properties**: `id`, `name`, `project` (Vinhomes), `price`, `bedrooms`, `direction`, `amenities`, `status` (available/sold).
-- **Bookings**: `id`, `property_id`, `user_id`, `viewing_time`, `status` (pending/confirmed).
-- **Users/Agents**: Thông tin khách hàng và đầu mối Ban quản lý.
+---
 
-## 3. Kế hoạch Triển khai Từng phần (Phased Implementation)
+## 2. Thiết kế Cơ sở Dữ liệu & Thực thể Chính
+- **Users & Roles**: `Customer`, `Owner` (Chủ nhà), `Investor / Operator` (Ban quản trị).
+- **Properties**: `id`, `owner_id`, `project_name` (Vinhomes), `zone/building`, `price`, `bedrooms`, `area`, `floor`, `direction`, `amenities`, `status` (`DRAFT`, `PENDING_REVIEW`, `APPROVED/AVAILABLE`, `VIEWING_HELD`, `SOLD`).
+- **Bookings**: `id`, `property_id`, `customer_id`, `owner_id`, `viewing_window` (start/end), `status` (`REQUESTED`, `CONFIRMED`, `COMPLETED`, `REJECTED`, `CANCELLED`, `RESCHEDULE_REQUESTED`).
+- **Viewing Holds**: `id`, `booking_id`, `property_id`, `start_time`, `end_time`, `is_active` (Atomic Hold khóa căn đúng khung giờ xem sau khi Owner duyệt).
+- **Purchase Requests & Direct Chats**: `id`, `booking_id`, `customer_id`, `owner_id`, `status`, `created_at` (Mở kênh WebSocket chat 1-1).
+- **Audit Logs & AI Runs**: Lưu vết đầy đủ `User Action → Agent Run → Tool Call → DB Mutation`.
 
-### Giai đoạn 1: Xây dựng LangGraph Agent (Trọng tâm AI)
-- **Mục tiêu**: Xây dựng thành công bộ não phân tích ngôn ngữ tự nhiên.
-- **Công việc**:
-  1. Định nghĩa `TypedDict` State cho luồng chat (`messages`, `extracted_criteria`).
-  2. Tạo Prompt bóc tách thực thể (Ngân sách, Số phòng, Hướng...) bằng LLM (gpt-4o-mini).
-  3. Viết Unit test đảm bảo AI bắt đúng các từ khoá nhu cầu từ câu chat phức tạp.
+---
 
-### Giai đoạn 2: Xây dựng Tool Matching (Slot 1)
-- **Mục tiêu**: Kết nối AI với Database để tìm BĐS.
-- **Công việc**:
-  1. Xây dựng hàm `search_properties(criteria)` tại `src/services/`.
-  2. Bọc hàm trên thành LangChain `@tool` tại `src/agents/tools/`.
-  3. Cập nhật LangGraph để Agent tự động gọi Tool khi đã bóc tách đủ nhu cầu, sau đó format kết quả trả về cho khách.
+## 3. Kế hoạch Triển khai 6 Giai đoạn (6 MVP Phases)
 
-### Giai đoạn 3: Xây dựng Tool Booking & Connect (Slot 2 & Slot 3)
-- **Mục tiêu**: Hỗ trợ đặt lịch và kết nối Ban quản lý.
-- **Công việc**:
-  1. Xây dựng hàm `check_availability` và `create_booking` tương tác với bảng Bookings.
-  2. Bọc thành Tool cho LangGraph.
-  3. Tạo luồng (edge) trong đồ thị: nếu khách chọn "Đặt lịch" -> gọi Booking Tool -> Trả về kết quả cho khách.
+### Phase 1 --- Foundation (Nền tảng & Dữ liệu)
+- [ ] Thiết lập Auth & RBAC (Khách qua OTP/Booking Code; Chủ nhà & Operator qua JWT + Argon2id).
+- [ ] Thiết lập cấu trúc cơ sở dữ liệu PostgreSQL (Users, Roles, Properties, Bookings, Holds).
+- [ ] Cấu hình tích hợp Amazon S3 để upload và lưu trữ media ảnh/video căn hộ Vinhomes.
+- [ ] Xây dựng quy trình kiểm duyệt tin đăng của Chủ nhà (`DRAFT → PENDING_REVIEW → APPROVED`).
 
-### Giai đoạn 4: Hoàn thiện API và Tích hợp
-- **Mục tiêu**: Mở cổng giao tiếp ra bên ngoài.
-- **Công việc**:
-  1. Viết `POST /api/v1/chat`: Chuyển text của user vào luồng LangGraph và trả về phản hồi.
-  2. Khởi tạo `config.py` để load `OPENAI_API_KEY` và `DATABASE_URL`.
-  3. Cài đặt các hook ghi log AI theo yêu cầu của course.
+### Phase 2 --- Customer Discovery (Khám phá & Gợi ý Căn hộ AI)
+- [ ] Xây dựng AI Chat với LangGraph: Trích xuất `CustomerPreference` (Budget, PN, Diện tích, Phân khu, Hướng, Tầng).
+- [ ] Triển khai Thuật toán Tìm kiếm & Xếp hạng 5 bước:
+  1. *Hard filter:* SQL lọc dự án, ngân sách trần, số phòng ngủ tối thiểu.
+  2. *Soft scoring:* Giá (30%), Diện tích (20%), Thiết kế/Layout (20%), Hướng (15%), Tầng (15%).
+  3. *Priority weighting & Proximity score:* Ưu tiên theo nhu cầu nổi bật của khách.
+  4. *Explainability:* Tạo câu giải thích vì sao căn này phù hợp nhất với khách.
+- [ ] Trả về Property Cards trực quan trên Web Chat.
 
-## 4. Xử lý Rủi ro (Risk Management)
-- **Rủi ro AI sinh ảo (Hallucination)**: Agent có thể bịa ra căn nhà không có thật.
-  - *Giải pháp*: Prompt của Agent bị giới hạn nghiêm ngặt, chỉ được phép sử dụng kết quả trực tiếp từ Tool `search_properties`. Không được tự nghĩ ra thông tin.
-- **Trùng lịch Booking (Concurrency)**:
-  - *Giải pháp*: Đặt ràng buộc (Unique constraint) trên bảng Bookings với cặp `(property_id, viewing_time)`. Xử lý lỗi mượt mà trong Tool để báo AI thông báo khách chọn giờ khác.
+### Phase 3 --- Booking & Viewing Hold (Đặt lịch & Giữ căn)
+- [ ] Xây dựng Tool `check_availability` kiểm tra lịch trống của căn và chủ nhà.
+- [ ] Xây dựng Tool `create_booking_request`: Tạo yêu cầu đặt lịch ở trạng thái `REQUESTED`.
+- [ ] Xây dựng quy trình Chủ nhà duyệt lịch (**Owner Approval - Bắt buộc / HITL**): Chủ nhà Approve $\rightarrow$ chuyển sang `CONFIRMED`.
+- [ ] Kích hoạt **Viewing Hold nguyên tử (Atomic)**: Tạm khóa căn trong khung giờ xem, ngăn chặn tuyệt đối double-booking.
+- [ ] Xử lý hủy lịch (Khách tự hủy) và đổi lịch (cần Chủ nhà xác nhận lại).
+
+### Phase 4 --- Post-Viewing & Direct Chat (Hậu xem nhà & Kết nối)
+- [ ] Thiết lập hệ thống gửi thông báo nhắc lịch tự động tại thời điểm **T-24h và T-2h** (In-app, SMS/Zalo mock).
+- [ ] Ghi nhận kết quả buổi xem nhà (`COMPLETED`).
+- [ ] Khách gửi **Purchase Request** sau khi xem nhà thành công.
+- [ ] Hệ thống mở kênh **Chat trực tiếp 1-1 (WebSocket)** giữa Khách hàng và Chủ nhà để tự đàm phán giá.
+
+### Phase 5 --- Operations & Dashboards (Vận hành & Giám sát)
+- [ ] Giao diện **Owner Dashboard**: Quản lý căn hộ, danh sách lịch xem cần duyệt.
+- [ ] Giao diện **Investor/Operator Dashboard**: Duyệt tin đăng căn hộ, giám sát Viewing Hold, xử lý báo cáo tranh chấp.
+- [ ] Giám sát lỗi hệ thống (Fallback sang Operator khi có sự cố).
+- [ ] Ghi nhận và theo dõi các chỉ số KPIs (Thời gian xử lý của Chủ nhà, Tỷ lệ duyệt, Tỷ lệ chuyển đổi).
+
+### Phase 6 --- Evaluation & Testing (Kiểm thử & Đánh giá)
+- [ ] Xây dựng Golden Test Set cho AI: Đánh giá độ chính xác bóc tách yêu cầu và chọn công cụ.
+- [ ] Concurrency Test: Giả lập 2 khách đặt trùng slot $\rightarrow$ kiểm tra tính toàn vẹn của Viewing Hold và cơ chế khóa hàng.
+- [ ] Kiểm thử luồng ngoại lệ: Chủ nhà từ chối lịch $\rightarrow$ AI gợi ý khung giờ/căn hộ thay thế.
+- [ ] Đóng gói Docker Compose chạy toàn diện local và chuẩn bị kịch bản demo end-to-end.
+
+---
+
+## 4. Quản lý Rủi ro & Ranh giới Hệ thống (Risk & Guardrails)
+- **Rủi ro AI phát ngôn sai lệch / Hallucination**: AI không được tự suy diễn thông tin căn hộ ngoài dữ liệu DB; giải thích đề xuất phải dựa trên dữ liệu thật.
+- **Rủi ro Double-booking**: Áp dụng giao dịch nguyên tử (Atomic Transaction) với row-level lock (`SELECT ... FOR UPDATE`); chỉ một khách được giữ căn trong cùng một khung giờ.
+- **Ranh giới sản phẩm (Non-goals)**:
+  - Tuyệt đối không làm thanh toán/đặt cọc trực tuyến.
+  - Tuyệt đối không để AI tự đàm phán giá hoặc tự ý xác nhận giao dịch mua bán.
+  - Không sử dụng Vector DB / RAG ngoài phạm vi trong MVP.

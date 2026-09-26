@@ -1,147 +1,114 @@
 # BookingBot AI Agent Guidelines
 
 ## 1. Project Overview
-- **Project:** BookingBot AI Agent — Trợ lý điều phối quy trình đặt lịch xem nhà & giữ căn tự động.
-- **Domain:** Bất động sản / Vinhomes.
-- **Deadline prototype:** 25/10/2026.
-- **Spec reference:** `.specify/spec.md` (MVP Spec v1.0 + Architecture Patch — AI Agent Orchestrator v2).
-- **Product Thesis:** BookingBot là **AI Agent điều phối quy trình**. Agent hiểu nhu cầu, quản lý trạng thái hội thoại và lựa chọn Function/Tool để thực hiện từng bước của workflow; **Backend kiểm soát** business rules, availability, resource locking, authorization và trạng thái booking; **HITL** được kích hoạt khi workflow cần con người phê duyệt hoặc xử lý ngoại lệ.
+- **Project:** BookingBot AI Agent — Trợ lý AI-first tìm kiếm BĐS Vinhomes & điều phối lịch xem nhà.
+- **Domain:** Bất động sản / Vinhomes-only.
+- **Spec reference:** `.specify/spec_updated.md` (AI SPEC v1.0).
+- **Actors:** `Customer` (Khách hàng), `Owner` (Chủ nhà), `Investor / Operator` (Ban quản trị / Chủ đầu tư).
+- **Product Thesis:** BookingBot AI Agent là trợ lý AI-first giúp khách hàng tìm đúng căn Vinhomes từ nhu cầu tự nhiên, tự động điều phối lịch xem và giữ căn trong thời gian xem, đồng thời kết nối khách với chủ nhà sau khi booking thành công --- với **Owner approval** và **business-rule controls** tại các điểm cam kết.
 
 ---
 
 ## 2. Architecture & Tech Stack
-- **Frontend:** Next.js + TypeScript (Web Chat có streaming + Staff Operations Dashboard).
-- **Backend (Source of Truth):** Python 3.11+ + FastAPI (RESTful, OpenAPI docs, deterministic business services, tool schemas).
+- **Frontend:** Next.js + TypeScript (Responsive Web gồm: Customer Web Chat có streaming SSE, Owner Dashboard, Operator Moderation UI).
+- **Backend (Source of Truth):** Python 3.11+ + FastAPI (RESTful, OpenAPI auto-docs, Pydantic type validation, WebSocket server).
 - **Agent Orchestrator:** LangGraph (Stateful workflow, tool selection, multi-turn state, human-in-the-loop, error recovery).
-- **Database:** PostgreSQL 15+ (Relational core data, row-level locks, booking events, audit logs) + `pgvector` (RAG/knowledge retrieval only).
-- **Model Layer:** Model-agnostic adapter. OpenAI (`gpt-4o-mini` default, `gpt-4o`). Đổi provider không làm thay đổi business logic.
-- **External Adapters:** Vehicle mock adapter, Email (SendGrid/SMTP), Mock SMS/Zalo.
-- **Deployment:** Frontend → Vercel, Backend → Managed Container/Cloud, DB → Managed PostgreSQL, Local → Docker Compose.
+- **Database:** PostgreSQL 15+ (Relational tables, Full-text Search + `pg_trgm`, ACID transactions, row-level locks).
+- **Media Storage:** Amazon S3 (Lưu trữ ảnh & video căn hộ độc lập với DB).
+- **Model Layer:** OpenAI API (`gpt-4o-mini` mặc định tối ưu chi phí & latency, `gpt-4o`).
+- **Realtime Chat:** WebSocket tích hợp qua FastAPI (Chat 1-1 Khách ↔ Chủ nhà).
+- **Vector DB / RAG:** **Không dùng trong MVP** (tối ưu hóa độ phức tạp; recommendation dùng thuật toán lọc kết hợp SQL + scoring).
 
 ---
 
-## 3. Core Principles
-1. **Backend is Source of Truth** — Dữ liệu căn, giá, lịch trống, trạng thái booking 100% do Backend DB kiểm soát.
-2. **AI Agent = Orchestrator** — AI hiểu intent, duy trì trạng thái hội thoại, chọn Function/Tool phù hợp và quyết định bước tiếp theo; AI tuyệt đối **không tự quyết định hoặc ghi đè business rules**.
-3. **Agent CANNOT commit `Confirmed` directly** — Mọi trạng thái `Confirmed` phải do Backend commit sau khi đã qua validation và HITL approval (nếu cần).
-4. **Never Hallucinate Tool Success** — Không coi việc LLM sinh tool call là hành động đã thành công. Phải đợi Backend trả kết quả transaction mới thông báo cho khách.
-5. **Verify before Committing** — Tất cả booking phải qua kiểm tra 4 resource: Property + Sale + Capacity + Vehicle.
-6. **Prevent Double-Booking at DB Level** — Dùng PostgreSQL transaction + row-level locking (`SELECT ... FOR UPDATE`), không dựa vào prompt của LLM.
-7. **HITL for High-Risk & Exceptions** — Khách VIP, ngoài giờ quy định, căn đặc biệt, conflict lịch, special request bắt buộc route sang Staff Dashboard.
-8. **RAG is Knowledge Support, NOT Transaction Authority** — RAG chỉ trả lời FAQ/chính sách từ pgvector; không được dùng RAG để trả lời giá, availability hay booking state.
-9. **Reschedule Safety** — Luôn kiểm tra và soft-hold slot mới thành công trước khi giải phóng slot cũ; rollback nếu bước mới thất bại.
-10. **Comprehensive Audit Trail** — Ghi nhận đầy đủ: `Agent Action → Tool Call → Backend Result → Final State` vào audit logs và booking events.
+## 3. Core Principles & Boundaries
+1. **Backend is Source of Truth** — Dữ liệu căn, tình trạng duyệt, lịch trống, trạng thái booking và hold 100% do Backend DB kiểm soát.
+2. **AI Agent = Orchestrator** — AI hiểu intent, trích xuất `CustomerPreference`, duy trì hội thoại đa lượt, chọn Tool và giải thích đề xuất; AI tuyệt đối **không tự quyết định hoặc ghi đè business rules**.
+3. **Owner Approval is Mandatory (HITL)** — Booking bắt đầu ở trạng thái `REQUESTED`; chỉ chuyển sang `CONFIRMED` khi chính **Chủ nhà (Owner)** phê duyệt. Agent không được tự ý confirm.
+4. **Atomic Viewing Hold** — "Giữ căn" trong MVP chỉ là **tạm khóa căn trong đúng khung giờ xem nhà**, không phải giữ để mua. Khóa bằng giao dịch nguyên tử (`SELECT ... FOR UPDATE`), hết giờ xem tự động nhả về `AVAILABLE`.
+5. **Never Hallucinate Tool Success** — Không coi việc LLM tạo Tool call là hành động đã thành công. Phải đợi Backend commit transaction mới thông báo cho khách.
+6. **Chat Gating** — Kênh chat trực tiếp 1-1 (WebSocket) giữa Khách hàng và Chủ nhà chỉ được mở sau khi buổi xem nhà thành công (`COMPLETED`) và khách có `Purchase Request`.
+7. **Strict Non-Goals (MUST NOT HAVE)**:
+   - Không thanh toán / đặt cọc online.
+   - Không ký hợp đồng điện tử.
+   - Không định giá BĐS bằng AI hay dự đoán giá.
+   - Không để AI tự đàm phán giá (khách và chủ nhà tự trao đổi).
+   - Không hỗ trợ BĐS ngoài Vinhomes.
+   - Không tích hợp CRM / môi giới Sale trung gian ngoài luồng.
 
 ---
 
-## 4. AI Agent Boundary & Standard Tool Contracts
+## 4. AI Agent Boundary & Controlled Tools
 
-### Standard Tools (8 Functions theo Architecture Patch v2):
-1. `search_property(criteria)`: Lọc BĐS theo nhu cầu dựa trên dữ liệu Backend.
-2. `get_property_detail(property_id)`: Lấy thông tin chi tiết thẻ căn hộ.
-3. `check_availability(property_id, datetime, guest_count, vehicle_requirement)`: Kiểm tra đồng thời 4 resource.
-4. `create_soft_hold(property_id, slot_id, customer_info)`: Tạo giữ chỗ tạm thời có thời hạn (configurable).
-5. `request_sale_approval(booking_id, reason)`: Gửi yêu cầu phê duyệt vào HITL Queue.
-6. `reschedule_booking(booking_id, new_slot)`: Đổi lịch an toàn (check mới trước, release cũ sau).
-7. `cancel_booking(booking_id, reason)`: Hủy lịch và giải phóng tài nguyên đã cấp phát.
-8. `send_notification(recipient, channel, template_id, params)`: Gửi thông báo xác nhận/nhắc lịch.
-- *Tool tri thức & Escalate:* `search_knowledge(query)` (RAG FAQ) và `escalate_to_human(reason)`.
+### Bộ Tools Chuẩn hóa:
+1. `search_properties(criteria)`: Lọc BĐS theo hard filters SQL và tính điểm soft scoring.
+2. `get_property_detail(property_id)`: Trả về thông tin chi tiết căn hộ `APPROVED`.
+3. `check_availability(property_id, datetime)`: Kiểm tra lịch trống của căn hộ và chủ nhà.
+4. `create_booking_request(property_id, slot, customer_info)`: Tạo yêu cầu lịch xem (`REQUESTED`).
+5. `reschedule_booking(booking_id, new_slot)`: Yêu cầu đổi lịch (cần Owner duyệt lại).
+6. `cancel_booking(booking_id)`: Khách hàng tự hủy lịch hẹn đã tạo.
 
 ### AI ĐƯỢC PHÉP:
-- Hiểu ngôn ngữ tự nhiên, trích xuất thực thể/ràng buộc.
-- Hỏi lại khách hàng khi thiếu thông tin cần thiết (missing parameters).
-- Duy trì ngữ cảnh hội thoại nhiều lượt (multi-turn state).
-- Chọn Function/Tool dựa trên ngữ cảnh và trạng thái hiện tại.
-- Đề xuất slot thay thế khi gặp conflict dựa trên dữ liệu Backend trả về.
+- Bóc tách ngôn ngữ tự nhiên thành thực thể: Ngân sách, số PN, diện tích, phân khu, hướng, tầng.
+- Hỏi lại khách hàng khi thiếu thông tin quan trọng.
+- Đề xuất Top-N căn phù hợp kèm lời giải thích (Explainability).
+- Gợi ý khung giờ thay thế khi gặp xung đột lịch.
 
 ### AI KHÔNG ĐƯỢC:
-- Tự ý suy diễn/phát minh giá bán, tình trạng phòng trống, thông tin căn hộ.
-- Tự quyết định thay đổi trạng thái booking thành `Confirmed`.
-- Gọi tool mutation khi chưa xác định rõ entity (vd: gọi cancel/reschedule mà không biết booking nào).
-- Bỏ qua Backend để truy cập trực tiếp vào Database.
+- Tự ý bịa đặt thông tin căn hộ không có trong DB.
+- Tự quyết định xác nhận booking bỏ qua Owner.
+- Tự đàm phán giá hoặc cam kết pháp lý với khách.
+- Truy cập trực tiếp vào Database bỏ qua Service Layer.
 
 ---
 
 ## 5. Tool Execution Pipeline & Guardrails
-Mọi Tool Call từ Agent phải đi qua pipeline 6 bước trên Backend:
 ```text
-Agent Tool Call
+AI Agent Tool Call
       ↓
-1. Tool Schema Validation (Pydantic types & bounds)
+1. Pydantic Schema Validation (Types, bounds, required fields)
       ↓
-2. Authentication & Authorization (Customer OTP / Staff RBAC)
+2. Authentication & Authorization (Customer OTP / Owner JWT)
       ↓
-3. Business Rule Validation (Chính sách, điều kiện nghiệp vụ)
+3. Business Rule Validation (Căn APPROVED, đúng khung giờ)
       ↓
-4. Availability Check & Row-level Locking (PostgreSQL Tx)
+4. Time Conflict Check & Row-level Lock (PostgreSQL Tx)
       ↓
 5. Execution & State Transition
       ↓
-6. Structured Tool Result returned to Agent + Audit Log emitted
+6. Structured Response returned to Agent + Audit Log emitted
 ```
-- **Fail-safe Rule:** Nếu bất kỳ bước nào thất bại, Backend rollback transaction, không thay đổi state, trả về Structured Error. Agent nhận diện lỗi và đưa ra giải pháp (hỏi lại khách, gợi ý slot khác hoặc escalate).
+- Nếu có lỗi: Rollback transaction an toàn, trả về Structured Error, Agent nhận diện lỗi để giải thích và đề xuất phương án thay thế.
 
 ---
 
-## 6. Failure Modes Bổ sung (F13–F16)
-- **F13 (Agent chọn sai function):** Backend schema & Auth chặn lại → trả structured error → Agent điều hướng lại đúng workflow.
-- **F14 (Tool call thiếu tham số):** Backend từ chối → Agent phân tích field còn thiếu và chủ động hỏi lại khách.
-- **F15 (Agent hiểu sai ngữ cảnh / Ambiguous context):** Khách nói "Đổi sang 16h" nhưng chưa xác định booking nào → Agent bắt buộc hỏi rõ booking cần đổi trước khi gọi `reschedule_booking`.
-- **F16 (Agent hallucinate tool success):** Agent chỉ được thông báo thành công sau khi Backend trả `success=true` và transaction đã commit.
+## 6. Lifecycles (Vòng đời Nghiệp vụ)
 
----
-
-## 7. Booking State Machine & Confirmation Rule
+### 6.1. Property Listing Lifecycle:
 ```text
-Draft → Soft-held → Pending Sale Approval → Confirmed → Completed / No-show / Cancelled
-Soft-held --expiry--> Expired
-Pending Sale Approval → Rejected
-Confirmed --reschedule--> Rescheduled (lưu dạng booking event)
-Confirmed --cancel--> Cancelled
+DRAFT → PENDING_REVIEW → APPROVED / AVAILABLE → VIEWING_HELD → AVAILABLE (hoặc SOLD)
+                  └──> REJECTED
 ```
+- Chỉ căn `APPROVED / AVAILABLE` mới xuất hiện trên giao diện tìm kiếm của khách.
 
-### Confirmation Rule:
+### 6.2. Booking Lifecycle:
 ```text
-Customer Request Confirmation
-        ↓
-Backend validates business rules & availability
-        ↓
-HITL requirement check (VIP / Ngoài giờ / Căn đặc biệt / Conflict)
-        ↓
-Sale / Operator approval (nếu bắt buộc)
-        ↓
-Backend transaction commit (SELECT ... FOR UPDATE → COMMIT)
-        ↓
-booking.status = Confirmed
-        ↓
-Agent observes success=true → Announce confirmation to Customer
+REQUESTED → CONFIRMED → COMPLETED
+     │          │
+     ├─> REJECTED  ├─> CANCELLED
+     │             └─> RESCHEDULE_REQUESTED ──> CONFIRMED
 ```
+- Owner Approve $\rightarrow$ `CONFIRMED` $\rightarrow$ Kích hoạt `Viewing Hold` $\rightarrow$ Nhắc lịch T-24h & T-2h $\rightarrow$ Xem nhà xong $\rightarrow$ `COMPLETED` $\rightarrow$ `Purchase Request` $\rightarrow$ Mở Chat 1-1.
 
 ---
 
-## 8. Coding Conventions
-- **Python (Backend):**
-  - Khai báo kiểu đầy đủ (strict type hints).
-  - Sử dụng `Pydantic v2` cho toàn bộ schemas, inputs và outputs.
+## 7. Coding Conventions
+- **Python / Backend:**
+  - Khai báo kiểu dữ liệu nghiêm ngặt (`type hints`).
+  - Pydantic v2 cho toàn bộ Request/Response Schemas.
   - Tuân thủ linter `ruff`.
-  - Mọi mutation endpoint/tool phải thực hiện trong PostgreSQL database transaction rõ ràng.
-- **TypeScript (Frontend):**
-  - Strict type checking, type definitions đồng bộ với Pydantic schema backend.
-  - Xử lý streaming response mượt mà cho Web Chat.
-  - Component hóa giao diện gọn gàng (Tailwind / shadcn/ui).
-
----
-
-## 9. Definition of Done — AI Agent
-Feature được coi là hoàn thành khi:
-1. Agent nhận diện đúng intent trong các kịch bản test MVP.
-2. Agent chọn đúng Function/Tool theo context hội thoại.
-3. Tham số Tool call hợp lệ, tuân thủ schema.
-4. Backend validate 100% Tool Call.
-5. Xử lý multi-turn conversation và phục hồi khi thiếu thông tin.
-6. Xử lý có cấu trúc các mã lỗi từ Tool (Tool Error).
-7. Không hallucinate báo thành công khi transaction Backend thất bại.
-8. HITL được trigger chính xác khi gặp điều kiện rủi ro/ngoại lệ.
-9. Trạng thái booking được quản lý nghiêm ngặt bởi State Machine.
-10. Anti-double-booking chạy qua DB transaction locking, chống race condition hoàn hảo.
-11. Toàn bộ chuỗi sự kiện được ghi nhận vào Audit Log.
+  - Mọi thao tác ghi dữ liệu nhạy cảm (Booking, Hold) phải nằm trong Database Transaction rõ ràng.
+- **Frontend / Next.js:**
+  - Strict TypeScript, đồng bộ kiểu dữ liệu với Backend Pydantic Schemas.
+  - Xử lý streaming SSE mượt mà cho Web Chat.
+  - Giao diện đáp ứng (Responsive Web) cho cả Mobile và Desktop.
