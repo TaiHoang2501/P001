@@ -30,7 +30,7 @@
 | **Frontend** | Responsive Web Next.js, Streaming chat SSE, Property Cards, Dashboards | Ngọ Doãn Ngọc |
 | **Data & Systems** | PostgreSQL schema, Full-text Search + `pg_trgm`, Tích hợp Amazon S3 | Nguyễn Văn Bảo |
 | **QA / Testing** | Unit tests, Integration tests, Concurrency test race condition, Test report | Trần Thị Thu Trang |
-| **DevOps & Security** | Docker, CI/CD GitHub Actions, AWS S3, Auth JWT/OTP, PII & Audit logs | Hoàng Anh Tài / Team |
+| **DevOps & Security** | Docker, CI/CD GitHub Actions, AWS S3, Auth JWT/OTP, PII & Audit logs | Ngọ Doãn Ngọc |
 
 ---
 
