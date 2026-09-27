@@ -3,6 +3,7 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 pydantic>=2.10.0
 pydantic-settings>=2.7.0
+email-validator>=2.2.0
 python-dotenv>=1.0.0
 
 # AI / LangChain
@@ -10,13 +11,14 @@ langchain>=0.3.0
 langchain-openai>=0.3.0
 langgraph>=0.2.0
 
-# Database (uncomment as needed)
-# sqlalchemy>=2.0.0
-# alembic>=1.14.0
-# psycopg2-binary>=2.9.0
+# Database (PostgreSQL 15+)
+sqlalchemy>=2.0.36
+alembic>=1.14.0
+psycopg[binary]>=3.2.0
 
-# Vector Store (uncomment as needed)
-# chromadb>=0.5.0
+# Auth
+pyjwt>=2.10.0
+argon2-cffi>=23.1.0
 
 # Dev tools
 ruff>=0.8.0
