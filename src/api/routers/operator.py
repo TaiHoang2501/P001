@@ -1,14 +1,32 @@
-"""Investor/Operator endpoints: listing moderation and booking monitoring."""
+"""Investor/Operator endpoints: seller verification, listing moderation and booking monitoring."""
 
 from fastapi import APIRouter
 
 from src.core.deps import DbSession, OperatorActor
-from src.db.models import BookingStatus, PropertyStatus
+from src.db.models import BookingStatus, PropertyStatus, SellerVerificationStatus
 from src.models.booking import BookingOut
 from src.models.property import PropertyOut, RejectRequest
-from src.services import booking_service, property_service
+from src.models.seller import SellerProfileOut, SellerReviewItem
+from src.services import booking_service, property_service, seller_service
 
 router = APIRouter(prefix="/operator", tags=["operator"])
+
+
+@router.get("/sellers", response_model=list[SellerReviewItem])
+def sellers_by_status(
+    actor: OperatorActor, db: DbSession, status: SellerVerificationStatus = SellerVerificationStatus.PENDING
+) -> list[SellerReviewItem]:
+    return seller_service.list_by_status(db, status)
+
+
+@router.post("/sellers/{user_id}/verify", response_model=SellerProfileOut)
+def verify_seller(user_id: int, actor: OperatorActor, db: DbSession) -> SellerProfileOut:
+    return seller_service.verify(db, actor, user_id)
+
+
+@router.post("/sellers/{user_id}/reject", response_model=SellerProfileOut)
+def reject_seller(user_id: int, data: RejectRequest, actor: OperatorActor, db: DbSession) -> SellerProfileOut:
+    return seller_service.reject(db, actor, user_id, data.reason)
 
 
 @router.get("/properties", response_model=list[PropertyOut])

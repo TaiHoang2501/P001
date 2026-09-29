@@ -4,24 +4,30 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import Select, func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.config import get_settings
 from src.core.actor import Actor
-from src.core.errors import NotFoundError, StateConflictError
+from src.core.errors import BusinessRuleViolationError, NotFoundError, StateConflictError
 from src.db.models import (
     ACTIVE_BOOKING_STATUSES,
     Booking,
     Building,
+    MediaKind,
     Project,
     Property,
+    PropertyMedia,
     PropertyStatus,
+    SellerProfile,
+    SellerVerificationStatus,
     User,
     UserRole,
     UserStatus,
 )
 from src.models.property import (
     CriterionMatch,
+    MediaCreate,
+    MediaOut,
     PropertyCreate,
     PropertyOut,
     PropertyUpdate,
@@ -29,21 +35,39 @@ from src.models.property import (
     SearchCriteria,
     SearchResult,
 )
-from src.services import audit
+from src.services import audit, notification_service, seller_service
 
-# Listing lifecycle (spec §4.7). SOLD is terminal.
+# Listing lifecycle (spec §4.11). SOLD is terminal; a WITHDRAWN listing can be re-submitted.
 _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
     PropertyStatus.DRAFT: {PropertyStatus.PENDING_REVIEW},
     PropertyStatus.REJECTED: {PropertyStatus.PENDING_REVIEW},
     PropertyStatus.PENDING_REVIEW: {PropertyStatus.AVAILABLE, PropertyStatus.REJECTED},
-    PropertyStatus.AVAILABLE: {PropertyStatus.SOLD},
+    PropertyStatus.AVAILABLE: {PropertyStatus.SOLD, PropertyStatus.WITHDRAWN},
+    PropertyStatus.WITHDRAWN: {PropertyStatus.PENDING_REVIEW, PropertyStatus.SOLD},
     PropertyStatus.SOLD: set(),
 }
-_EDITABLE = {PropertyStatus.DRAFT, PropertyStatus.REJECTED}
+# Content (including media) can only change while the listing is off the marketplace
+_EDITABLE = {PropertyStatus.DRAFT, PropertyStatus.REJECTED, PropertyStatus.WITHDRAWN}
 _MAX_CANDIDATES = 500
 
 
-def to_out(p: Property) -> PropertyOut:
+def media_url(s3_key: str) -> str:
+    return get_settings().media_base_url + s3_key
+
+
+def _media_out(m: PropertyMedia) -> MediaOut:
+    return MediaOut(
+        id=m.id,
+        kind=m.kind,
+        url=media_url(m.s3_key),
+        content_type=m.content_type,
+        sort_order=m.sort_order,
+        is_public=m.is_public,
+    )
+
+
+def to_out(p: Property, *, include_private: bool = False) -> PropertyOut:
+    media = [m for m in p.media if include_private or m.is_public]
     return PropertyOut(
         id=p.id,
         owner_id=p.owner_id,
@@ -60,7 +84,6 @@ def to_out(p: Property) -> PropertyOut:
         furnishing=p.furnishing,
         legal_status=p.legal_status,
         description=p.description,
-        image_urls=p.image_urls,
         status=p.status,
         project_code=p.building.project.code,
         project_name=p.building.project.name,
@@ -68,12 +91,15 @@ def to_out(p: Property) -> PropertyOut:
         city=p.building.project.city,
         rejection_reason=p.rejection_reason,
         created_at=p.created_at,
+        media=[_media_out(m) for m in media],
+        image_urls=[media_url(m.s3_key) for m in media if m.kind == MediaKind.IMAGE and m.is_public],
     )
 
 
 def _base_query() -> Select[tuple[Property]]:
     return select(Property).options(
-        joinedload(Property.building, innerjoin=True).joinedload(Building.project, innerjoin=True)
+        joinedload(Property.building, innerjoin=True).joinedload(Building.project, innerjoin=True),
+        selectinload(Property.media),
     )
 
 
@@ -114,26 +140,26 @@ def list_projects(db: Session) -> list[Project]:
 
 
 def get_property(db: Session, property_id: int, actor: Actor | None = None) -> PropertyOut:
-    """Customers/anonymous only see AVAILABLE listings; owners see their own; operators see all."""
+    """Customers/anonymous only see AVAILABLE listings; owners see their own; operators see all.
+
+    Private media (ownership documents) is only returned to the owner and operators.
+    """
     prop = _load(db, property_id)
-    visible = (
-        prop.status == PropertyStatus.AVAILABLE
-        or (actor is not None and actor.role == UserRole.INVESTOR_OPERATOR)
-        or (actor is not None and prop.owner_id == actor.id)
-    )
-    if not visible:
+    privileged = actor is not None and (actor.role == UserRole.INVESTOR_OPERATOR or prop.owner_id == actor.id)
+    if not (prop.status == PropertyStatus.AVAILABLE or privileged):
         raise NotFoundError(f"Property {property_id} not found")
-    return to_out(prop)
+    return to_out(prop, include_private=privileged)
 
 
 def list_owned(db: Session, actor: Actor) -> list[PropertyOut]:
     stmt = _base_query().where(Property.owner_id == actor.id).order_by(Property.created_at.desc())
-    return [to_out(p) for p in db.scalars(stmt)]
+    return [to_out(p, include_private=True) for p in db.scalars(stmt)]
 
 
 def list_by_status(db: Session, status: PropertyStatus) -> list[PropertyOut]:
+    """Operator moderation queue."""
     stmt = _base_query().where(Property.status == status).order_by(Property.updated_at.asc())
-    return [to_out(p) for p in db.scalars(stmt)]
+    return [to_out(p, include_private=True) for p in db.scalars(stmt)]
 
 
 # ---------- Owner writes ----------
@@ -152,11 +178,7 @@ def create(db: Session, actor: Actor, data: PropertyCreate) -> PropertyOut:
 
 def update(db: Session, actor: Actor, property_id: int, data: PropertyUpdate) -> PropertyOut:
     prop = _load_owned(db, actor, property_id)
-    if prop.status not in _EDITABLE:
-        raise StateConflictError(
-            "Only DRAFT or REJECTED listings can be edited",
-            details={"current_status": prop.status.value},
-        )
+    _require_editable(prop)
     changes = data.model_dump(exclude_unset=True)
     before = {k: _jsonable(getattr(prop, k)) for k in changes}
     for key, value in changes.items():
@@ -174,8 +196,63 @@ def update(db: Session, actor: Actor, property_id: int, data: PropertyUpdate) ->
     return get_property(db, prop.id, actor)
 
 
+def _require_editable(prop: Property) -> None:
+    if prop.status not in _EDITABLE:
+        raise StateConflictError(
+            "Only DRAFT, REJECTED or WITHDRAWN listings can be edited",
+            details={"current_status": prop.status.value},
+        )
+
+
+def _require_no_active_bookings(db: Session, prop: Property, action: str) -> None:
+    active = db.scalar(
+        select(func.count())
+        .select_from(Booking)
+        .where(Booking.property_id == prop.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES))
+    )
+    if active:
+        raise StateConflictError(f"Resolve active bookings before {action}", details={"active": active})
+
+
+def add_media(db: Session, actor: Actor, property_id: int, data: MediaCreate) -> PropertyOut:
+    prop = _load_owned(db, actor, property_id)
+    _require_editable(prop)
+    # Ownership documents are for the operator only, never for buyers
+    is_public = data.is_public and data.kind != MediaKind.OWNERSHIP_DOC
+    media = PropertyMedia(
+        kind=data.kind,
+        s3_key=data.s3_key,
+        content_type=data.content_type,
+        sort_order=data.sort_order,
+        is_public=is_public,
+    )
+    prop.media.append(media)
+    db.flush()
+    audit.record(db, actor, "property.media_add", "property", prop.id, after={"media_id": media.id, "kind": media.kind})
+    db.commit()
+    return get_property(db, prop.id, actor)
+
+
+def delete_media(db: Session, actor: Actor, property_id: int, media_id: int) -> PropertyOut:
+    prop = _load_owned(db, actor, property_id)
+    _require_editable(prop)
+    media = db.get(PropertyMedia, media_id)
+    if media is None or media.property_id != prop.id:
+        raise NotFoundError(f"Media {media_id} not found")
+    prop.media.remove(media)  # delete-orphan cascade removes the row
+    audit.record(db, actor, "property.media_delete", "property", prop.id, before={"media_id": media_id})
+    db.commit()
+    return get_property(db, prop.id, actor)
+
+
 def submit_for_review(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     prop = _load_owned(db, actor, property_id)
+    # Spec §4.5: the operator checks ownership during listing review, so a document is required
+    if not any(m.kind == MediaKind.OWNERSHIP_DOC for m in prop.media):
+        raise BusinessRuleViolationError(
+            "Upload an ownership document (sổ hồng / HĐMB) before submitting for review",
+            details={"missing": MediaKind.OWNERSHIP_DOC.value},
+        )
     before = _transition(prop, PropertyStatus.PENDING_REVIEW)
     prop.rejection_reason = None
     audit.record(
@@ -185,17 +262,21 @@ def submit_for_review(db: Session, actor: Actor, property_id: int) -> PropertyOu
     return get_property(db, prop.id, actor)
 
 
+def withdraw(db: Session, actor: Actor, property_id: int) -> PropertyOut:
+    """Owner takes an AVAILABLE listing off the marketplace (it can be re-submitted later)."""
+    prop = _load_owned(db, actor, property_id)
+    _require_no_active_bookings(db, prop, "withdrawing the listing")
+    before = _transition(prop, PropertyStatus.WITHDRAWN)
+    audit.record(
+        db, actor, "property.withdraw", "property", prop.id, before={"status": before}, after={"status": prop.status}
+    )
+    db.commit()
+    return get_property(db, prop.id, actor)
+
+
 def mark_sold(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     prop = _load_owned(db, actor, property_id)
-    active = db.scalar(
-        select(func.count())
-        .select_from(Booking)
-        .where(Booking.property_id == prop.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES))
-    )
-    if active:
-        raise StateConflictError(
-            "Resolve active bookings before marking the property as sold", details={"active": active}
-        )
+    _require_no_active_bookings(db, prop, "marking the property as sold")
     before = _transition(prop, PropertyStatus.SOLD)
     audit.record(
         db, actor, "property.sold", "property", prop.id, before={"status": before}, after={"status": prop.status}
@@ -209,6 +290,8 @@ def mark_sold(db: Session, actor: Actor, property_id: int) -> PropertyOut:
 
 def approve(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     prop = _load(db, property_id, for_update=True)
+    # Spec §2.3 principle 5: only verified sellers' properties enter the marketplace
+    seller_service.require_verified(db, prop.owner_id)
     before = _transition(prop, PropertyStatus.AVAILABLE)
     prop.reviewed_by = actor.id
     prop.reviewed_at = datetime.now(UTC)
@@ -216,6 +299,7 @@ def approve(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     audit.record(
         db, actor, "property.approve", "property", prop.id, before={"status": before}, after={"status": prop.status}
     )
+    notification_service.listing_reviewed(db, prop, approved=True)
     db.commit()
     return get_property(db, prop.id, actor)
 
@@ -235,6 +319,7 @@ def reject(db: Session, actor: Actor, property_id: int, reason: str) -> Property
         before={"status": before},
         after={"status": prop.status, "reason": reason},
     )
+    notification_service.listing_reviewed(db, prop, approved=False, reason=reason)
     db.commit()
     return get_property(db, prop.id, actor)
 
@@ -245,15 +330,20 @@ def reject(db: Session, actor: Actor, property_id: int, reason: str) -> Property
 def search(db: Session, criteria: SearchCriteria) -> SearchResult:
     """Step 1 hard filters in SQL, then soft scoring + priority weighting in Python.
 
-    Only AVAILABLE listings of ACTIVE owners are ever returned, so the AI cannot
-    recommend unapproved or invented properties (AC-01).
+    Only AVAILABLE listings of ACTIVE, VERIFIED owners are ever returned, so the AI cannot
+    recommend unapproved or invented properties (AC-01, AC-04).
     """
     stmt = (
         _base_query()
         .join(Property.building)
         .join(Building.project)
         .join(User, User.id == Property.owner_id)
-        .where(Property.status == PropertyStatus.AVAILABLE, User.status == UserStatus.ACTIVE)
+        .join(SellerProfile, SellerProfile.user_id == Property.owner_id)
+        .where(
+            Property.status == PropertyStatus.AVAILABLE,
+            User.status == UserStatus.ACTIVE,
+            SellerProfile.verification_status == SellerVerificationStatus.VERIFIED,
+        )
     )
     if criteria.project_codes:
         stmt = stmt.where(Project.code.in_([c.upper() for c in criteria.project_codes]))

@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from src.core.deps import AnyActor, CustomerActor, DbSession
-from src.models.booking import BookingCreate, BookingOut
+from src.models.booking import BookingCreate, BookingOut, RescheduleRequest
 from src.services import booking_service
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -27,3 +27,9 @@ def get_booking(booking_id: int, actor: AnyActor, db: DbSession) -> BookingOut:
 @router.post("/{booking_id}/cancel", response_model=BookingOut)
 def cancel_booking(booking_id: int, actor: CustomerActor, db: DbSession) -> BookingOut:
     return booking_service.cancel(db, actor, booking_id)
+
+
+@router.post("/{booking_id}/reschedule", response_model=BookingOut)
+def reschedule_booking(booking_id: int, data: RescheduleRequest, actor: CustomerActor, db: DbSession) -> BookingOut:
+    """Ask the owner to move a confirmed viewing; it stays at the old time until the owner confirms."""
+    return booking_service.reschedule(db, actor, booking_id, data)

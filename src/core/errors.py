@@ -33,6 +33,13 @@ class InvalidCredentialsError(AppError):
     code = "INVALID_CREDENTIALS"
 
 
+class AccountNotFoundError(AppError):
+    """OTP was valid but no account exists yet: the client should ask for sign-up details."""
+
+    status_code = 404
+    code = "ACCOUNT_NOT_FOUND"
+
+
 class ForbiddenError(AppError):
     status_code = 403
     code = "FORBIDDEN"
@@ -65,6 +72,25 @@ class SlotUnavailableError(AppError):
 class BusinessRuleViolationError(AppError):
     status_code = 422
     code = "BUSINESS_RULE_VIOLATION"
+
+
+class SellerUnverifiedError(AppError):
+    """The property's owner is not verified, so it cannot be listed or booked (AC-04)."""
+
+    status_code = 422
+    code = "SELLER_UNVERIFIED"
+
+
+class AgentUnavailableError(AppError):
+    """The AI assistant cannot answer right now (not configured, or the model provider failed)."""
+
+    status_code = 503
+    code = "AGENT_UNAVAILABLE"
+
+
+class RateLimitedError(AppError):
+    status_code = 429
+    code = "RATE_LIMITED"
 
 
 def register_error_handlers(app: FastAPI) -> None:

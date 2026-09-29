@@ -1,0 +1,30 @@
+import type { components } from "./schema";
+
+type S = components["schemas"];
+
+export type User = S["UserOut"];
+export type Role = User["role"];
+export type TokenResponse = S["TokenResponse"];
+export type Project = S["ProjectOut"];
+export type Property = S["PropertyOut"];
+export type PropertyCreate = S["PropertyCreate"];
+export type PropertyStatus = Property["status"];
+export type ChatResponse = S["ChatResponse"];
+export type Recommendation = S["Recommendation"];
+export type CriterionMatch = S["CriterionMatch"];
+export type Slot = S["SlotOut"];
+export type Booking = S["BookingOut"];
+export type BookingStatus = Booking["status"];
+export type Direction = Property["direction"];
+export type ViewType = Property["view"];
+export type Furnishing = Property["furnishing"];
+export type LegalStatus = Property["legal_status"];
+export type PropertyType = Property["property_type"];
+export type Media = S["MediaOut"];
+export type TimeWindow = S["TimeWindow"];
+export type ViewingTimes = S["ViewingTimesOut"];
+export type Deal = S["DealOut"];
+export type DealStatus = Deal["status"];
+export type Notification = S["NotificationOut"];
+export type Escalation = S["EscalationOut"];
+export type SellerProfile = S["SellerProfileOut"];

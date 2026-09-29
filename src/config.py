@@ -21,10 +21,24 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     timezone: str = "Asia/Ho_Chi_Minh"
 
-    # LLM
+    # LLM (spec §9.1: Gemini or OpenAI)
+    llm_provider: Literal["openai", "google"] = "openai"
     openai_api_key: str = ""
-    model_name: str = "gpt-4o-mini"
+    google_api_key: str = ""
+    # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest)
+    model_name: str = ""
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    # Keep a chat turn from hanging for minutes when the provider is overloaded
+    llm_timeout_seconds: float = Field(default=45, gt=0)
+    llm_max_retries: int = Field(default=2, ge=0)
+
+    @property
+    def llm_api_key(self) -> str:
+        return self.google_api_key if self.llm_provider == "google" else self.openai_api_key
+
+    @property
+    def llm_model(self) -> str:
+        return self.model_name or ("gemini-flash-latest" if self.llm_provider == "google" else "gpt-4o-mini")
 
     # Database (PostgreSQL 15+ required: btree_gist exclusion constraints, pg_trgm)
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/bookingbot"
@@ -35,6 +49,28 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-env"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = Field(default=60 * 24, ge=5)
+
+    # Viewing scheduling (spec §4.8; viewing length and buffer are TBD in §10 Q12-13)
+    viewing_duration_minutes: int = Field(default=30, ge=15, le=240)
+    viewing_step_minutes: int = Field(default=30, ge=5, le=120)
+    viewing_max_proposals: int = Field(default=3, ge=1, le=10)
+    viewing_alternative_days: int = Field(default=14, ge=1, le=60)
+
+    # Hours a seller has to answer a viewing request before an operator is asked (TBD in spec §10 Q8)
+    seller_response_hours: int = Field(default=24, ge=1)
+
+    # In-process periodic jobs (hold expiry, reminders); disabled under APP_ENV=test
+    jobs_enabled: bool = True
+    job_interval_seconds: int = Field(default=60, ge=5)
+
+    # Media: public URL = media_base_url + s3_key (e.g. a CloudFront domain); empty means return the key
+    media_base_url: str = ""
+
+    # OTP login (spec §4.17); SMS/Zalo provider is TBD, so codes are only logged for now
+    otp_ttl_seconds: int = Field(default=300, ge=30)
+    otp_max_attempts: int = Field(default=5, ge=1)
+    otp_max_requests: int = Field(default=5, ge=1, description="Codes per target per rate-limit window")
+    otp_rate_window_minutes: int = Field(default=15, ge=1)
 
     # Recommendation scoring weights (spec §4.6: TBD, calibrate with real data)
     score_weight_price: float = 0.25

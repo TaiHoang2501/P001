@@ -1,4 +1,4 @@
-"""Owner endpoints: listings, viewing slots, booking approval (HITL)."""
+"""Owner endpoints: verification, listings, viewing slots, booking approval (HITL)."""
 
 from fastapi import APIRouter, Response
 
@@ -6,10 +6,24 @@ from src.core.deps import DbSession, OwnerActor
 from src.core.errors import NotFoundError
 from src.db.models import BookingStatus, Property
 from src.models.booking import BookingOut, BookingRejectRequest, SlotCreate, SlotOut
-from src.models.property import PropertyCreate, PropertyOut, PropertyUpdate
-from src.services import availability_service, booking_service, property_service
+from src.models.property import MediaCreate, PropertyCreate, PropertyOut, PropertyUpdate
+from src.models.seller import SellerProfileOut, SellerVerificationSubmit
+from src.services import availability_service, booking_service, property_service, seller_service
 
 router = APIRouter(prefix="/owner", tags=["owner"])
+
+
+# ---------- Verification ----------
+
+
+@router.get("/verification", response_model=SellerProfileOut)
+def my_verification(actor: OwnerActor, db: DbSession) -> SellerProfileOut:
+    return seller_service.get_own(db, actor)
+
+
+@router.post("/verification", response_model=SellerProfileOut)
+def submit_verification(data: SellerVerificationSubmit, actor: OwnerActor, db: DbSession) -> SellerProfileOut:
+    return seller_service.submit(db, actor, data)
 
 
 # ---------- Listings ----------
@@ -33,6 +47,21 @@ def update_property(property_id: int, data: PropertyUpdate, actor: OwnerActor, d
 @router.post("/properties/{property_id}/submit", response_model=PropertyOut)
 def submit_property(property_id: int, actor: OwnerActor, db: DbSession) -> PropertyOut:
     return property_service.submit_for_review(db, actor, property_id)
+
+
+@router.post("/properties/{property_id}/media", response_model=PropertyOut, status_code=201)
+def add_media(property_id: int, data: MediaCreate, actor: OwnerActor, db: DbSession) -> PropertyOut:
+    return property_service.add_media(db, actor, property_id, data)
+
+
+@router.delete("/properties/{property_id}/media/{media_id}", response_model=PropertyOut)
+def delete_media(property_id: int, media_id: int, actor: OwnerActor, db: DbSession) -> PropertyOut:
+    return property_service.delete_media(db, actor, property_id, media_id)
+
+
+@router.post("/properties/{property_id}/withdraw", response_model=PropertyOut)
+def withdraw_property(property_id: int, actor: OwnerActor, db: DbSession) -> PropertyOut:
+    return property_service.withdraw(db, actor, property_id)
 
 
 @router.post("/properties/{property_id}/sold", response_model=PropertyOut)

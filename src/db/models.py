@@ -1,11 +1,13 @@
 """SQLAlchemy models for the BookingBot MVP.
 
-Design notes (see docs/backend-mvp.md):
+Design notes:
 - Enums are stored as VARCHAR + CHECK (not native PG enums) so adding a value is a plain migration.
-- A CONFIRMED booking *is* the viewing hold (spec §4.9): it only locks its own time window.
-  REQUESTED bookings also reserve the slot so two customers cannot request the same window.
-- Double-booking is blocked by the database itself (exclusion constraint on property + time range),
-  not only by application code.
+- Every Buyer + Seller + Property relationship is a Deal (spec §4.9); bookings hang off a deal.
+- The viewing hold is its own row (property_holds), created only after Owner confirmation and
+  locking only the viewing window (spec §4.13). REQUESTED bookings also reserve the window so two
+  buyers cannot request the same time.
+- Double-booking/double-holding is blocked by the database itself (exclusion constraints on
+  property + time range), not only by application code (AC-08).
 """
 
 from datetime import datetime
@@ -15,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Computed,
     DateTime,
@@ -24,6 +27,7 @@ from sqlalchemy import (
     Integer,
     MetaData,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -107,18 +111,127 @@ class PropertyStatus(StrEnum):
     AVAILABLE = "AVAILABLE"
     REJECTED = "REJECTED"
     SOLD = "SOLD"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class SellerVerificationStatus(StrEnum):
+    UNVERIFIED = "UNVERIFIED"
+    PENDING = "PENDING"
+    VERIFIED = "VERIFIED"
+    REJECTED = "REJECTED"
+
+
+class SellerSource(StrEnum):
+    """How the seller reached the platform (spec §4.6)."""
+
+    SELF = "SELF"
+    AI_INTENT = "AI_INTENT"
+    APP = "APP"
+    WEBSITE = "WEBSITE"
+    CSKH = "CSKH"
+    BQL = "BQL"
+    HOTLINE = "HOTLINE"
+
+
+class MediaKind(StrEnum):
+    IMAGE = "IMAGE"
+    VIDEO = "VIDEO"
+    FLOORPLAN = "FLOORPLAN"
+    OWNERSHIP_DOC = "OWNERSHIP_DOC"
+
+
+class OtpPurpose(StrEnum):
+    LOGIN = "LOGIN"
 
 
 class BookingStatus(StrEnum):
     REQUESTED = "REQUESTED"
     CONFIRMED = "CONFIRMED"
+    RESCHEDULE_REQUESTED = "RESCHEDULE_REQUESTED"
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
+    NO_SHOW = "NO_SHOW"
 
 
 # Statuses that occupy a property's time window
-ACTIVE_BOOKING_STATUSES = (BookingStatus.REQUESTED, BookingStatus.CONFIRMED)
+ACTIVE_BOOKING_STATUSES = (
+    BookingStatus.REQUESTED,
+    BookingStatus.CONFIRMED,
+    BookingStatus.RESCHEDULE_REQUESTED,
+)
+
+
+class DealStatus(StrEnum):
+    """Deal lifecycle (spec §4.9). The MVP drives it up to VIEWED."""
+
+    MATCHED = "MATCHED"
+    VIEWING_REQUESTED = "VIEWING_REQUESTED"
+    VIEWING_CONFIRMED = "VIEWING_CONFIRMED"
+    VIEWED = "VIEWED"
+    INTERESTED = "INTERESTED"
+    NEGOTIATING = "NEGOTIATING"
+    TRANSACTION_SUPPORT = "TRANSACTION_SUPPORT"
+    COMPLETED = "COMPLETED"
+    CLOSED = "CLOSED"
+
+
+# A buyer has at most one open deal per property
+CLOSED_DEAL_STATUSES = (DealStatus.COMPLETED, DealStatus.CLOSED)
+
+
+class ConversationStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+    ESCALATED = "ESCALATED"
+
+
+class MessageRole(StrEnum):
+    USER = "USER"
+    ASSISTANT = "ASSISTANT"
+    TOOL = "TOOL"
+
+
+class NotificationChannel(StrEnum):
+    IN_APP = "IN_APP"
+    SMS = "SMS"
+    ZALO = "ZALO"
+    EMAIL = "EMAIL"
+
+
+class NotificationStatus(StrEnum):
+    PENDING = "PENDING"  # scheduled for later (reminders)
+    SENT = "SENT"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"  # e.g. reminder of a viewing that was cancelled or moved
+
+
+class EscalationType(StrEnum):
+    """When a human must step in (spec §4.3, §4.8 HITL, §6.4)."""
+
+    SELLER_NO_RESPONSE = "SELLER_NO_RESPONSE"
+    NO_COMMON_SLOT = "NO_COMMON_SLOT"
+    SCHEDULE_CONFLICT = "SCHEDULE_CONFLICT"
+    PROPERTY_ISSUE = "PROPERTY_ISSUE"
+    MULTI_BUYER = "MULTI_BUYER"
+    SYSTEM_FAILURE = "SYSTEM_FAILURE"
+    OTHER = "OTHER"
+
+
+class EscalationStatus(StrEnum):
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    RESOLVED = "RESOLVED"
+    DISMISSED = "DISMISSED"
+
+
+OPEN_ESCALATION_STATUSES = (EscalationStatus.OPEN, EscalationStatus.IN_PROGRESS)
+
+
+class HoldStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    RELEASED = "RELEASED"
+    EXPIRED = "EXPIRED"
 
 
 class Channel(StrEnum):
@@ -161,7 +274,69 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # NULL for buyers/sellers who only ever sign in with OTP; operators always have one
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class OtpCode(Base):
+    """One-time login code sent to a phone/email. Only the hash is stored."""
+
+    __tablename__ = "otp_codes"
+    __table_args__ = (Index("ix_otp_codes_target_created", "target", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    target: Mapped[str] = mapped_column(String(255), nullable=False)
+    purpose: Mapped[OtpPurpose] = mapped_column(_enum(OtpPurpose, "otp_purpose"), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now_column()
+
+
+class BuyerProfile(Base):
+    """What a seller may see about a buyer at privacy Level 1 (spec §4.7): no PII."""
+
+    __tablename__ = "buyer_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "budget_min_vnd IS NULL OR budget_max_vnd IS NULL OR budget_min_vnd <= budget_max_vnd",
+            name="budget_order",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    budget_min_vnd: Mapped[int | None] = mapped_column(BigInteger)
+    budget_max_vnd: Mapped[int | None] = mapped_column(BigInteger)
+    preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    viewing_preference: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SellerProfile(Base):
+    """Owner verification state; only VERIFIED sellers' properties can be booked (AC-04)."""
+
+    __tablename__ = "seller_profiles"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    verification_status: Mapped[SellerVerificationStatus] = mapped_column(
+        _enum(SellerVerificationStatus, "seller_verification_status"),
+        nullable=False,
+        default=SellerVerificationStatus.UNVERIFIED,
+    )
+    source: Mapped[SellerSource] = mapped_column(
+        _enum(SellerSource, "seller_source"), nullable=False, default=SellerSource.SELF
+    )
+    id_document_s3_key: Mapped[str | None] = mapped_column(String(512))
+    verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _now_column()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -227,7 +402,6 @@ class Property(Base):
     furnishing: Mapped[Furnishing] = mapped_column(_enum(Furnishing, "furnishing"), nullable=False)
     legal_status: Mapped[LegalStatus] = mapped_column(_enum(LegalStatus, "legal_status"), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    image_urls: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     status: Mapped[PropertyStatus] = mapped_column(
         _enum(PropertyStatus, "property_status"), nullable=False, default=PropertyStatus.DRAFT
     )
@@ -241,6 +415,25 @@ class Property(Base):
 
     owner: Mapped[User] = relationship(foreign_keys=[owner_id])
     building: Mapped[Building] = relationship()
+    media: Mapped[list["PropertyMedia"]] = relationship(
+        order_by="(PropertyMedia.sort_order, PropertyMedia.id)", cascade="all, delete-orphan"
+    )
+
+
+class PropertyMedia(Base):
+    """Photo/video/document stored in S3. Ownership documents are never shown to buyers."""
+
+    __tablename__ = "property_media"
+    __table_args__ = (Index("ix_property_media_property_order", "property_id", "sort_order"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[MediaKind] = mapped_column(_enum(MediaKind, "media_kind"), nullable=False)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = _now_column()
 
 
 class AvailabilitySlot(Base):
@@ -265,23 +458,103 @@ class AvailabilitySlot(Base):
     created_at: Mapped[datetime] = _now_column()
 
 
+DEAL_CODE_SEQUENCE = "deal_code_seq"
+
+
+class Deal(Base):
+    """One Buyer + Seller + Property relationship, identified by a human-readable code (spec §4.9)."""
+
+    __tablename__ = "deals"
+    __table_args__ = (
+        # A buyer has at most one open deal per property; a new one may start after it is closed
+        Index(
+            "uq_deals_open_buyer_property",
+            "buyer_id",
+            "property_id",
+            unique=True,
+            postgresql_where=text("status NOT IN ('COMPLETED', 'CLOSED')"),
+        ),
+        Index("ix_deals_seller", "seller_id"),
+        Index("ix_deals_property", "property_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # e.g. VH-2026-00128
+    code: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        unique=True,
+        server_default=text(
+            f"'VH-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('{DEAL_CODE_SEQUENCE}')::text, 5, '0')"
+        ),
+    )
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    # Snapshot of the property's owner at deal creation, used for attribution (spec §4.10)
+    seller_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
+    status: Mapped[DealStatus] = mapped_column(
+        _enum(DealStatus, "deal_status"), nullable=False, default=DealStatus.MATCHED
+    )
+    # Progressive disclosure level 1-4 (spec §4.7)
+    disclosure_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    # The AI recommendation that led the buyer to this property, if any (recommendation analytics)
+    source_recommendation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("recommendations.id", ondelete="SET NULL", use_alter=True)
+    )
+    closed_reason: Mapped[str | None] = mapped_column(Text)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    buyer: Mapped[User] = relationship(foreign_keys=[buyer_id])
+    seller: Mapped[User] = relationship(foreign_keys=[seller_id])
+    property: Mapped[Property] = relationship()
+
+
+class BuyerAvailability(Base):
+    """A time window the buyer can attend a viewing, intersected with seller slots (spec §4.8)."""
+
+    __tablename__ = "buyer_availability"
+    __table_args__ = (
+        CheckConstraint("end_at > start_at", name="time_order"),
+        Index("ix_buyer_availability_deal", "deal_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    deal_id: Mapped[int] = mapped_column(ForeignKey("deals.id", ondelete="CASCADE"), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period: Mapped[Any] = mapped_column(TSTZRANGE, Computed("tstzrange(start_at, end_at, '[)')", persisted=True))
+    created_at: Mapped[datetime] = _now_column()
+
+
 class Booking(Base):
     __tablename__ = "bookings"
     __table_args__ = (
         CheckConstraint("end_at > start_at", name="time_order"),
-        # The anti-double-booking guarantee (AC-03): at most one active booking per property per time window
+        CheckConstraint(
+            "(proposed_start_at IS NULL) = (proposed_end_at IS NULL)"
+            " AND (proposed_end_at IS NULL OR proposed_end_at > proposed_start_at)",
+            name="proposed_time_order",
+        ),
+        # The anti-double-booking guarantee: at most one active booking per property per time window
         ExcludeConstraint(
             (column("property_id"), "="),
             (column("period"), "&&"),
             using="gist",
             name="ex_bookings_no_overlap",
-            where=text("status IN ('REQUESTED', 'CONFIRMED')"),
+            where=text("status IN ('REQUESTED', 'CONFIRMED', 'RESCHEDULE_REQUESTED')"),
         ),
         Index("ix_bookings_customer", "customer_id"),
         Index("ix_bookings_status_start", "status", "start_at"),
+        Index("ix_bookings_deal", "deal_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    deal_id: Mapped[int] = mapped_column(ForeignKey("deals.id", ondelete="RESTRICT"), nullable=False)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     slot_id: Mapped[int | None] = mapped_column(ForeignKey("availability_slots.id", ondelete="SET NULL"))
@@ -291,18 +564,204 @@ class Booking(Base):
     status: Mapped[BookingStatus] = mapped_column(
         _enum(BookingStatus, "booking_status"), nullable=False, default=BookingStatus.REQUESTED
     )
+    # New time asked for while RESCHEDULE_REQUESTED; becomes start_at/end_at once the owner confirms
+    proposed_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    proposed_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_via: Mapped[Channel] = mapped_column(_enum(Channel, "channel"), nullable=False, default=Channel.WEB)
     customer_note: Mapped[str | None] = mapped_column(Text)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now_column()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
+    deal: Mapped[Deal] = relationship()
     property: Mapped[Property] = relationship()
     customer: Mapped[User] = relationship(foreign_keys=[customer_id])
+    hold: Mapped["PropertyHold | None"] = relationship(viewonly=True, uselist=False)
+
+
+class PropertyHold(Base):
+    """Viewing hold: locks the property for one confirmed viewing window only (spec §4.13)."""
+
+    __tablename__ = "property_holds"
+    __table_args__ = (
+        CheckConstraint("end_at > start_at", name="time_order"),
+        # AC-08: never two active holds on one property at overlapping times
+        ExcludeConstraint(
+            (column("property_id"), "="),
+            (column("period"), "&&"),
+            using="gist",
+            name="ex_property_holds_no_overlap",
+            where=text("status = 'ACTIVE'"),
+        ),
+        Index("ix_property_holds_status_end", "status", "end_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id", ondelete="RESTRICT"), nullable=False, unique=True)
+    deal_id: Mapped[int] = mapped_column(ForeignKey("deals.id", ondelete="RESTRICT"), nullable=False)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period: Mapped[Any] = mapped_column(TSTZRANGE, Computed("tstzrange(start_at, end_at, '[)')", persisted=True))
+    status: Mapped[HoldStatus] = mapped_column(
+        _enum(HoldStatus, "hold_status"), nullable=False, default=HoldStatus.ACTIVE
+    )
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    release_reason: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = _now_column()
+
+    booking: Mapped[Booking] = relationship()
+
+
+class AiConversation(Base):
+    """One buyer chat thread with the AI agent (spec §4.16)."""
+
+    __tablename__ = "ai_conversations"
+    __table_args__ = (
+        UniqueConstraint("buyer_id", "client_id", name="uq_ai_conversations_buyer_client"),
+        Index("ix_ai_conversations_buyer_last", "buyer_id", "last_message_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Id chosen by the web client; the LangGraph thread is "<buyer_id>:<client_id>"
+    client_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    status: Mapped[ConversationStatus] = mapped_column(
+        _enum(ConversationStatus, "conversation_status"), nullable=False, default=ConversationStatus.ACTIVE
+    )
+    # Latest search criteria the agent extracted (spec §6.2 correction path starts from here)
+    extracted_criteria: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = _now_column()
+    last_message_at: Mapped[datetime] = _now_column()
+
+
+class AiMessage(Base):
+    """Every turn element: buyer text, assistant text/tool calls, tool results (for audit of AC-01)."""
+
+    __tablename__ = "ai_messages"
+    __table_args__ = (Index("ix_ai_messages_conversation", "conversation_id", "id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[MessageRole] = mapped_column(_enum(MessageRole, "message_role"), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Assistant: requested tool calls. Tool: the call it answers.
+    tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    tool_name: Mapped[str | None] = mapped_column(String(64))
+    tool_args: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # The structured envelope the tool returned ({"ok": ..., "data"|"error": ...})
+    tool_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    tool_ok: Mapped[bool | None] = mapped_column(Boolean)
+    model: Mapped[str | None] = mapped_column(String(64))
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    # Set on the final assistant reply: wall time of the whole turn (spec §2.2 latency p95)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = _now_column()
+
+
+class Recommendation(Base):
+    """A property the agent showed the buyer, with why (explainability + Precision@5)."""
+
+    __tablename__ = "recommendations"
+    __table_args__ = (
+        Index("ix_recommendations_conversation", "conversation_id"),
+        Index("ix_recommendations_buyer_property", "buyer_id", "property_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False)
+    ai_message_id: Mapped[int] = mapped_column(ForeignKey("ai_messages.id", ondelete="CASCADE"), nullable=False)
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
+    rank: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    match_score: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    # matched / unmatched criteria as returned by search (the explanation shown to the buyer)
+    score_breakdown: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    criteria_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = _now_column()
+
+
+class Notification(Base):
+    """Event notifications and scheduled reminders (spec §4.19). In-app for now; SMS/Zalo provider is TBD."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_created", "user_id", "created_at"),
+        Index("ix_notifications_status_scheduled", "status", "scheduled_at"),
+        Index("ix_notifications_booking", "booking_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    channel: Mapped[NotificationChannel] = mapped_column(
+        _enum(NotificationChannel, "notification_channel"), nullable=False, default=NotificationChannel.IN_APP
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    deal_id: Mapped[int | None] = mapped_column(ForeignKey("deals.id", ondelete="SET NULL"))
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id", ondelete="SET NULL"))
+    status: Mapped[NotificationStatus] = mapped_column(
+        _enum(NotificationStatus, "notification_status"), nullable=False, default=NotificationStatus.SENT
+    )
+    # When a PENDING notification becomes due (reminders); NULL = immediate
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Guards against sending the same reminder twice, e.g. "booking:12:2030-01-05T15:00:T-2h:user:1"
+    dedupe_key: Mapped[str | None] = mapped_column(String(255), unique=True)
+    created_at: Mapped[datetime] = _now_column()
+
+
+class Escalation(Base):
+    """Operator exception queue item (spec §4.15 Operator 'Exception queue')."""
+
+    __tablename__ = "escalations"
+    __table_args__ = (
+        Index("ix_escalations_status_created", "status", "created_at"),
+        Index("ix_escalations_requester", "requester_id"),
+        # At most one open escalation of a given type per booking (the no-response sweep relies on it)
+        Index(
+            "uq_escalations_open_booking_type",
+            "booking_id",
+            "type",
+            unique=True,
+            postgresql_where=text("status IN ('OPEN', 'IN_PROGRESS') AND booking_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    type: Mapped[EscalationType] = mapped_column(_enum(EscalationType, "escalation_type"), nullable=False)
+    status: Mapped[EscalationStatus] = mapped_column(
+        _enum(EscalationStatus, "escalation_status"), nullable=False, default=EscalationStatus.OPEN
+    )
+    raised_by: Mapped[ActorType] = mapped_column(_enum(ActorType, "actor_type"), nullable=False)
+    # The buyer/seller this is about; told the outcome when it is resolved
+    requester_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    deal_id: Mapped[int | None] = mapped_column(ForeignKey("deals.id", ondelete="SET NULL"))
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id", ondelete="SET NULL"))
+    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id", ondelete="SET NULL"))
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("ai_conversations.id", ondelete="SET NULL"))
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    context: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    assigned_to: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    resolution: Mapped[str | None] = mapped_column(Text)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class AuditLog(Base):

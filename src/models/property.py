@@ -8,6 +8,7 @@ from src.db.models import (
     Direction,
     Furnishing,
     LegalStatus,
+    MediaKind,
     PropertyStatus,
     PropertyType,
     ViewType,
@@ -30,7 +31,6 @@ class PropertyBase(BaseModel):
     furnishing: Furnishing
     legal_status: LegalStatus
     description: str = Field(default="", max_length=5000)
-    image_urls: list[str] = Field(default_factory=list, max_length=30)
 
 
 class PropertyCreate(PropertyBase):
@@ -52,7 +52,25 @@ class PropertyUpdate(BaseModel):
     furnishing: Furnishing | None = None
     legal_status: LegalStatus | None = None
     description: str | None = Field(default=None, max_length=5000)
-    image_urls: list[str] | None = Field(default=None, max_length=30)
+
+
+class MediaCreate(BaseModel):
+    kind: MediaKind
+    # Key of the object already uploaded to S3
+    s3_key: str = Field(..., min_length=3, max_length=512)
+    content_type: str = Field(..., min_length=3, max_length=100)
+    sort_order: int = Field(default=0, ge=0, le=1000)
+    # Ignored for OWNERSHIP_DOC, which is always private
+    is_public: bool = True
+
+
+class MediaOut(BaseModel):
+    id: int
+    kind: MediaKind
+    url: str
+    content_type: str
+    sort_order: int
+    is_public: bool
 
 
 class PropertyOut(PropertyBase):
@@ -67,6 +85,10 @@ class PropertyOut(PropertyBase):
     city: str
     rejection_reason: str | None = None
     created_at: datetime
+    # Buyers only get public media; the owner and operators also see private documents
+    media: list[MediaOut] = Field(default_factory=list)
+    # Public image URLs in display order (derived from media)
+    image_urls: list[str] = Field(default_factory=list)
 
 
 class RejectRequest(BaseModel):
