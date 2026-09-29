@@ -49,7 +49,9 @@ def build_graph(llm: BaseChatModel, checkpointer: BaseCheckpointSaver | None = N
 
 @lru_cache
 def get_agent() -> CompiledStateGraph:
-    if not get_settings().openai_api_key:
-        raise AgentUnavailableError("AI assistant is not configured (OPENAI_API_KEY missing)")
+    settings = get_settings()
+    if not settings.llm_api_key:
+        key = "GOOGLE_API_KEY" if settings.llm_provider == "google" else "OPENAI_API_KEY"
+        raise AgentUnavailableError(f"AI assistant is not configured ({key} missing)")
     # In-process memory: conversations are lost on restart and not shared between workers
     return build_graph(get_llm(), InMemorySaver())

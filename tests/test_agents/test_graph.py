@@ -11,6 +11,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from src.agents import graph as agent_graph
 from src.agents.tools import TOOLS
 from src.config import get_settings
+from src.core.errors import AgentUnavailableError
 from src.db.models import AvailabilitySlot
 from tests.helpers import CUSTOMER_AN, CUSTOMER_BINH, OPERATOR, OWNER_TUAN, auth
 
@@ -77,7 +78,14 @@ async def test_chat_requires_logged_in_buyer(client):
 
 @pytest.mark.asyncio
 async def test_chat_without_api_key_is_unavailable(client, monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "")
+    for provider in ("openai", "google"):
+        monkeypatch.setenv("LLM_PROVIDER", provider)
+        monkeypatch.setenv("OPENAI_API_KEY", "")
+        monkeypatch.setenv("GOOGLE_API_KEY", "")
+        get_settings.cache_clear()
+        agent_graph.get_agent.cache_clear()
+        with pytest.raises(AgentUnavailableError, match="GOOGLE_API_KEY" if provider == "google" else "OPENAI"):
+            agent_graph.get_agent()
     get_settings.cache_clear()
     agent_graph.get_agent.cache_clear()
     try:
@@ -163,3 +171,23 @@ async def test_failed_tool_call_is_not_reported_as_booking(client, script):
     )
     body = (await _chat(client, an, "Đặt lịch 3h sáng")).json()
     assert body["bookings"] == []
+
+
+@pytest.mark.parametrize(
+    ("provider", "cls_name", "model"),
+    [("openai", "ChatOpenAI", "gpt-4o-mini"), ("google", "ChatGoogleGenerativeAI", "gemini-flash-latest")],
+)
+def test_llm_provider_selection(monkeypatch, provider, cls_name, model):
+    from src.services.llm import get_llm
+
+    monkeypatch.setenv("LLM_PROVIDER", provider)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("MODEL_NAME", "")
+    get_settings.cache_clear()
+    try:
+        llm = get_llm()
+        assert type(llm).__name__ == cls_name
+        assert model in (getattr(llm, "model_name", None) or getattr(llm, "model", ""))
+    finally:
+        get_settings.cache_clear()

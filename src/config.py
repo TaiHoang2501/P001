@@ -21,10 +21,24 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     timezone: str = "Asia/Ho_Chi_Minh"
 
-    # LLM
+    # LLM (spec §9.1: Gemini or OpenAI)
+    llm_provider: Literal["openai", "google"] = "openai"
     openai_api_key: str = ""
-    model_name: str = "gpt-4o-mini"
+    google_api_key: str = ""
+    # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest)
+    model_name: str = ""
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    # Keep a chat turn from hanging for minutes when the provider is overloaded
+    llm_timeout_seconds: float = Field(default=45, gt=0)
+    llm_max_retries: int = Field(default=2, ge=0)
+
+    @property
+    def llm_api_key(self) -> str:
+        return self.google_api_key if self.llm_provider == "google" else self.openai_api_key
+
+    @property
+    def llm_model(self) -> str:
+        return self.model_name or ("gemini-flash-latest" if self.llm_provider == "google" else "gpt-4o-mini")
 
     # Database (PostgreSQL 15+ required: btree_gist exclusion constraints, pg_trgm)
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/bookingbot"
