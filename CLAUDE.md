@@ -3,7 +3,7 @@
 ## 1. Project Overview
 - **Project:** AI Agent Direct Connect BĐS (tên MVP: **BookingBot AI Agent**) — Trợ lý AI-first giúp Buyer tìm đúng căn Vinhomes, kết nối trực tiếp với Seller đã xác thực và tự động khớp lịch xem nhà.
 - **Domain:** Bất động sản / Vinhomes-only.
-- **Spec reference:** `.specify/spec_v2.md` (AI SPEC Draft v2.0).
+- **Spec reference:** `.specify/spec_final.md` (AI SPEC Draft v2.0).
 - **Actors:** `Buyer` (Khách mua), `Seller / Owner` (Chủ căn có nhu cầu bán), `Investor / Operator` (Chủ đầu tư — trong MVP Operator = Chủ đầu tư), `AI Agent`, `Human Operator` (xử lý ngoại lệ).
 - **Mô hình:** `Buyer → AI Agent → Seller`, trong đó **Chủ đầu tư = Trust & Transaction Layer** (xác thực Owner, Property, trạng thái căn, các bước giao dịch cần kiểm soát).
 - **Product Thesis:** Buyer nhập nhu cầu → AI hiểu & matching → tìm căn đã xác thực → Buyer yêu cầu xem → **tạo Deal ID** → AI kết nối Seller → AI khớp lịch → **Owner xác nhận** → Viewing Hold → xem nhà → chuyển sang quy trình Chủ đầu tư khi cần. Giảm phụ thuộc vào Sale/trung gian và hạn chế chia sẻ PII.
