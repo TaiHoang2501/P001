@@ -1,6 +1,6 @@
 """SQLAlchemy models for the BookingBot MVP.
 
-Design notes (see docs/backend-mvp.md):
+Design notes:
 - Enums are stored as VARCHAR + CHECK (not native PG enums) so adding a value is a plain migration.
 - A CONFIRMED booking *is* the viewing hold (spec §4.9): it only locks its own time window.
   REQUESTED bookings also reserve the slot so two customers cannot request the same window.
@@ -15,6 +15,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Computed,
     DateTime,
@@ -107,6 +108,37 @@ class PropertyStatus(StrEnum):
     AVAILABLE = "AVAILABLE"
     REJECTED = "REJECTED"
     SOLD = "SOLD"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class SellerVerificationStatus(StrEnum):
+    UNVERIFIED = "UNVERIFIED"
+    PENDING = "PENDING"
+    VERIFIED = "VERIFIED"
+    REJECTED = "REJECTED"
+
+
+class SellerSource(StrEnum):
+    """How the seller reached the platform (spec §4.6)."""
+
+    SELF = "SELF"
+    AI_INTENT = "AI_INTENT"
+    APP = "APP"
+    WEBSITE = "WEBSITE"
+    CSKH = "CSKH"
+    BQL = "BQL"
+    HOTLINE = "HOTLINE"
+
+
+class MediaKind(StrEnum):
+    IMAGE = "IMAGE"
+    VIDEO = "VIDEO"
+    FLOORPLAN = "FLOORPLAN"
+    OWNERSHIP_DOC = "OWNERSHIP_DOC"
+
+
+class OtpPurpose(StrEnum):
+    LOGIN = "LOGIN"
 
 
 class BookingStatus(StrEnum):
@@ -162,6 +194,67 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class OtpCode(Base):
+    """One-time login code sent to a phone/email. Only the hash is stored."""
+
+    __tablename__ = "otp_codes"
+    __table_args__ = (Index("ix_otp_codes_target_created", "target", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    target: Mapped[str] = mapped_column(String(255), nullable=False)
+    purpose: Mapped[OtpPurpose] = mapped_column(_enum(OtpPurpose, "otp_purpose"), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now_column()
+
+
+class BuyerProfile(Base):
+    """What a seller may see about a buyer at privacy Level 1 (spec §4.7): no PII."""
+
+    __tablename__ = "buyer_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "budget_min_vnd IS NULL OR budget_max_vnd IS NULL OR budget_min_vnd <= budget_max_vnd",
+            name="budget_order",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    budget_min_vnd: Mapped[int | None] = mapped_column(BigInteger)
+    budget_max_vnd: Mapped[int | None] = mapped_column(BigInteger)
+    preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    viewing_preference: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SellerProfile(Base):
+    """Owner verification state; only VERIFIED sellers' properties can be booked (AC-04)."""
+
+    __tablename__ = "seller_profiles"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    verification_status: Mapped[SellerVerificationStatus] = mapped_column(
+        _enum(SellerVerificationStatus, "seller_verification_status"),
+        nullable=False,
+        default=SellerVerificationStatus.UNVERIFIED,
+    )
+    source: Mapped[SellerSource] = mapped_column(
+        _enum(SellerSource, "seller_source"), nullable=False, default=SellerSource.SELF
+    )
+    id_document_s3_key: Mapped[str | None] = mapped_column(String(512))
+    verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _now_column()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -241,6 +334,22 @@ class Property(Base):
 
     owner: Mapped[User] = relationship(foreign_keys=[owner_id])
     building: Mapped[Building] = relationship()
+
+
+class PropertyMedia(Base):
+    """Photo/video/document stored in S3. Ownership documents are never shown to buyers."""
+
+    __tablename__ = "property_media"
+    __table_args__ = (Index("ix_property_media_property_order", "property_id", "sort_order"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[MediaKind] = mapped_column(_enum(MediaKind, "media_kind"), nullable=False)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = _now_column()
 
 
 class AvailabilitySlot(Base):
