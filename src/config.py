@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = Field(default=60 * 24, ge=5)
 
+    # OTP login (spec §4.17); SMS/Zalo provider is TBD, so codes are only logged for now
+    otp_ttl_seconds: int = Field(default=300, ge=30)
+    otp_max_attempts: int = Field(default=5, ge=1)
+    otp_max_requests: int = Field(default=5, ge=1, description="Codes per target per rate-limit window")
+    otp_rate_window_minutes: int = Field(default=15, ge=1)
+
     # Recommendation scoring weights (spec §4.6: TBD, calibrate with real data)
     score_weight_price: float = 0.25
     score_weight_area: float = 0.15

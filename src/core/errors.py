@@ -33,6 +33,13 @@ class InvalidCredentialsError(AppError):
     code = "INVALID_CREDENTIALS"
 
 
+class AccountNotFoundError(AppError):
+    """OTP was valid but no account exists yet: the client should ask for sign-up details."""
+
+    status_code = 404
+    code = "ACCOUNT_NOT_FOUND"
+
+
 class ForbiddenError(AppError):
     status_code = 403
     code = "FORBIDDEN"
@@ -65,6 +72,11 @@ class SlotUnavailableError(AppError):
 class BusinessRuleViolationError(AppError):
     status_code = 422
     code = "BUSINESS_RULE_VIOLATION"
+
+
+class RateLimitedError(AppError):
+    status_code = 429
+    code = "RATE_LIMITED"
 
 
 def register_error_handlers(app: FastAPI) -> None:

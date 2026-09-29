@@ -226,7 +226,8 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # NULL for buyers/sellers who only ever sign in with OTP; operators always have one
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = _now_column()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
