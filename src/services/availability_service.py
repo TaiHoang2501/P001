@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, exists, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from src.config import get_settings
@@ -23,10 +23,20 @@ from src.services import audit, seller_service
 from src.services.scheduling import Window, candidate_starts, intersect, subtract
 
 EXCLUSION_VIOLATION = "23P01"
+DEADLOCK_DETECTED = "40P01"
+
+# DB errors raised when two transactions race for the same property/time window
+TimeConflictError = (IntegrityError, OperationalError)
 
 
-def is_exclusion_violation(err: IntegrityError) -> bool:
-    return getattr(err.orig, "sqlstate", None) == EXCLUSION_VIOLATION
+def is_exclusion_violation(err: DBAPIError) -> bool:
+    """True when `err` means "this time window is taken".
+
+    Besides a plain exclusion violation, two concurrent inserts that overlap can each wait on the
+    other while checking the exclusion constraint; PostgreSQL then aborts one with a deadlock.
+    Either way the loser simply did not get the slot.
+    """
+    return getattr(err.orig, "sqlstate", None) in (EXCLUSION_VIOLATION, DEADLOCK_DETECTED)
 
 
 def _slot_taken():
@@ -53,7 +63,7 @@ def add_slot(db: Session, actor: Actor, property_id: int, data: SlotCreate) -> S
     db.add(slot)
     try:
         db.flush()
-    except IntegrityError as e:
+    except TimeConflictError as e:
         db.rollback()
         if is_exclusion_violation(e):
             raise AlreadyExistsError("This slot overlaps an existing slot for the property") from e

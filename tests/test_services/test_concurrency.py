@@ -2,6 +2,9 @@
 
 import threading
 
+import pytest
+from sqlalchemy.exc import OperationalError
+
 from src.core.actor import Actor
 from src.core.errors import SlotUnavailableError, StateConflictError
 from src.core.security import hash_password
@@ -92,3 +95,47 @@ def test_concurrent_owner_confirmations_create_one_hold(db):
     assert sorted(outcomes) == ["conflict", "ok"]
     holds = db.query(PropertyHold).filter_by(booking_id=booking_id, status=HoldStatus.ACTIVE).count()
     assert holds == 1
+
+
+class _PgError(Exception):
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__(sqlstate)
+        self.sqlstate = sqlstate
+
+
+def test_exclusion_deadlock_is_reported_as_slot_unavailable(db, monkeypatch):
+    """Two overlapping inserts can deadlock while checking the exclusion constraint; the loser gets
+    SLOT_UNAVAILABLE with alternatives, not a server error."""
+    slot = db.query(AvailabilitySlot).filter_by(property_id=1).order_by(AvailabilitySlot.start_at).first()
+    with get_sessionmaker()() as session:
+        buyer = Actor(user=session.get(User, 1))
+        real_flush = session.flush
+
+        def flush_then_deadlock(*args, **kwargs):
+            if any(isinstance(o, Booking) for o in session.new):
+                raise OperationalError("INSERT INTO bookings ...", {}, _PgError("40P01"))
+            return real_flush(*args, **kwargs)
+
+        monkeypatch.setattr(session, "flush", flush_then_deadlock)
+        try:
+            booking_service.create_request(session, buyer, BookingCreate(property_id=1, slot_id=slot.id))
+        except SlotUnavailableError as e:
+            assert e.details["free_slots"]
+        else:
+            raise AssertionError("expected SlotUnavailableError")
+
+
+def test_other_operational_errors_are_not_hidden(db, monkeypatch):
+    slot = db.query(AvailabilitySlot).filter_by(property_id=1).order_by(AvailabilitySlot.start_at).first()
+    with get_sessionmaker()() as session:
+        buyer = Actor(user=session.get(User, 1))
+        real_flush = session.flush
+
+        def flush_connection_lost(*args, **kwargs):
+            if any(isinstance(o, Booking) for o in session.new):
+                raise OperationalError("INSERT INTO bookings ...", {}, _PgError("08006"))
+            return real_flush(*args, **kwargs)
+
+        monkeypatch.setattr(session, "flush", flush_connection_lost)
+        with pytest.raises(OperationalError):
+            booking_service.create_request(session, buyer, BookingCreate(property_id=1, slot_id=slot.id))

@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
 from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.config import get_settings
@@ -40,7 +40,7 @@ from src.db.models import (
 )
 from src.models.booking import BookingCreate, BookingOut, RescheduleRequest
 from src.services import audit, deal_service, hold_service, notification_service, seller_service
-from src.services.availability_service import is_exclusion_violation, list_slots
+from src.services.availability_service import TimeConflictError, is_exclusion_violation, list_slots
 
 # Booking lifecycle (spec §4.12)
 _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
@@ -190,7 +190,7 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
         )
         db.add(booking)
         db.flush()
-    except IntegrityError as e:
+    except TimeConflictError as e:
         _raise_slot_taken(db, e, data.property_id)
     audit.record(
         db,
@@ -206,7 +206,7 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
     return to_out(_load(db, booking.id), actor)
 
 
-def _raise_slot_taken(db: Session, err: IntegrityError, property_id: int) -> NoReturn:
+def _raise_slot_taken(db: Session, err: DBAPIError, property_id: int) -> NoReturn:
     """Roll back first: the session is unusable after a failed flush."""
     db.rollback()
     if is_exclusion_violation(err):
@@ -323,7 +323,7 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
             hold_service.move(db, actor, hold, booking)
         else:
             hold_service.create_for(db, actor, booking)
-    except IntegrityError as e:
+    except TimeConflictError as e:
         _raise_slot_taken(db, e, property_id)
     _audit_transition(db, actor, "booking.reschedule_approve" if rescheduling else "booking.approve", booking, before)
     _sync_deal(db, actor, booking)
