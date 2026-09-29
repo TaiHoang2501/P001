@@ -146,22 +146,42 @@ def seller_windows(db: Session, property_id: int, *, since: datetime, until: dat
     return [Window(start, end) for start, end in db.execute(stmt).all()]
 
 
+def _require_bookable(db: Session, property_id: int) -> Property:
+    prop = db.get(Property, property_id)
+    if prop is None or prop.status != PropertyStatus.AVAILABLE:
+        raise NotFoundError(f"Property {property_id} not found")
+    seller_service.require_verified(db, prop.owner_id)
+    return prop
+
+
+def _seller_free(db: Session, property_id: int, now: datetime, until: datetime | None = None) -> list[Window]:
+    return subtract(seller_windows(db, property_id, since=now, until=until), busy_windows(db, property_id, since=now))
+
+
+def seller_free_windows(db: Session, property_id: int) -> list[TimeWindow]:
+    """The seller's free windows over the next `viewing_alternative_days`, minus booked/held times."""
+    _require_bookable(db, property_id)
+    now = datetime.now(UTC)
+    until = now + timedelta(days=get_settings().viewing_alternative_days)
+    return [
+        TimeWindow(start_at=max(w.start, now), end_at=w.end)
+        for w in _seller_free(db, property_id, now, until)
+        if w.end > now
+    ]
+
+
 def propose_viewing_times(db: Session, property_id: int, data: ViewingTimesRequest) -> ViewingTimesOut:
     """Match the buyer's free windows with the seller's, skipping times already booked or held.
 
     Read-only: nothing is reserved until a viewing request is created.
     """
-    prop = db.get(Property, property_id)
-    if prop is None or prop.status != PropertyStatus.AVAILABLE:
-        raise NotFoundError(f"Property {property_id} not found")
-    seller_service.require_verified(db, prop.owner_id)
-
+    _require_bookable(db, property_id)
     s = get_settings()
     now = datetime.now(UTC)
     duration = timedelta(minutes=s.viewing_duration_minutes)
     step = timedelta(minutes=s.viewing_step_minutes)
 
-    seller_free = subtract(seller_windows(db, property_id, since=now), busy_windows(db, property_id, since=now))
+    seller_free = _seller_free(db, property_id, now)
     buyer = [Window(w.start_at, w.end_at) for w in data.windows]
     common = [w for w in intersect(buyer, seller_free) if w.end > now]
     starts = candidate_starts(common, duration=duration, step=step, not_before=now, limit=s.viewing_max_proposals)

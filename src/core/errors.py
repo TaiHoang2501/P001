@@ -81,6 +81,13 @@ class SellerUnverifiedError(AppError):
     code = "SELLER_UNVERIFIED"
 
 
+class AgentUnavailableError(AppError):
+    """The AI assistant cannot answer right now (not configured, or the model provider failed)."""
+
+    status_code = 503
+    code = "AGENT_UNAVAILABLE"
+
+
 class RateLimitedError(AppError):
     status_code = 429
     code = "RATE_LIMITED"
