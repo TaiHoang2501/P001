@@ -354,7 +354,6 @@ class Property(Base):
     furnishing: Mapped[Furnishing] = mapped_column(_enum(Furnishing, "furnishing"), nullable=False)
     legal_status: Mapped[LegalStatus] = mapped_column(_enum(LegalStatus, "legal_status"), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    image_urls: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     status: Mapped[PropertyStatus] = mapped_column(
         _enum(PropertyStatus, "property_status"), nullable=False, default=PropertyStatus.DRAFT
     )
@@ -368,6 +367,9 @@ class Property(Base):
 
     owner: Mapped[User] = relationship(foreign_keys=[owner_id])
     building: Mapped[Building] = relationship()
+    media: Mapped[list["PropertyMedia"]] = relationship(
+        order_by="(PropertyMedia.sort_order, PropertyMedia.id)", cascade="all, delete-orphan"
+    )
 
 
 class PropertyMedia(Base):

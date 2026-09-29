@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = Field(default=60 * 24, ge=5)
 
+    # Media: public URL = media_base_url + s3_key (e.g. a CloudFront domain); empty means return the key
+    media_base_url: str = ""
+
     # OTP login (spec §4.17); SMS/Zalo provider is TBD, so codes are only logged for now
     otp_ttl_seconds: int = Field(default=300, ge=30)
     otp_max_attempts: int = Field(default=5, ge=1)

@@ -58,14 +58,14 @@ def test_property_media_ownership_doc_can_be_private(db):
         PropertyMedia(
             property_id=prop.id,
             kind=MediaKind.OWNERSHIP_DOC,
-            s3_key=f"private/properties/{prop.id}/so-hong.pdf",
+            s3_key=f"private/properties/{prop.id}/extra.pdf",
             content_type="application/pdf",
             is_public=False,
         )
     )
     db.commit()
 
-    media = db.query(PropertyMedia).filter_by(property_id=prop.id).one()
+    media = db.query(PropertyMedia).filter_by(s3_key=f"private/properties/{prop.id}/extra.pdf").one()
     assert media.is_public is False
     assert media.sort_order == 0
 

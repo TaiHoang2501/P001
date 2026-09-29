@@ -81,6 +81,8 @@ async def test_listing_lifecycle_draft_submit_approve(client):
     pid = r.json()["id"]
     assert r.json()["status"] == "DRAFT"
 
+    doc = {"kind": "OWNERSHIP_DOC", "s3_key": "private/x/so-hong.pdf", "content_type": "application/pdf"}
+    await client.post(f"/api/v1/owner/properties/{pid}/media", json=doc, headers=owner)
     r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
     assert r.json()["status"] == "PENDING_REVIEW"
 
@@ -111,7 +113,7 @@ async def test_rejected_listing_can_be_fixed_and_resubmitted(client):
     assert r.json()["status"] == "REJECTED"
     assert r.json()["rejection_reason"] == "Thiếu ảnh"
 
-    r = await client.patch(f"/api/v1/owner/properties/{pid}", json={"image_urls": ["a.jpg"]}, headers=owner)
+    r = await client.patch(f"/api/v1/owner/properties/{pid}", json={"description": "Đã bổ sung ảnh"}, headers=owner)
     assert r.status_code == 200
     r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
     assert r.json()["status"] == "PENDING_REVIEW"

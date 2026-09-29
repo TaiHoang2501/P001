@@ -26,8 +26,10 @@ from src.db.models import (
     Direction,
     Furnishing,
     LegalStatus,
+    MediaKind,
     Project,
     Property,
+    PropertyMedia,
     PropertyStatus,
     PropertyType,
     SellerProfile,
@@ -118,7 +120,6 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
                 furnishing=furnishing,
                 legal_status=rng.choice([LegalStatus.PINK_BOOK, LegalStatus.PINK_BOOK, LegalStatus.SALE_CONTRACT]),
                 description=f"Căn {label} {area} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
-                image_urls=[],
                 status=PropertyStatus.AVAILABLE,
             )
         )
@@ -147,11 +148,34 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
                 furnishing=Furnishing.BASIC,
                 legal_status=LegalStatus.PINK_BOOK,
                 description=desc,
-                image_urls=[],
                 status=status,
             )
         )
     return props
+
+
+def _media(props: list[Property]) -> list[PropertyMedia]:
+    """Every seeded listing has a private ownership document and one cover photo."""
+    media = []
+    for prop in props:
+        media.append(
+            PropertyMedia(
+                property_id=prop.id,
+                kind=MediaKind.OWNERSHIP_DOC,
+                s3_key=f"private/properties/{prop.id}/so-hong.pdf",
+                content_type="application/pdf",
+                is_public=False,
+            )
+        )
+        media.append(
+            PropertyMedia(
+                property_id=prop.id,
+                kind=MediaKind.IMAGE,
+                s3_key=f"public/properties/{prop.id}/cover.jpg",
+                content_type="image/jpeg",
+            )
+        )
+    return media
 
 
 def _slots(props: list[Property]) -> list[AvailabilitySlot]:
@@ -210,6 +234,7 @@ def seed(db: Session, *, reset: bool = False) -> None:
     props = _properties(random.Random(42), buildings)
     db.add_all(props)
     db.flush()
+    db.add_all(_media(props))
     db.add_all(_slots(props))
     # Explicit ids were used for users; move the sequence past them
     db.execute(text("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT max(id) FROM users))"))
