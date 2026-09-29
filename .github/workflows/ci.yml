@@ -18,6 +18,21 @@ jobs:
     name: Lint & Run Tests
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bookingbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -44,3 +59,5 @@ jobs:
         env:
           APP_ENV: test
           OPENAI_API_KEY: test-key
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/bookingbot
+          JWT_SECRET: ci-test-secret

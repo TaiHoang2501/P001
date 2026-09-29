@@ -3,8 +3,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import router
+from src.api.routers import auth, bookings, operator, owner, properties
+from src.api.routes import router as agent_router
 from src.config import get_settings
+from src.core.errors import register_error_handlers
 
 
 @asynccontextmanager
@@ -16,9 +18,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI20K Agent",
-    description="AI Agent built with LangGraph",
-    version="1.0.0",
+    title="BookingBot API",
+    description="BookingBot AI Agent — Vinhomes viewing booking backend",
+    version="0.1.0",
     lifespan=lifespan,
 )
 
@@ -30,8 +32,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+register_error_handlers(app)
 
-app.include_router(router, prefix="/api/v1")
+API_PREFIX = "/api/v1"
+app.include_router(auth.router, prefix=API_PREFIX)
+app.include_router(properties.router, prefix=API_PREFIX)
+app.include_router(bookings.router, prefix=API_PREFIX)
+app.include_router(owner.router, prefix=API_PREFIX)
+app.include_router(operator.router, prefix=API_PREFIX)
+# AI chat endpoints (owned by the AI workstream)
+app.include_router(agent_router, prefix=API_PREFIX)
 
 
 @app.get("/health")
