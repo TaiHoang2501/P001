@@ -1,19 +1,22 @@
 """Viewing bookings: request -> owner approval (HITL) -> confirmed hold -> completed/cancelled.
 
 Safety rules enforced here (not in the UI or the prompt):
-- Only the property's owner can confirm or reject (AC-02).
+- Every viewing request belongs to a Deal (Buyer + Seller + Property), created on first request (AC-02, AC-09).
+- Only verified sellers' properties can be booked (AC-04).
+- Only the property's owner can confirm or reject (AC-05).
 - Only one active booking per property per time window; enforced by the DB exclusion
-  constraint, so concurrent requests cannot both succeed (AC-03).
-- Invalid status transitions are rejected (F10).
-- Every change writes an audit row in the same transaction.
+  constraint, so concurrent requests cannot both succeed (AC-08).
+- The seller never sees the buyer's name/phone at privacy level 1-2 (AC-03).
+- Invalid status transitions are rejected; every change writes an audit row in the same transaction.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from src.config import get_settings
 from src.core.actor import Actor
 from src.core.errors import (
     BusinessRuleViolationError,
@@ -23,16 +26,19 @@ from src.core.errors import (
     StateConflictError,
 )
 from src.db.models import (
+    ACTIVE_BOOKING_STATUSES,
     AvailabilitySlot,
     Booking,
     BookingStatus,
     Building,
+    BuyerAvailability,
+    BuyerProfile,
     Property,
     PropertyStatus,
     UserRole,
 )
 from src.models.booking import BookingCreate, BookingOut
-from src.services import audit, seller_service
+from src.services import audit, deal_service, seller_service
 from src.services.availability_service import is_exclusion_violation, list_slots
 
 _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
@@ -42,7 +48,8 @@ _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.CANCELLED: set(),
     BookingStatus.COMPLETED: set(),
 }
-_CONTACT_VISIBLE_TO_OWNER = {BookingStatus.CONFIRMED, BookingStatus.COMPLETED}
+# Spec §4.7: the seller gets buyer contact details only from level 3 (continue transaction) on
+_CONTACT_LEVEL = 3
 
 
 def _now() -> datetime:
@@ -57,6 +64,7 @@ def _load(db: Session, booking_id: int, *, for_update: bool = False) -> Booking:
             .joinedload(Property.building, innerjoin=True)
             .joinedload(Building.project, innerjoin=True),
             joinedload(Booking.customer, innerjoin=True),
+            joinedload(Booking.deal),
         )
         .where(Booking.id == booking_id)
     )
@@ -87,20 +95,25 @@ def _transition(booking: Booking, to: BookingStatus) -> BookingStatus:
     return before
 
 
-def to_out(booking: Booking, viewer: Actor) -> BookingOut:
+def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None) -> BookingOut:
     prop = booking.property
+    deal = booking.deal
     show_contact = (
         viewer.role == UserRole.INVESTOR_OPERATOR
         or viewer.id == booking.customer_id
-        or booking.status in _CONTACT_VISIBLE_TO_OWNER
+        or deal.disclosure_level >= _CONTACT_LEVEL
     )
     return BookingOut(
         id=booking.id,
+        deal_id=booking.deal_id,
+        deal_code=deal.code,
         property_id=prop.id,
         property_label=f"{prop.building.project.name} · {prop.building.name} · {prop.unit_code}",
         customer_id=booking.customer_id,
-        # Name is needed for the owner to decide; phone only after confirmation
-        customer_name=booking.customer.full_name,
+        buyer_ref=f"Buyer #{booking.customer_id}",
+        buyer_budget_min_vnd=profile.budget_min_vnd if profile else None,
+        buyer_budget_max_vnd=profile.budget_max_vnd if profile else None,
+        customer_name=booking.customer.full_name if show_contact else None,
         customer_phone=booking.customer.phone if show_contact else None,
         start_at=booking.start_at,
         end_at=booking.end_at,
@@ -136,24 +149,33 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
     if prop is None or prop.status != PropertyStatus.AVAILABLE:
         raise NotFoundError(f"Property {data.property_id} not found")
     seller_service.require_verified(db, prop.owner_id)  # AC-04
-    slot = db.get(AvailabilitySlot, data.slot_id)
-    if slot is None or slot.property_id != prop.id:
-        raise NotFoundError(f"Slot {data.slot_id} not found for property {prop.id}")
-    if slot.start_at <= _now():
-        raise BusinessRuleViolationError("This slot has already started")
+    slot, start_at, end_at = _resolve_time(db, prop, data)
 
-    booking = Booking(
-        property_id=prop.id,
-        customer_id=actor.id,
-        slot_id=slot.id,
-        start_at=slot.start_at,
-        end_at=slot.end_at,
-        status=BookingStatus.REQUESTED,
-        created_via=actor.via,
-        customer_note=data.note,
-    )
-    db.add(booking)
     try:
+        deal = deal_service.get_or_create_open(db, actor, prop)
+        if db.scalar(select(Booking.id).where(Booking.deal_id == deal.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES))):
+            raise StateConflictError(
+                f"Deal {deal.code} already has an active viewing request; reschedule or cancel it first",
+                details={"deal_id": deal.id},
+            )
+        if data.buyer_windows:
+            db.execute(delete(BuyerAvailability).where(BuyerAvailability.deal_id == deal.id))
+            db.add_all(
+                BuyerAvailability(buyer_id=actor.id, deal_id=deal.id, start_at=w.start_at, end_at=w.end_at)
+                for w in data.buyer_windows
+            )
+        booking = Booking(
+            deal_id=deal.id,
+            property_id=prop.id,
+            customer_id=actor.id,
+            slot_id=slot.id if slot else None,
+            start_at=start_at,
+            end_at=end_at,
+            status=BookingStatus.REQUESTED,
+            created_via=actor.via,
+            customer_note=data.note,
+        )
+        db.add(booking)
         db.flush()
     except IntegrityError as e:
         db.rollback()
@@ -170,10 +192,41 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
         "booking.request",
         "booking",
         booking.id,
-        after={"status": booking.status, "property_id": prop.id, "slot_id": slot.id},
+        after={"status": booking.status, "property_id": prop.id, "deal_id": deal.id, "start_at": start_at.isoformat()},
     )
+    deal_service.sync_status(db, actor, deal)
     db.commit()
     return to_out(_load(db, booking.id), actor)
+
+
+def _resolve_time(
+    db: Session, prop: Property, data: BookingCreate
+) -> tuple[AvailabilitySlot | None, datetime, datetime]:
+    """Viewing window from a seller slot, or from a start time that must fit inside one."""
+    if data.slot_id is not None:
+        slot = db.get(AvailabilitySlot, data.slot_id)
+        if slot is None or slot.property_id != prop.id:
+            raise NotFoundError(f"Slot {data.slot_id} not found for property {prop.id}")
+        start_at, end_at = slot.start_at, slot.end_at
+    else:
+        assert data.start_at is not None  # guaranteed by BookingCreate validation
+        start_at = data.start_at
+        end_at = start_at + timedelta(minutes=get_settings().viewing_duration_minutes)
+        slot = db.scalar(
+            select(AvailabilitySlot).where(
+                AvailabilitySlot.property_id == prop.id,
+                AvailabilitySlot.start_at <= start_at,
+                AvailabilitySlot.end_at >= end_at,
+            )
+        )
+        if slot is None:
+            raise BusinessRuleViolationError(
+                "The seller is not available at this time; ask for viewing times first",
+                details={"start_at": start_at.isoformat()},
+            )
+    if start_at <= _now():
+        raise BusinessRuleViolationError("This viewing time has already started")
+    return slot, start_at, end_at
 
 
 def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
@@ -185,9 +238,16 @@ def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
         raise BusinessRuleViolationError("Viewing has already started")
     before = _transition(booking, BookingStatus.CANCELLED)
     booking.cancelled_at = _now()
+    booking.cancelled_by = actor.id
     _audit_transition(db, actor, "booking.cancel", booking, before)
+    _sync_deal(db, actor, booking)
     db.commit()
     return to_out(booking, actor)
+
+
+def _sync_deal(db: Session, actor: Actor, booking: Booking) -> None:
+    db.flush()
+    deal_service.sync_status(db, actor, booking.deal)
 
 
 # ---------- Owner (human-in-the-loop) ----------
@@ -209,6 +269,7 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     before = _transition(booking, BookingStatus.CONFIRMED)
     booking.responded_at = _now()
     _audit_transition(db, actor, "booking.approve", booking, before)
+    _sync_deal(db, actor, booking)
     db.commit()
     return to_out(booking, actor)
 
@@ -221,6 +282,7 @@ def reject(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOu
     booking.responded_at = _now()
     booking.rejection_reason = reason
     _audit_transition(db, actor, "booking.reject", booking, before, reason=reason)
+    _sync_deal(db, actor, booking)
     db.commit()
     return to_out(booking, actor)
 
@@ -232,7 +294,9 @@ def complete(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     if booking.start_at > _now():
         raise BusinessRuleViolationError("Viewing has not started yet")
     before = _transition(booking, BookingStatus.COMPLETED)
+    booking.completed_at = _now()
     _audit_transition(db, actor, "booking.complete", booking, before)
+    _sync_deal(db, actor, booking)
     db.commit()
     return to_out(booking, actor)
 
@@ -244,7 +308,7 @@ def get(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     booking = _load(db, booking_id)
     if not _can_view(booking, actor):
         raise NotFoundError(f"Booking {booking_id} not found")
-    return to_out(booking, actor)
+    return to_out(booking, actor, db.get(BuyerProfile, booking.customer_id))
 
 
 def list_for(db: Session, actor: Actor, status: BookingStatus | None = None) -> list[BookingOut]:
@@ -254,6 +318,7 @@ def list_for(db: Session, actor: Actor, status: BookingStatus | None = None) -> 
         .joinedload(Property.building, innerjoin=True)
         .joinedload(Building.project, innerjoin=True),
         joinedload(Booking.customer, innerjoin=True),
+        joinedload(Booking.deal),
     )
     if actor.role == UserRole.CUSTOMER:
         stmt = stmt.where(Booking.customer_id == actor.id)
@@ -262,4 +327,9 @@ def list_for(db: Session, actor: Actor, status: BookingStatus | None = None) -> 
     if status is not None:
         stmt = stmt.where(Booking.status == status)
     stmt = stmt.order_by(Booking.start_at.desc())
-    return [to_out(b, actor) for b in db.scalars(stmt).unique()]
+    bookings = list(db.scalars(stmt).unique())
+    profiles = {
+        p.user_id: p
+        for p in db.scalars(select(BuyerProfile).where(BuyerProfile.user_id.in_({b.customer_id for b in bookings})))
+    }
+    return [to_out(b, actor, profiles.get(b.customer_id)) for b in bookings]

@@ -59,17 +59,36 @@ class SlotOut(BaseModel):
 
 
 class BookingCreate(BaseModel):
+    """Viewing request: pick a seller slot (`slot_id`) or a proposed start time (`start_at`)."""
+
     property_id: int
-    slot_id: int
+    slot_id: int | None = None
+    start_at: datetime | None = Field(default=None, description="From POST /properties/{id}/viewing-times")
+    # When the buyer said they are free; kept on the deal for rescheduling (spec §4.8)
+    buyer_windows: list[TimeWindow] = Field(default_factory=list, max_length=10)
     note: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _one_time_source(self) -> "BookingCreate":
+        if (self.slot_id is None) == (self.start_at is None):
+            raise ValueError("Give exactly one of slot_id or start_at")
+        if self.start_at is not None and self.start_at.tzinfo is None:
+            raise ValueError("start_at must include a timezone offset")
+        return self
 
 
 class BookingOut(BaseModel):
     id: int
+    deal_id: int
+    deal_code: str = Field(..., description="e.g. VH-2026-00128")
     property_id: int
     property_label: str = Field(..., description="e.g. 'Vinhomes Ocean Park · S2.01 · S2.01-1208'")
     customer_id: int
-    # Customer contact details are only shown to the owner once the booking is CONFIRMED (spec §4.14)
+    # Privacy level 1 (spec §4.7, AC-03): the seller only sees a buyer reference and budget range.
+    # Name/phone are shown to the seller only once the deal reaches disclosure level 3.
+    buyer_ref: str
+    buyer_budget_min_vnd: int | None = None
+    buyer_budget_max_vnd: int | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
     start_at: datetime

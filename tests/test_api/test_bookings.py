@@ -26,21 +26,26 @@ async def test_happy_path_request_approve(client, db):
     booking = r.json()
     assert booking["status"] == "REQUESTED"
 
-    # Owner sees the request but not the customer's phone until confirming (spec §4.14)
+    # Privacy level 1 (AC-03): the owner sees a buyer reference, never the name or phone
     r = await client.get("/api/v1/owner/bookings", params={"status": "REQUESTED"}, headers=tuan)
     listed = next(b for b in r.json() if b["id"] == booking["id"])
+    assert listed["buyer_ref"] == f"Buyer #{booking['customer_id']}"
+    assert listed["customer_name"] is None
     assert listed["customer_phone"] is None
 
     r = await client.post(f"/api/v1/owner/bookings/{booking['id']}/approve", headers=tuan)
     assert r.status_code == 200
     assert r.json()["status"] == "CONFIRMED"
-    assert r.json()["customer_phone"] == "0901111222"
+    # Confirming the viewing (level 2) still does not share contact details
+    assert r.json()["customer_phone"] is None
 
     # Slot is now held: no longer offered as free
     free = (await client.get(f"/api/v1/properties/{TUAN_PROPERTY}/slots")).json()
     assert slot["id"] not in [s["id"] for s in free]
 
-    actions = db.scalars(select(AuditLog.action).where(AuditLog.target_id == booking["id"])).all()
+    actions = db.scalars(
+        select(AuditLog.action).where(AuditLog.target_type == "booking", AuditLog.target_id == booking["id"])
+    ).all()
     assert actions == ["booking.request", "booking.approve"]
 
 

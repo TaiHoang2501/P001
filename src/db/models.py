@@ -502,8 +502,7 @@ class Booking(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    # Nullable until booking creation goes through deals; made required once every path sets it
-    deal_id: Mapped[int | None] = mapped_column(ForeignKey("deals.id", ondelete="RESTRICT"))
+    deal_id: Mapped[int] = mapped_column(ForeignKey("deals.id", ondelete="RESTRICT"), nullable=False)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     slot_id: Mapped[int | None] = mapped_column(ForeignKey("availability_slots.id", ondelete="SET NULL"))
@@ -528,7 +527,7 @@ class Booking(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    deal: Mapped[Deal | None] = relationship()
+    deal: Mapped[Deal] = relationship()
     property: Mapped[Property] = relationship()
     customer: Mapped[User] = relationship(foreign_keys=[customer_id])
 

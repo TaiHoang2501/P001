@@ -68,7 +68,9 @@ async def test_ac06_buyer_14_17_seller_1430_16(client):
 async def test_booked_and_held_times_are_not_proposed(client, db):
     await _seller_free(client, 14.5, 16)
     prop = db.get(Property, PROPERTY_ID)
+    deal_id = _deal_id(db, prop)
     booking = Booking(
+        deal_id=deal_id,
         property_id=prop.id,
         customer_id=1,
         start_at=at(15),
@@ -86,7 +88,7 @@ async def test_booked_and_held_times_are_not_proposed(client, db):
     db.add(
         PropertyHold(
             booking_id=booking.id,
-            deal_id=_deal_id(db, prop),
+            deal_id=deal_id,
             property_id=prop.id,
             buyer_id=1,
             start_at=at(14.5),
