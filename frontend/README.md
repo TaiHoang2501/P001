@@ -44,7 +44,7 @@ src/
   auth/         session context (JWT in localStorage) + role route guard
   components/   layout, property card, shared UI
   lib/format.ts Vietnamese labels for enums, VND/date formatting (Asia/Ho_Chi_Minh)
-  pages/        buyer pages (seller/ and operator/ screens come next)
+  pages/        buyer pages; owner/ (seller) and operator/ subfolders
 ```
 
 Rules the UI follows (spec_final): a viewing is shown as *requested* until the seller

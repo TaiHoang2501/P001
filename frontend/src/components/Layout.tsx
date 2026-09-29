@@ -14,9 +14,16 @@ const NAV: Record<Role | "GUEST", NavItem[]> = {
     { to: "/", label: "Trợ lý AI", end: true },
     { to: "/bookings", label: "Lịch xem của tôi" },
   ],
-  // Seller / Operator screens are added in the next change
-  OWNER: [],
-  INVESTOR_OPERATOR: [],
+  OWNER: [
+    { to: "/owner", label: "Căn của tôi", end: true },
+    { to: "/owner/bookings", label: "Yêu cầu xem nhà" },
+  ],
+  INVESTOR_OPERATOR: [
+    { to: "/operator", label: "Duyệt tin", end: true },
+    { to: "/operator/sellers", label: "Xác thực chủ căn" },
+    { to: "/operator/escalations", label: "Ngoại lệ" },
+    { to: "/operator/bookings", label: "Giám sát lịch xem" },
+  ],
 };
 
 export function Layout() {

@@ -41,7 +41,7 @@ export function RegisterPage() {
             {(
               [
                 ["CUSTOMER", "Người mua", "Tìm căn & đặt lịch xem"],
-                ["OWNER", "Chủ nhà", "Đăng bán & duyệt lịch"],
+                ["OWNER", "Chủ căn", "Đăng bán & xác nhận lịch xem"],
               ] as const
             ).map(([value, title, hint]) => (
               <label

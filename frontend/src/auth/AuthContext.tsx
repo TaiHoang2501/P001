@@ -108,6 +108,8 @@ export function useAuth(): AuthState {
   return ctx;
 }
 
-export function homePathFor(_user: User | null): string {
+export function homePathFor(user: User | null): string {
+  if (user?.role === "OWNER") return "/owner";
+  if (user?.role === "INVESTOR_OPERATOR") return "/operator";
   return "/";
 }
