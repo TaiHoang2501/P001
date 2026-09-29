@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.db.models import BookingStatus, Channel
+from src.db.models import BookingStatus, Channel, HoldStatus
 
 
 class SlotCreate(BaseModel):
@@ -94,11 +94,26 @@ class BookingOut(BaseModel):
     start_at: datetime
     end_at: datetime
     status: BookingStatus
+    # Viewing hold (spec §4.13): ACTIVE while the property is locked for this viewing
+    hold_status: HoldStatus | None = None
+    # New time asked for while RESCHEDULE_REQUESTED
+    proposed_start_at: datetime | None = None
+    proposed_end_at: datetime | None = None
     created_via: Channel
     customer_note: str | None
     rejection_reason: str | None
     responded_at: datetime | None
     created_at: datetime
+
+
+class RescheduleRequest(BaseModel):
+    start_at: datetime = Field(..., description="New start time, e.g. from POST /properties/{id}/viewing-times")
+
+    @model_validator(mode="after")
+    def _check(self) -> "RescheduleRequest":
+        if self.start_at.tzinfo is None:
+            raise ValueError("start_at must include a timezone offset")
+        return self
 
 
 class BookingRejectRequest(BaseModel):

@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     viewing_max_proposals: int = Field(default=3, ge=1, le=10)
     viewing_alternative_days: int = Field(default=14, ge=1, le=60)
 
+    # In-process periodic jobs (hold expiry, reminders); disabled under APP_ENV=test
+    jobs_enabled: bool = True
+    job_interval_seconds: int = Field(default=60, ge=5)
+
     # Media: public URL = media_base_url + s3_key (e.g. a CloudFront domain); empty means return the key
     media_base_url: str = ""
 

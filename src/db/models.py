@@ -530,6 +530,7 @@ class Booking(Base):
     deal: Mapped[Deal] = relationship()
     property: Mapped[Property] = relationship()
     customer: Mapped[User] = relationship(foreign_keys=[customer_id])
+    hold: Mapped["PropertyHold | None"] = relationship(viewonly=True, uselist=False)
 
 
 class PropertyHold(Base):

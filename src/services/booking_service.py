@@ -11,10 +11,11 @@ Safety rules enforced here (not in the UI or the prompt):
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.config import get_settings
 from src.core.actor import Actor
@@ -37,16 +38,25 @@ from src.db.models import (
     PropertyStatus,
     UserRole,
 )
-from src.models.booking import BookingCreate, BookingOut
-from src.services import audit, deal_service, seller_service
+from src.models.booking import BookingCreate, BookingOut, RescheduleRequest
+from src.services import audit, deal_service, hold_service, seller_service
 from src.services.availability_service import is_exclusion_violation, list_slots
 
+# Booking lifecycle (spec §4.12)
 _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.REQUESTED: {BookingStatus.CONFIRMED, BookingStatus.REJECTED, BookingStatus.CANCELLED},
-    BookingStatus.CONFIRMED: {BookingStatus.COMPLETED, BookingStatus.CANCELLED},
+    BookingStatus.CONFIRMED: {
+        BookingStatus.COMPLETED,
+        BookingStatus.CANCELLED,
+        BookingStatus.RESCHEDULE_REQUESTED,
+        BookingStatus.NO_SHOW,
+    },
+    # Owner accepts (new time) or declines (old time stays) -> CONFIRMED either way
+    BookingStatus.RESCHEDULE_REQUESTED: {BookingStatus.CONFIRMED, BookingStatus.CANCELLED},
     BookingStatus.REJECTED: set(),
     BookingStatus.CANCELLED: set(),
     BookingStatus.COMPLETED: set(),
+    BookingStatus.NO_SHOW: set(),
 }
 # Spec §4.7: the seller gets buyer contact details only from level 3 (continue transaction) on
 _CONTACT_LEVEL = 3
@@ -118,6 +128,9 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
         start_at=booking.start_at,
         end_at=booking.end_at,
         status=booking.status,
+        hold_status=booking.hold.status if booking.hold else None,
+        proposed_start_at=booking.proposed_start_at,
+        proposed_end_at=booking.proposed_end_at,
         created_via=booking.created_via,
         customer_note=booking.customer_note,
         rejection_reason=booking.rejection_reason,
@@ -149,7 +162,7 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
     if prop is None or prop.status != PropertyStatus.AVAILABLE:
         raise NotFoundError(f"Property {data.property_id} not found")
     seller_service.require_verified(db, prop.owner_id)  # AC-04
-    slot, start_at, end_at = _resolve_time(db, prop, data)
+    slot, start_at, end_at = _resolve_time(db, prop, slot_id=data.slot_id, start_at=data.start_at)
 
     try:
         deal = deal_service.get_or_create_open(db, actor, prop)
@@ -178,14 +191,7 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
         db.add(booking)
         db.flush()
     except IntegrityError as e:
-        db.rollback()
-        if is_exclusion_violation(e):
-            # Someone else holds this window: return alternatives so UI/AI can re-offer (F3/F5)
-            raise SlotUnavailableError(
-                "This viewing slot was just taken",
-                details={"free_slots": [s.model_dump(mode="json") for s in list_slots(db, prop.id)]},
-            ) from e
-        raise
+        _raise_slot_taken(db, e, data.property_id)
     audit.record(
         db,
         actor,
@@ -199,18 +205,29 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
     return to_out(_load(db, booking.id), actor)
 
 
+def _raise_slot_taken(db: Session, err: IntegrityError, property_id: int) -> NoReturn:
+    """Roll back first: the session is unusable after a failed flush."""
+    db.rollback()
+    if is_exclusion_violation(err):
+        # Someone else holds this window: return alternatives so UI/AI can re-offer (spec §6.3)
+        raise SlotUnavailableError(
+            "This viewing slot was just taken",
+            details={"free_slots": [s.model_dump(mode="json") for s in list_slots(db, property_id)]},
+        ) from err
+    raise err
+
+
 def _resolve_time(
-    db: Session, prop: Property, data: BookingCreate
+    db: Session, prop: Property, *, slot_id: int | None = None, start_at: datetime | None = None
 ) -> tuple[AvailabilitySlot | None, datetime, datetime]:
     """Viewing window from a seller slot, or from a start time that must fit inside one."""
-    if data.slot_id is not None:
-        slot = db.get(AvailabilitySlot, data.slot_id)
+    if slot_id is not None:
+        slot = db.get(AvailabilitySlot, slot_id)
         if slot is None or slot.property_id != prop.id:
-            raise NotFoundError(f"Slot {data.slot_id} not found for property {prop.id}")
+            raise NotFoundError(f"Slot {slot_id} not found for property {prop.id}")
         start_at, end_at = slot.start_at, slot.end_at
     else:
-        assert data.start_at is not None  # guaranteed by BookingCreate validation
-        start_at = data.start_at
+        assert start_at is not None  # callers validate that one of the two is given
         end_at = start_at + timedelta(minutes=get_settings().viewing_duration_minutes)
         slot = db.scalar(
             select(AvailabilitySlot).where(
@@ -239,7 +256,27 @@ def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     before = _transition(booking, BookingStatus.CANCELLED)
     booking.cancelled_at = _now()
     booking.cancelled_by = actor.id
+    booking.proposed_start_at = booking.proposed_end_at = None
+    hold_service.release(db, actor, booking.id, "cancelled")
     _audit_transition(db, actor, "booking.cancel", booking, before)
+    _sync_deal(db, actor, booking)
+    db.commit()
+    return to_out(booking, actor)
+
+
+def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleRequest) -> BookingOut:
+    """Buyer asks to move a CONFIRMED viewing; the owner must confirm again (spec §4.12).
+
+    The current time and its hold stay in place until the owner accepts the new time.
+    """
+    booking = _load(db, booking_id, for_update=True)
+    if booking.customer_id != actor.id:
+        raise NotFoundError(f"Booking {booking_id} not found")
+    deal_service.require_open(booking.deal)
+    _, start_at, end_at = _resolve_time(db, booking.property, start_at=data.start_at)
+    before = _transition(booking, BookingStatus.RESCHEDULE_REQUESTED)
+    booking.proposed_start_at, booking.proposed_end_at = start_at, end_at
+    _audit_transition(db, actor, "booking.reschedule_request", booking, before, proposed_start_at=start_at.isoformat())
     _sync_deal(db, actor, booking)
     db.commit()
     return to_out(booking, actor)
@@ -261,23 +298,49 @@ def _load_for_owner(db: Session, actor: Actor, booking_id: int) -> Booking:
 
 
 def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
+    """Owner confirms a request (or a new time) -> CONFIRMED + viewing hold, in one transaction (AC-05, AC-08)."""
     if actor.role != UserRole.OWNER:
         raise ForbiddenError("Only the property owner can confirm a viewing")
     booking = _load_for_owner(db, actor, booking_id)
+    deal_service.require_open(booking.deal)
+    property_id = booking.property_id  # read now: attributes can't be loaded after a failed flush
+    rescheduling = booking.status == BookingStatus.RESCHEDULE_REQUESTED
+    if rescheduling:
+        assert booking.proposed_start_at is not None and booking.proposed_end_at is not None
+        booking.start_at, booking.end_at = booking.proposed_start_at, booking.proposed_end_at
+        booking.proposed_start_at = booking.proposed_end_at = None
     if booking.start_at <= _now():
         raise BusinessRuleViolationError("Viewing time has already passed")
     before = _transition(booking, BookingStatus.CONFIRMED)
     booking.responded_at = _now()
-    _audit_transition(db, actor, "booking.approve", booking, before)
+    try:
+        db.flush()  # the booking's own no-overlap constraint for a new time
+        hold = hold_service.active_for(db, booking.id) if rescheduling else None
+        if hold is not None:
+            hold_service.move(db, actor, hold, booking)
+        else:
+            hold_service.create_for(db, actor, booking)
+    except IntegrityError as e:
+        _raise_slot_taken(db, e, property_id)
+    _audit_transition(db, actor, "booking.reschedule_approve" if rescheduling else "booking.approve", booking, before)
     _sync_deal(db, actor, booking)
     db.commit()
-    return to_out(booking, actor)
+    return to_out(_load(db, booking.id), actor)
 
 
 def reject(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOut:
     if actor.role != UserRole.OWNER:
         raise ForbiddenError("Only the property owner can reject a viewing")
     booking = _load_for_owner(db, actor, booking_id)
+    if booking.status == BookingStatus.RESCHEDULE_REQUESTED:
+        # Declining a new time keeps the viewing (and its hold) at the original time
+        before = _transition(booking, BookingStatus.CONFIRMED)
+        booking.proposed_start_at = booking.proposed_end_at = None
+        booking.responded_at = _now()
+        _audit_transition(db, actor, "booking.reschedule_decline", booking, before, reason=reason)
+        _sync_deal(db, actor, booking)
+        db.commit()
+        return to_out(booking, actor)
     before = _transition(booking, BookingStatus.REJECTED)
     booking.responded_at = _now()
     booking.rejection_reason = reason
@@ -295,6 +358,7 @@ def complete(db: Session, actor: Actor, booking_id: int) -> BookingOut:
         raise BusinessRuleViolationError("Viewing has not started yet")
     before = _transition(booking, BookingStatus.COMPLETED)
     booking.completed_at = _now()
+    hold_service.release(db, actor, booking.id, "completed")
     _audit_transition(db, actor, "booking.complete", booking, before)
     _sync_deal(db, actor, booking)
     db.commit()
@@ -319,6 +383,7 @@ def list_for(db: Session, actor: Actor, status: BookingStatus | None = None) -> 
         .joinedload(Building.project, innerjoin=True),
         joinedload(Booking.customer, innerjoin=True),
         joinedload(Booking.deal),
+        selectinload(Booking.hold),
     )
     if actor.role == UserRole.CUSTOMER:
         stmt = stmt.where(Booking.customer_id == actor.id)

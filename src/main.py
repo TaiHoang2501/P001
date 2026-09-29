@@ -1,8 +1,11 @@
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src import jobs
 from src.api.routers import auth, bookings, deals, operator, owner, properties
 from src.api.routes import router as agent_router
 from src.config import get_settings
@@ -13,7 +16,14 @@ from src.core.errors import register_error_handlers
 async def lifespan(app: FastAPI):
     settings = get_settings()
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
+    job = None
+    if settings.jobs_enabled and settings.app_env != "test":
+        job = asyncio.create_task(jobs.run_forever())
     yield
+    if job is not None:
+        job.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await job
     print("Shutting down...")
 
 

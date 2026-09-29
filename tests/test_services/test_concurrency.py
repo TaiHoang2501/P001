@@ -1,11 +1,11 @@
-"""AC-03: concurrent requests for the same property/time window -> at most one wins."""
+"""AC-08: concurrent requests/confirmations for the same property/time window -> at most one wins."""
 
 import threading
 
 from src.core.actor import Actor
-from src.core.errors import SlotUnavailableError
+from src.core.errors import SlotUnavailableError, StateConflictError
 from src.core.security import hash_password
-from src.db.models import AvailabilitySlot, Booking, BookingStatus, User, UserRole
+from src.db.models import AvailabilitySlot, Booking, BookingStatus, HoldStatus, PropertyHold, User, UserRole
 from src.db.session import get_sessionmaker
 from src.models.booking import BookingCreate
 from src.services import booking_service
@@ -53,3 +53,36 @@ def test_ten_concurrent_requests_for_one_slot_only_one_succeeds(db):
         .count()
     )
     assert active == 1
+
+
+def test_concurrent_owner_confirmations_create_one_hold(db):
+    slot = db.query(AvailabilitySlot).filter_by(property_id=1).order_by(AvailabilitySlot.start_at).first()
+    with get_sessionmaker()() as session:
+        buyer = Actor(user=session.get(User, 1))
+        booking_id = booking_service.create_request(session, buyer, BookingCreate(property_id=1, slot_id=slot.id)).id
+
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def attempt() -> None:
+        with get_sessionmaker()() as session:
+            owner = Actor(user=session.get(User, 4))
+            barrier.wait()
+            try:
+                booking_service.approve(session, owner, booking_id)
+                result = "ok"
+            except StateConflictError:
+                result = "conflict"
+            with lock:
+                outcomes.append(result)
+
+    threads = [threading.Thread(target=attempt) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert sorted(outcomes) == ["conflict", "ok"]
+    holds = db.query(PropertyHold).filter_by(booking_id=booking_id, status=HoldStatus.ACTIVE).count()
+    assert holds == 1
