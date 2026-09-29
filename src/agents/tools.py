@@ -8,7 +8,7 @@
 """
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
@@ -49,6 +49,13 @@ class _ViewingRequestArgs(BaseModel):
     start_at: str = Field(..., description="One of the proposals from check_property_availability (ISO 8601)")
     buyer_windows: list[_Window] = Field(default_factory=list, description="The buyer's free windows, if known")
     note: str | None = Field(default=None, max_length=1000)
+
+
+class _EscalationArgs(BaseModel):
+    type: Literal["NO_COMMON_SLOT", "SCHEDULE_CONFLICT", "PROPERTY_ISSUE", "OTHER"]
+    summary: str = Field(..., min_length=5, max_length=2000, description="What the buyer needs, in Vietnamese")
+    property_id: int | None = None
+    booking_id: int | None = None
 
 
 class _RescheduleArgs(BaseModel):
@@ -159,6 +166,28 @@ def reschedule_viewing(booking_id: int, start_at: str, config: RunnableConfig) -
     return _result(agent_api.reschedule_viewing(user_id, booking_id, start_at))
 
 
+@tool(response_format="content_and_artifact", args_schema=_EscalationArgs)
+def create_human_escalation(
+    type: str,
+    summary: str,
+    config: RunnableConfig,
+    property_id: int | None = None,
+    booking_id: int | None = None,
+) -> Result:
+    """Hand the case to a human operator of the investor. Use when there is still no workable viewing time
+    after offering alternatives (NO_COMMON_SLOT), a schedule conflict you cannot solve, a problem with the
+    property's information (PROPERTY_ISSUE), or when the buyer asks for a person."""
+    user_id = _user_id(config)
+    if user_id is None:
+        return _result(_NO_SESSION)
+    thread_id = config.get("configurable", {}).get("thread_id")
+    return _result(
+        agent_api.create_human_escalation(
+            user_id, type, summary, property_id=property_id, booking_id=booking_id, thread_id=thread_id
+        )
+    )
+
+
 TOOLS: list[BaseTool] = [
     list_projects,
     search_properties,
@@ -171,4 +200,5 @@ TOOLS: list[BaseTool] = [
     create_viewing_request,
     cancel_viewing,
     reschedule_viewing,
+    create_human_escalation,
 ]

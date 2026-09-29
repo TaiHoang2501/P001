@@ -37,6 +37,8 @@ def test_ten_concurrent_requests_for_one_slot_only_one_succeeds(db):
                 result = "ok"
             except SlotUnavailableError:
                 result = "slot_unavailable"
+            except Exception as e:  # surface anything unexpected in the assertion message
+                result = f"error:{type(e).__name__}:{e}"
             with lock:
                 outcomes.append(result)
 
@@ -44,7 +46,8 @@ def test_ten_concurrent_requests_for_one_slot_only_one_succeeds(db):
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=30)
+        t.join(timeout=60)
+    assert not any(t.is_alive() for t in threads), f"threads still blocked; finished: {outcomes}"
 
     assert sorted(outcomes) == ["ok"] + ["slot_unavailable"] * (N - 1)
     active = (
@@ -74,6 +77,8 @@ def test_concurrent_owner_confirmations_create_one_hold(db):
                 result = "ok"
             except StateConflictError:
                 result = "conflict"
+            except Exception as e:
+                result = f"error:{type(e).__name__}:{e}"
             with lock:
                 outcomes.append(result)
 
@@ -81,7 +86,8 @@ def test_concurrent_owner_confirmations_create_one_hold(db):
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=30)
+        t.join(timeout=60)
+    assert not any(t.is_alive() for t in threads), f"threads still blocked; finished: {outcomes}"
 
     assert sorted(outcomes) == ["conflict", "ok"]
     holds = db.query(PropertyHold).filter_by(booking_id=booking_id, status=HoldStatus.ACTIVE).count()

@@ -206,6 +206,28 @@ class NotificationStatus(StrEnum):
     CANCELLED = "CANCELLED"  # e.g. reminder of a viewing that was cancelled or moved
 
 
+class EscalationType(StrEnum):
+    """When a human must step in (spec §4.3, §4.8 HITL, §6.4)."""
+
+    SELLER_NO_RESPONSE = "SELLER_NO_RESPONSE"
+    NO_COMMON_SLOT = "NO_COMMON_SLOT"
+    SCHEDULE_CONFLICT = "SCHEDULE_CONFLICT"
+    PROPERTY_ISSUE = "PROPERTY_ISSUE"
+    MULTI_BUYER = "MULTI_BUYER"
+    SYSTEM_FAILURE = "SYSTEM_FAILURE"
+    OTHER = "OTHER"
+
+
+class EscalationStatus(StrEnum):
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    RESOLVED = "RESOLVED"
+    DISMISSED = "DISMISSED"
+
+
+OPEN_ESCALATION_STATUSES = (EscalationStatus.OPEN, EscalationStatus.IN_PROGRESS)
+
+
 class HoldStatus(StrEnum):
     ACTIVE = "ACTIVE"
     RELEASED = "RELEASED"
@@ -700,6 +722,46 @@ class Notification(Base):
     # Guards against sending the same reminder twice, e.g. "booking:12:2030-01-05T15:00:T-2h:user:1"
     dedupe_key: Mapped[str | None] = mapped_column(String(255), unique=True)
     created_at: Mapped[datetime] = _now_column()
+
+
+class Escalation(Base):
+    """Operator exception queue item (spec §4.15 Operator 'Exception queue')."""
+
+    __tablename__ = "escalations"
+    __table_args__ = (
+        Index("ix_escalations_status_created", "status", "created_at"),
+        Index("ix_escalations_requester", "requester_id"),
+        # At most one open escalation of a given type per booking (the no-response sweep relies on it)
+        Index(
+            "uq_escalations_open_booking_type",
+            "booking_id",
+            "type",
+            unique=True,
+            postgresql_where=text("status IN ('OPEN', 'IN_PROGRESS') AND booking_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    type: Mapped[EscalationType] = mapped_column(_enum(EscalationType, "escalation_type"), nullable=False)
+    status: Mapped[EscalationStatus] = mapped_column(
+        _enum(EscalationStatus, "escalation_status"), nullable=False, default=EscalationStatus.OPEN
+    )
+    raised_by: Mapped[ActorType] = mapped_column(_enum(ActorType, "actor_type"), nullable=False)
+    # The buyer/seller this is about; told the outcome when it is resolved
+    requester_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    deal_id: Mapped[int | None] = mapped_column(ForeignKey("deals.id", ondelete="SET NULL"))
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id", ondelete="SET NULL"))
+    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id", ondelete="SET NULL"))
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("ai_conversations.id", ondelete="SET NULL"))
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    context: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    assigned_to: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    resolution: Mapped[str | None] = mapped_column(Text)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class AuditLog(Base):

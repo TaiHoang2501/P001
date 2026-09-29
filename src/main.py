@@ -6,7 +6,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src import jobs
-from src.api.routers import auth, bookings, chat, deals, notifications, operator, owner, properties
+from src.api.routers import (
+    auth,
+    bookings,
+    chat,
+    deals,
+    escalations,
+    notifications,
+    operator,
+    owner,
+    properties,
+)
 from src.config import get_settings
 from src.core.errors import register_error_handlers
 
@@ -52,6 +62,7 @@ app.include_router(owner.router, prefix=API_PREFIX)
 app.include_router(operator.router, prefix=API_PREFIX)
 app.include_router(chat.router, prefix=API_PREFIX)
 app.include_router(notifications.router, prefix=API_PREFIX)
+app.include_router(escalations.router, prefix=API_PREFIX)
 
 
 @app.get("/health")

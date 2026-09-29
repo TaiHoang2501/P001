@@ -14,7 +14,15 @@ from sqlalchemy.orm import Session
 
 from src.core.actor import Actor
 from src.core.errors import NotFoundError
-from src.db.models import AiConversation, AiMessage, Deal, MessageRole, Recommendation
+from src.db.models import (
+    AiConversation,
+    AiMessage,
+    ConversationStatus,
+    Deal,
+    Escalation,
+    MessageRole,
+    Recommendation,
+)
 from src.models.schemas import ChatMessageOut, ConversationOut
 
 
@@ -106,6 +114,11 @@ def _on_tool_success(db: Session, actor: Actor, conv: AiConversation, row: AiMes
         db.flush()
     elif row.tool_name == "create_viewing_request":
         _attribute_deal(db, conv, deal_id=data["deal_id"], property_id=data["property_id"])
+    elif row.tool_name == "create_human_escalation":
+        conv.status = ConversationStatus.ESCALATED
+        esc = db.get(Escalation, data["id"])
+        if esc is not None:
+            esc.conversation_id = conv.id
 
 
 def _attribute_deal(db: Session, conv: AiConversation, *, deal_id: int, property_id: int) -> None:

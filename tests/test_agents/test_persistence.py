@@ -9,7 +9,16 @@ from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from src.agents import graph as agent_graph
-from src.db.models import AiConversation, AiMessage, AvailabilitySlot, Deal, MessageRole, Recommendation
+from src.db.models import (
+    AiConversation,
+    AiMessage,
+    AvailabilitySlot,
+    ConversationStatus,
+    Deal,
+    Escalation,
+    MessageRole,
+    Recommendation,
+)
 from tests.helpers import CUSTOMER_AN, CUSTOMER_BINH, auth
 
 AN_ID = 1
@@ -138,3 +147,19 @@ async def test_history_endpoints_show_only_own_text_messages(client, script):
     binh = await auth(client, CUSTOMER_BINH)
     assert (await client.get("/api/v1/chat/conversations", headers=binh)).json() == []
     assert (await client.get("/api/v1/chat/conversations/conv1/messages", headers=binh)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_escalation_from_chat_marks_conversation_and_links_it(client, script, db):
+    an = await auth(client, CUSTOMER_AN)
+    script(
+        _call("create_human_escalation", {"type": "OTHER", "summary": "Khách muốn nói chuyện với nhân viên"}),
+        AIMessage(content="Nhân viên hỗ trợ sẽ liên hệ anh sớm."),
+    )
+    await _chat(client, an, "Cho tôi gặp nhân viên")
+
+    conv = db.query(AiConversation).filter_by(buyer_id=AN_ID).one()
+    assert conv.status == ConversationStatus.ESCALATED
+    esc = db.query(Escalation).one()
+    assert esc.conversation_id == conv.id
+    assert esc.context == {"thread_id": f"{AN_ID}:conv1"}

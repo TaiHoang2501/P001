@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     viewing_max_proposals: int = Field(default=3, ge=1, le=10)
     viewing_alternative_days: int = Field(default=14, ge=1, le=60)
 
+    # Hours a seller has to answer a viewing request before an operator is asked (TBD in spec §10 Q8)
+    seller_response_hours: int = Field(default=24, ge=1)
+
     # In-process periodic jobs (hold expiry, reminders); disabled under APP_ENV=test
     jobs_enabled: bool = True
     job_interval_seconds: int = Field(default=60, ge=5)
