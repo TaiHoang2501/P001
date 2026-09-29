@@ -6,6 +6,51 @@ code, test cho đến deploy và nộp bài Demo Day.
 
 Technical Guidebook: <https://phoenix.note.transformerlabs.ai/technical-book>
 
+## BookingBot AI Agent — chạy MVP
+
+Trợ lý AI-first giúp người mua tìm căn Vinhomes đã xác thực, kết nối trực tiếp với chủ căn và
+khớp lịch xem nhà (spec: `.specify/spec_final.md`, quy ước: `CLAUDE.md`).
+
+**Luồng MVP (spec §12):** người mua chat với AI → AI gợi ý căn thật từ DB → khớp giờ rảnh của
+người mua với lịch trống chủ căn → tạo yêu cầu xem kèm **Deal ID** → chủ căn xác nhận → căn được
+**giữ riêng trong khung giờ xem** → nhắc lịch T-24h/T-2h → xem nhà. Chủ đầu tư duyệt chủ căn,
+duyệt tin (kèm giấy tờ sở hữu) và xử lý hàng đợi ngoại lệ.
+
+### Chạy local
+
+Cần Python 3.11+, PostgreSQL 15+ và Node 20+.
+
+```bash
+python -m venv .venv && .venv/Scripts/activate   # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env    # điền DATABASE_URL, JWT_SECRET và khóa LLM (xem bên dưới)
+
+alembic upgrade head    # tạo bảng
+python -m src.db.seed   # dữ liệu demo (mật khẩu mọi tài khoản: Password123!)
+uvicorn src.main:app --reload --port 8000        # API: http://localhost:8000/docs
+
+cd frontend && npm install && npm run dev        # Web: http://localhost:5173
+# nếu API chạy cổng khác: API_PROXY=http://localhost:8001 npm run dev
+```
+
+**Mô hình AI** (`.env`): `LLM_PROVIDER=openai` + `OPENAI_API_KEY`, hoặc `LLM_PROVIDER=google` +
+`GOOGLE_API_KEY` (Gemini). `MODEL_NAME` tùy chọn; khi Gemini flash quá tải, dùng
+`MODEL_NAME=gemini-flash-lite-latest`.
+
+**Tài khoản demo:** người mua `an.nguyen@gmail.com`, chủ căn `tuan.pham@gmail.com` /
+`lan.hoang@gmail.com`, Chủ đầu tư `operator@vinhomes.vn`. Người mua/chủ căn cũng đăng nhập được
+bằng OTP; khi chưa có nhà cung cấp SMS/Zalo, mã hiện ngay trên màn hình (ngoài production).
+
+### Kiểm thử
+
+```bash
+pytest tests -q                # 150+ test, cần PostgreSQL (tự tạo DB <tên>_test)
+python eval/run_golden.py      # golden set AI ≥20 kịch bản với model thật -> eval/results/golden_report.md
+```
+
+- `tests/test_e2e/test_core_demo_flow.py` chạy trọn luồng demo qua API (model giả lập).
+- Test tranh chấp đồng thời (AC-08): `tests/test_services/test_concurrency.py`.
+
 ## Template có sẵn những gì
 
 - **Cấu trúc thư mục tách lớp** — `agents/`, `api/`, `services/`, `models/` đã
