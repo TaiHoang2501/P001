@@ -16,6 +16,8 @@ from src.db.models import (
     Project,
     Property,
     PropertyStatus,
+    SellerProfile,
+    SellerVerificationStatus,
     User,
     UserRole,
     UserStatus,
@@ -29,7 +31,7 @@ from src.models.property import (
     SearchCriteria,
     SearchResult,
 )
-from src.services import audit
+from src.services import audit, seller_service
 
 # Listing lifecycle (spec §4.7). SOLD is terminal.
 _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
@@ -209,6 +211,8 @@ def mark_sold(db: Session, actor: Actor, property_id: int) -> PropertyOut:
 
 def approve(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     prop = _load(db, property_id, for_update=True)
+    # Spec §2.3 principle 5: only verified sellers' properties enter the marketplace
+    seller_service.require_verified(db, prop.owner_id)
     before = _transition(prop, PropertyStatus.AVAILABLE)
     prop.reviewed_by = actor.id
     prop.reviewed_at = datetime.now(UTC)
@@ -245,15 +249,20 @@ def reject(db: Session, actor: Actor, property_id: int, reason: str) -> Property
 def search(db: Session, criteria: SearchCriteria) -> SearchResult:
     """Step 1 hard filters in SQL, then soft scoring + priority weighting in Python.
 
-    Only AVAILABLE listings of ACTIVE owners are ever returned, so the AI cannot
-    recommend unapproved or invented properties (AC-01).
+    Only AVAILABLE listings of ACTIVE, VERIFIED owners are ever returned, so the AI cannot
+    recommend unapproved or invented properties (AC-01, AC-04).
     """
     stmt = (
         _base_query()
         .join(Property.building)
         .join(Building.project)
         .join(User, User.id == Property.owner_id)
-        .where(Property.status == PropertyStatus.AVAILABLE, User.status == UserStatus.ACTIVE)
+        .join(SellerProfile, SellerProfile.user_id == Property.owner_id)
+        .where(
+            Property.status == PropertyStatus.AVAILABLE,
+            User.status == UserStatus.ACTIVE,
+            SellerProfile.verification_status == SellerVerificationStatus.VERIFIED,
+        )
     )
     if criteria.project_codes:
         stmt = stmt.where(Project.code.in_([c.upper() for c in criteria.project_codes]))

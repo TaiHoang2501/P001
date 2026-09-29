@@ -74,6 +74,13 @@ class BusinessRuleViolationError(AppError):
     code = "BUSINESS_RULE_VIOLATION"
 
 
+class SellerUnverifiedError(AppError):
+    """The property's owner is not verified, so it cannot be listed or booked (AC-04)."""
+
+    status_code = 422
+    code = "SELLER_UNVERIFIED"
+
+
 class RateLimitedError(AppError):
     status_code = 429
     code = "RATE_LIMITED"

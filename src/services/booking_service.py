@@ -32,7 +32,7 @@ from src.db.models import (
     UserRole,
 )
 from src.models.booking import BookingCreate, BookingOut
-from src.services import audit
+from src.services import audit, seller_service
 from src.services.availability_service import is_exclusion_violation, list_slots
 
 _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
@@ -135,6 +135,7 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
     prop = db.get(Property, data.property_id)
     if prop is None or prop.status != PropertyStatus.AVAILABLE:
         raise NotFoundError(f"Property {data.property_id} not found")
+    seller_service.require_verified(db, prop.owner_id)  # AC-04
     slot = db.get(AvailabilitySlot, data.slot_id)
     if slot is None or slot.property_id != prop.id:
         raise NotFoundError(f"Slot {data.slot_id} not found for property {prop.id}")

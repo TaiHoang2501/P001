@@ -22,6 +22,7 @@ from src.db.models import (
     AvailabilitySlot,
     Base,
     Building,
+    BuyerProfile,
     Direction,
     Furnishing,
     LegalStatus,
@@ -29,6 +30,8 @@ from src.db.models import (
     Property,
     PropertyStatus,
     PropertyType,
+    SellerProfile,
+    SellerVerificationStatus,
     User,
     UserRole,
     UserStatus,
@@ -177,6 +180,23 @@ def seed(db: Session, *, reset: bool = False) -> None:
     pw = hash_password(SEED_PASSWORD)
     for uid, role, name, phone, email, status in USERS:
         db.add(User(id=uid, role=role, full_name=name, phone=phone, email=email, status=status, password_hash=pw))
+    db.flush()
+    for uid, role, *_, status in USERS:
+        if role == UserRole.CUSTOMER:
+            db.add(BuyerProfile(user_id=uid))
+        elif role == UserRole.OWNER:
+            # Active owners are verified; the PENDING_VERIFICATION one waits in the operator queue
+            verified = status == UserStatus.ACTIVE
+            db.add(
+                SellerProfile(
+                    user_id=uid,
+                    verification_status=SellerVerificationStatus.VERIFIED
+                    if verified
+                    else SellerVerificationStatus.PENDING,
+                    id_document_s3_key=f"private/sellers/{uid}/cccd.jpg",
+                    verified_by=7 if verified else None,
+                )
+            )
 
     projects = {code: Project(code=code, name=name, city=city, district=d) for code, name, city, d in PROJECTS}
     db.add_all(projects.values())

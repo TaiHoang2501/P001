@@ -21,7 +21,9 @@ def _first(db, role: UserRole) -> User:
 
 
 def test_seller_profile_defaults_to_unverified(db):
-    owner = _first(db, UserRole.OWNER)
+    owner = User(role=UserRole.OWNER, full_name="New Owner", phone="0999000222")
+    db.add(owner)
+    db.flush()
     db.add(SellerProfile(user_id=owner.id))
     db.commit()
 
