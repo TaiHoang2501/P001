@@ -2,10 +2,12 @@
 
 Design notes:
 - Enums are stored as VARCHAR + CHECK (not native PG enums) so adding a value is a plain migration.
-- A CONFIRMED booking *is* the viewing hold (spec §4.9): it only locks its own time window.
-  REQUESTED bookings also reserve the slot so two customers cannot request the same window.
-- Double-booking is blocked by the database itself (exclusion constraint on property + time range),
-  not only by application code.
+- Every Buyer + Seller + Property relationship is a Deal (spec §4.9); bookings hang off a deal.
+- The viewing hold is its own row (property_holds), created only after Owner confirmation and
+  locking only the viewing window (spec §4.13). REQUESTED bookings also reserve the window so two
+  buyers cannot request the same time.
+- Double-booking/double-holding is blocked by the database itself (exclusion constraints on
+  property + time range), not only by application code (AC-08).
 """
 
 from datetime import datetime
@@ -25,6 +27,7 @@ from sqlalchemy import (
     Integer,
     MetaData,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -144,13 +147,43 @@ class OtpPurpose(StrEnum):
 class BookingStatus(StrEnum):
     REQUESTED = "REQUESTED"
     CONFIRMED = "CONFIRMED"
+    RESCHEDULE_REQUESTED = "RESCHEDULE_REQUESTED"
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
+    NO_SHOW = "NO_SHOW"
 
 
 # Statuses that occupy a property's time window
-ACTIVE_BOOKING_STATUSES = (BookingStatus.REQUESTED, BookingStatus.CONFIRMED)
+ACTIVE_BOOKING_STATUSES = (
+    BookingStatus.REQUESTED,
+    BookingStatus.CONFIRMED,
+    BookingStatus.RESCHEDULE_REQUESTED,
+)
+
+
+class DealStatus(StrEnum):
+    """Deal lifecycle (spec §4.9). The MVP drives it up to VIEWED."""
+
+    MATCHED = "MATCHED"
+    VIEWING_REQUESTED = "VIEWING_REQUESTED"
+    VIEWING_CONFIRMED = "VIEWING_CONFIRMED"
+    VIEWED = "VIEWED"
+    INTERESTED = "INTERESTED"
+    NEGOTIATING = "NEGOTIATING"
+    TRANSACTION_SUPPORT = "TRANSACTION_SUPPORT"
+    COMPLETED = "COMPLETED"
+    CLOSED = "CLOSED"
+
+
+# A buyer has at most one open deal per property
+CLOSED_DEAL_STATUSES = (DealStatus.COMPLETED, DealStatus.CLOSED)
+
+
+class HoldStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    RELEASED = "RELEASED"
+    EXPIRED = "EXPIRED"
 
 
 class Channel(StrEnum):
@@ -374,23 +407,100 @@ class AvailabilitySlot(Base):
     created_at: Mapped[datetime] = _now_column()
 
 
+DEAL_CODE_SEQUENCE = "deal_code_seq"
+
+
+class Deal(Base):
+    """One Buyer + Seller + Property relationship, identified by a human-readable code (spec §4.9)."""
+
+    __tablename__ = "deals"
+    __table_args__ = (
+        # A buyer has at most one open deal per property; a new one may start after it is closed
+        Index(
+            "uq_deals_open_buyer_property",
+            "buyer_id",
+            "property_id",
+            unique=True,
+            postgresql_where=text("status NOT IN ('COMPLETED', 'CLOSED')"),
+        ),
+        Index("ix_deals_seller", "seller_id"),
+        Index("ix_deals_property", "property_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # e.g. VH-2026-00128
+    code: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        unique=True,
+        server_default=text(
+            f"'VH-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('{DEAL_CODE_SEQUENCE}')::text, 5, '0')"
+        ),
+    )
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    # Snapshot of the property's owner at deal creation, used for attribution (spec §4.10)
+    seller_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
+    status: Mapped[DealStatus] = mapped_column(
+        _enum(DealStatus, "deal_status"), nullable=False, default=DealStatus.MATCHED
+    )
+    # Progressive disclosure level 1-4 (spec §4.7)
+    disclosure_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    closed_reason: Mapped[str | None] = mapped_column(Text)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    buyer: Mapped[User] = relationship(foreign_keys=[buyer_id])
+    seller: Mapped[User] = relationship(foreign_keys=[seller_id])
+    property: Mapped[Property] = relationship()
+
+
+class BuyerAvailability(Base):
+    """A time window the buyer can attend a viewing, intersected with seller slots (spec §4.8)."""
+
+    __tablename__ = "buyer_availability"
+    __table_args__ = (
+        CheckConstraint("end_at > start_at", name="time_order"),
+        Index("ix_buyer_availability_deal", "deal_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    deal_id: Mapped[int] = mapped_column(ForeignKey("deals.id", ondelete="CASCADE"), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period: Mapped[Any] = mapped_column(TSTZRANGE, Computed("tstzrange(start_at, end_at, '[)')", persisted=True))
+    created_at: Mapped[datetime] = _now_column()
+
+
 class Booking(Base):
     __tablename__ = "bookings"
     __table_args__ = (
         CheckConstraint("end_at > start_at", name="time_order"),
-        # The anti-double-booking guarantee (AC-03): at most one active booking per property per time window
+        CheckConstraint(
+            "(proposed_start_at IS NULL) = (proposed_end_at IS NULL)"
+            " AND (proposed_end_at IS NULL OR proposed_end_at > proposed_start_at)",
+            name="proposed_time_order",
+        ),
+        # The anti-double-booking guarantee: at most one active booking per property per time window
         ExcludeConstraint(
             (column("property_id"), "="),
             (column("period"), "&&"),
             using="gist",
             name="ex_bookings_no_overlap",
-            where=text("status IN ('REQUESTED', 'CONFIRMED')"),
+            where=text("status IN ('REQUESTED', 'CONFIRMED', 'RESCHEDULE_REQUESTED')"),
         ),
         Index("ix_bookings_customer", "customer_id"),
         Index("ix_bookings_status_start", "status", "start_at"),
+        Index("ix_bookings_deal", "deal_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Nullable until booking creation goes through deals; made required once every path sets it
+    deal_id: Mapped[int | None] = mapped_column(ForeignKey("deals.id", ondelete="RESTRICT"))
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     slot_id: Mapped[int | None] = mapped_column(ForeignKey("availability_slots.id", ondelete="SET NULL"))
@@ -400,18 +510,59 @@ class Booking(Base):
     status: Mapped[BookingStatus] = mapped_column(
         _enum(BookingStatus, "booking_status"), nullable=False, default=BookingStatus.REQUESTED
     )
+    # New time asked for while RESCHEDULE_REQUESTED; becomes start_at/end_at once the owner confirms
+    proposed_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    proposed_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_via: Mapped[Channel] = mapped_column(_enum(Channel, "channel"), nullable=False, default=Channel.WEB)
     customer_note: Mapped[str | None] = mapped_column(Text)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now_column()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
+    deal: Mapped[Deal | None] = relationship()
     property: Mapped[Property] = relationship()
     customer: Mapped[User] = relationship(foreign_keys=[customer_id])
+
+
+class PropertyHold(Base):
+    """Viewing hold: locks the property for one confirmed viewing window only (spec §4.13)."""
+
+    __tablename__ = "property_holds"
+    __table_args__ = (
+        CheckConstraint("end_at > start_at", name="time_order"),
+        # AC-08: never two active holds on one property at overlapping times
+        ExcludeConstraint(
+            (column("property_id"), "="),
+            (column("period"), "&&"),
+            using="gist",
+            name="ex_property_holds_no_overlap",
+            where=text("status = 'ACTIVE'"),
+        ),
+        Index("ix_property_holds_status_end", "status", "end_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id", ondelete="RESTRICT"), nullable=False, unique=True)
+    deal_id: Mapped[int] = mapped_column(ForeignKey("deals.id", ondelete="RESTRICT"), nullable=False)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period: Mapped[Any] = mapped_column(TSTZRANGE, Computed("tstzrange(start_at, end_at, '[)')", persisted=True))
+    status: Mapped[HoldStatus] = mapped_column(
+        _enum(HoldStatus, "hold_status"), nullable=False, default=HoldStatus.ACTIVE
+    )
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    release_reason: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = _now_column()
+
+    booking: Mapped[Booking] = relationship()
 
 
 class AuditLog(Base):

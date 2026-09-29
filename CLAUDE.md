@@ -162,7 +162,7 @@ MATCHED → VIEWING_REQUESTED → VIEWING_CONFIRMED → VIEWED → INTERESTED �
 Bản đầy đủ gồm 22 bảng:
 - **Identity & Auth:** `users`, `otp_codes`, `buyer_profiles`, `seller_profiles`
 - **Inventory:** `projects`, `buildings`, `properties`, `property_media`
-- **Scheduling:** `seller_availability`, `buyer_availability`
+- **Scheduling:** `availability_slots` (lịch trống Seller), `buyer_availability`
 - **Deal & Viewing:** `deals`, `bookings`, `property_holds`
 - **Post-viewing (post-MVP):** `purchase_requests`, `chats`, `messages`
 - **AI:** `ai_conversations`, `ai_messages`, `recommendations`
