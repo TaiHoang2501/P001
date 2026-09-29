@@ -1,0 +1,6 @@
+id,role,full_name,email,phone,status,department,notes
+1,INVESTOR_OPERATOR,Nguyễn Quang Dũng (Ban Quản Trị),operator@vinhomes.vn,0901234567,ACTIVE,Quản lý nguồn cung & Duyệt tin,Tài khoản Admin cấp cao phụ trách duyệt tin đăng và kiểm soát vận hành hệ thống
+2,INVESTOR_OPERATOR,Trần Thu Hà (Điều Phối Viên),coordinator@vinhomes.vn,0902345678,ACTIVE,Vận hành Viewing Hold & Hỗ trợ,Tài khoản Operator giám sát các ca xem nhà và giải quyết khiếu nại
+3,OWNER,Lê Hoàng Nam (Chủ nhà S2.01),owner.nam@gmail.com,0912345678,ACTIVE,Chủ sở hữu cá nhân,Sở hữu căn S2.01-12A08 và S1.08-0805 tại Ocean Park 1
+4,OWNER,Phạm Minh Tuấn (Chủ nhà Smart City),owner.tuan@gmail.com,0918765432,ACTIVE,Chủ sở hữu cá nhân,Sở hữu căn GS3-1512 và TK1-2006 tại Smart City
+5,CUSTOMER,Hoàng Anh Tài (Khách tìm mua),customer.tai@gmail.com,0987654321,ACTIVE,Khách hàng VIP,Đang tìm căn 2PN Vinhomes Ocean Park 1 tầm tài chính 4 tỷ

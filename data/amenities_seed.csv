@@ -1,0 +1,11 @@
+id,project_name,amenity_name,category,latitude,longitude,description
+1,Vinhomes Ocean Park 1,Biển hồ nước mặn Crystal Lagoon,RECREATION,20.9992,105.9520,Biển hồ nước mặn nhân tạo rộng 6.1ha lớn nhất Việt Nam
+2,Vinhomes Ocean Park 1,Hồ điều hòa Ngọc Trai,NATURE,20.9975,105.9465,Hồ nước ngọt trung tâm rộng 24.5ha bao quanh bởi bãi cát trắng tự nhiên
+3,Vinhomes Ocean Park 1,Vincom Mega Mall Ocean Park,SHOPPING,20.9960,105.9515,Trung tâm thương mại lớn bên bờ biển hồ
+4,Vinhomes Ocean Park 1,Đại học VinUni,EDUCATION,20.9930,105.9405,Trường đại học tinh hoa tiêu chuẩn quốc tế
+5,Vinhomes Ocean Park 1,Bệnh viện Đa khoa Quốc tế Vinmec,HEALTHCARE,20.9915,105.9440,Bệnh viện quốc tế chất lượng cao
+6,Vinhomes Smart City,Công viên trung tâm Central Park,NATURE,20.9965,105.7445,Công viên hồ nước trung tâm rộng lớn với công viên cát trắng và chèo thuyền Kayak
+7,Vinhomes Smart City,Vườn Nhật Zen Park,RECREATION,20.9905,105.7480,Công viên phong cách Nhật Bản rộng 6.1ha với tháp đèn lồng và suối cá Koi
+8,Vinhomes Smart City,Vincom Mega Mall Smart City,SHOPPING,20.9940,105.7420,Trung tâm thương mại nổi lớn nhất phía Tây Hà Nội
+9,Vinhomes Smart City,Trường liên cấp Vinschool Smart City,EDUCATION,20.9925,105.7470,Hệ thống trường học từ mầm non đến THPT
+10,Vinhomes West Point,Trung tâm Hội nghị Quốc gia,LANDMARK,21.0105,105.7850,Trung tâm sự kiện chính trị quốc tế đối diện tòa nhà
