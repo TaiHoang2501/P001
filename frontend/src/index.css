@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Brand: warm terracotta (homes) on a calm neutral base */
+  --color-brand-50: #fdf5ef;
+  --color-brand-100: #fae6d6;
+  --color-brand-200: #f3c8a8;
+  --color-brand-500: #d06a32;
+  --color-brand-600: #b4531f;
+  --color-brand-700: #8f3f18;
+  --color-brand-900: #4a200c;
+
+  --color-ink: #1c1917;
+  --color-muted: #6b6560;
+  --color-line: #e7e3df;
+  --color-canvas: #faf8f6;
+}
+
+@layer base {
+  body {
+    @apply bg-canvas text-ink antialiased;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-brand-600 text-white hover:bg-brand-700;
+}
+@utility btn-secondary {
+  @apply btn border border-line bg-white text-ink hover:bg-stone-50;
+}
+@utility btn-danger {
+  @apply btn border border-red-200 bg-white text-red-700 hover:bg-red-50;
+}
+@utility btn-sm {
+  @apply px-3 py-1.5 text-xs;
+}
+@utility card {
+  @apply rounded-xl border border-line bg-white;
+}
+@utility label {
+  @apply mb-1 block text-xs font-medium text-muted;
+}
+@utility input {
+  @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm placeholder:text-stone-400 focus:border-brand-500 focus:outline-none;
+}
+@utility page-title {
+  @apply text-2xl font-semibold tracking-tight;
+}
