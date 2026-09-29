@@ -5,6 +5,7 @@ only from successful tool results (ok: true), never from what the model says it 
 """
 
 import logging
+import time
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -13,9 +14,11 @@ from langchain_core.runnables import RunnableConfig
 from src.agents import graph as agent_graph
 from src.core.actor import Actor
 from src.core.errors import AgentUnavailableError
+from src.db.session import get_sessionmaker
 from src.models.booking import BookingOut, ViewingTimesOut
 from src.models.property import Recommendation
 from src.models.schemas import ChatRequest, ChatResponse
+from src.services import conversation_service
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +61,17 @@ async def chat(actor: Actor, request: ChatRequest) -> ChatResponse:
         },
         "recursion_limit": _RECURSION_LIMIT,
     }
+    started = time.perf_counter()
     try:
         before = len((await agent.aget_state(config)).values.get("messages", []))
         result = await agent.ainvoke({"messages": [HumanMessage(request.message)]}, config)
     except Exception as e:
         logger.exception("agent turn failed")
         raise AgentUnavailableError("AI assistant is temporarily unavailable, please try again") from e
+    latency_ms = int((time.perf_counter() - started) * 1000)
 
     new_messages = result["messages"][before:]
+    _record(actor, request.conversation_id, config["configurable"]["thread_id"], new_messages, latency_ms)
     last = new_messages[-1]
     reply = last.text if isinstance(last, AIMessage) else ""
     recommendations, viewing_times, bookings = _extract(new_messages)
@@ -76,3 +82,14 @@ async def chat(actor: Actor, request: ChatRequest) -> ChatResponse:
         viewing_times=viewing_times,
         bookings=bookings,
     )
+
+
+def _record(actor: Actor, client_id: str, thread_id: str, messages: list[BaseMessage], latency_ms: int) -> None:
+    # Tool actions are already committed by the services; a logging failure must not hide the reply
+    try:
+        with get_sessionmaker()() as db:
+            conversation_service.record_turn(
+                db, actor, client_id=client_id, thread_id=thread_id, messages=messages, latency_ms=latency_ms
+            )
+    except Exception:
+        logger.exception("failed to record chat turn")

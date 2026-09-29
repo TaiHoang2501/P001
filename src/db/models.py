@@ -180,6 +180,18 @@ class DealStatus(StrEnum):
 CLOSED_DEAL_STATUSES = (DealStatus.COMPLETED, DealStatus.CLOSED)
 
 
+class ConversationStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
+    ESCALATED = "ESCALATED"
+
+
+class MessageRole(StrEnum):
+    USER = "USER"
+    ASSISTANT = "ASSISTANT"
+    TOOL = "TOOL"
+
+
 class HoldStatus(StrEnum):
     ACTIVE = "ACTIVE"
     RELEASED = "RELEASED"
@@ -449,6 +461,10 @@ class Deal(Base):
     )
     # Progressive disclosure level 1-4 (spec §4.7)
     disclosure_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    # The AI recommendation that led the buyer to this property, if any (recommendation analytics)
+    source_recommendation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("recommendations.id", ondelete="SET NULL", use_alter=True)
+    )
     closed_reason: Mapped[str | None] = mapped_column(Text)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now_column()
@@ -566,6 +582,76 @@ class PropertyHold(Base):
     created_at: Mapped[datetime] = _now_column()
 
     booking: Mapped[Booking] = relationship()
+
+
+class AiConversation(Base):
+    """One buyer chat thread with the AI agent (spec §4.16)."""
+
+    __tablename__ = "ai_conversations"
+    __table_args__ = (
+        UniqueConstraint("buyer_id", "client_id", name="uq_ai_conversations_buyer_client"),
+        Index("ix_ai_conversations_buyer_last", "buyer_id", "last_message_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Id chosen by the web client; the LangGraph thread is "<buyer_id>:<client_id>"
+    client_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    status: Mapped[ConversationStatus] = mapped_column(
+        _enum(ConversationStatus, "conversation_status"), nullable=False, default=ConversationStatus.ACTIVE
+    )
+    # Latest search criteria the agent extracted (spec §6.2 correction path starts from here)
+    extracted_criteria: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = _now_column()
+    last_message_at: Mapped[datetime] = _now_column()
+
+
+class AiMessage(Base):
+    """Every turn element: buyer text, assistant text/tool calls, tool results (for audit of AC-01)."""
+
+    __tablename__ = "ai_messages"
+    __table_args__ = (Index("ix_ai_messages_conversation", "conversation_id", "id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[MessageRole] = mapped_column(_enum(MessageRole, "message_role"), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Assistant: requested tool calls. Tool: the call it answers.
+    tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    tool_name: Mapped[str | None] = mapped_column(String(64))
+    tool_args: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # The structured envelope the tool returned ({"ok": ..., "data"|"error": ...})
+    tool_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    tool_ok: Mapped[bool | None] = mapped_column(Boolean)
+    model: Mapped[str | None] = mapped_column(String(64))
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    # Set on the final assistant reply: wall time of the whole turn (spec §2.2 latency p95)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = _now_column()
+
+
+class Recommendation(Base):
+    """A property the agent showed the buyer, with why (explainability + Precision@5)."""
+
+    __tablename__ = "recommendations"
+    __table_args__ = (
+        Index("ix_recommendations_conversation", "conversation_id"),
+        Index("ix_recommendations_buyer_property", "buyer_id", "property_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False)
+    ai_message_id: Mapped[int] = mapped_column(ForeignKey("ai_messages.id", ondelete="CASCADE"), nullable=False)
+    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
+    rank: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    match_score: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    # matched / unmatched criteria as returned by search (the explanation shown to the buyer)
+    score_breakdown: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    criteria_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = _now_column()
 
 
 class AuditLog(Base):
