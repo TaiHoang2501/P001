@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = Field(default=60 * 24, ge=5)
 
+    # Viewing scheduling (spec §4.8; viewing length and buffer are TBD in §10 Q12-13)
+    viewing_duration_minutes: int = Field(default=30, ge=15, le=240)
+    viewing_step_minutes: int = Field(default=30, ge=5, le=120)
+    viewing_max_proposals: int = Field(default=3, ge=1, le=10)
+    viewing_alternative_days: int = Field(default=14, ge=1, le=60)
+
     # Media: public URL = media_base_url + s3_key (e.g. a CloudFront domain); empty means return the key
     media_base_url: str = ""
 

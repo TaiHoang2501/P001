@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from src.core.actor import Actor
 from src.core.deps import DbSession, get_current_user
-from src.models.booking import SlotOut
+from src.models.booking import SlotOut, ViewingTimesOut, ViewingTimesRequest
 from src.models.property import PropertyOut, SearchCriteria, SearchResult
 from src.services import availability_service, property_service
 
@@ -68,3 +68,9 @@ def get_property(
 @router.get("/properties/{property_id}/slots", response_model=list[SlotOut])
 def free_slots(property_id: int, db: DbSession) -> list[SlotOut]:
     return availability_service.check_availability(db, property_id)["free_slots"]
+
+
+@router.post("/properties/{property_id}/viewing-times", response_model=ViewingTimesOut)
+def viewing_times(property_id: int, data: ViewingTimesRequest, db: DbSession) -> ViewingTimesOut:
+    """Buyer's free windows ∩ seller availability → proposed viewing times (AC-06), or alternatives (AC-07)."""
+    return availability_service.propose_viewing_times(db, property_id, data)
