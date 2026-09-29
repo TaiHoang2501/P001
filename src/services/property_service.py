@@ -35,7 +35,7 @@ from src.models.property import (
     SearchCriteria,
     SearchResult,
 )
-from src.services import audit, seller_service
+from src.services import audit, notification_service, seller_service
 
 # Listing lifecycle (spec §4.11). SOLD is terminal; a WITHDRAWN listing can be re-submitted.
 _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
@@ -299,6 +299,7 @@ def approve(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     audit.record(
         db, actor, "property.approve", "property", prop.id, before={"status": before}, after={"status": prop.status}
     )
+    notification_service.listing_reviewed(db, prop, approved=True)
     db.commit()
     return get_property(db, prop.id, actor)
 
@@ -318,6 +319,7 @@ def reject(db: Session, actor: Actor, property_id: int, reason: str) -> Property
         before={"status": before},
         after={"status": prop.status, "reason": reason},
     )
+    notification_service.listing_reviewed(db, prop, approved=False, reason=reason)
     db.commit()
     return get_property(db, prop.id, actor)
 

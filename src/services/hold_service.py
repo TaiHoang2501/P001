@@ -63,10 +63,11 @@ def move(db: Session, actor: Actor, hold: PropertyHold, booking: Booking) -> Non
     )
 
 
-def release(db: Session, actor: Actor | None, booking_id: int, reason: str) -> None:
+def release(db: Session, actor: Actor | None, booking_id: int, reason: str) -> bool:
+    """Release the booking's ACTIVE hold, if any. Returns whether one was released."""
     hold = active_for(db, booking_id)
     if hold is None:
-        return
+        return False
     hold.status = HoldStatus.RELEASED
     hold.released_at = datetime.now(UTC)
     hold.release_reason = reason
@@ -79,6 +80,7 @@ def release(db: Session, actor: Actor | None, booking_id: int, reason: str) -> N
         before={"status": HoldStatus.ACTIVE},
         after={"status": hold.status, "reason": reason},
     )
+    return True
 
 
 def expire_finished(db: Session, now: datetime | None = None) -> int:

@@ -192,6 +192,20 @@ class MessageRole(StrEnum):
     TOOL = "TOOL"
 
 
+class NotificationChannel(StrEnum):
+    IN_APP = "IN_APP"
+    SMS = "SMS"
+    ZALO = "ZALO"
+    EMAIL = "EMAIL"
+
+
+class NotificationStatus(StrEnum):
+    PENDING = "PENDING"  # scheduled for later (reminders)
+    SENT = "SENT"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"  # e.g. reminder of a viewing that was cancelled or moved
+
+
 class HoldStatus(StrEnum):
     ACTIVE = "ACTIVE"
     RELEASED = "RELEASED"
@@ -651,6 +665,40 @@ class Recommendation(Base):
     # matched / unmatched criteria as returned by search (the explanation shown to the buyer)
     score_breakdown: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     criteria_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = _now_column()
+
+
+class Notification(Base):
+    """Event notifications and scheduled reminders (spec §4.19). In-app for now; SMS/Zalo provider is TBD."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_created", "user_id", "created_at"),
+        Index("ix_notifications_status_scheduled", "status", "scheduled_at"),
+        Index("ix_notifications_booking", "booking_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    channel: Mapped[NotificationChannel] = mapped_column(
+        _enum(NotificationChannel, "notification_channel"), nullable=False, default=NotificationChannel.IN_APP
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    deal_id: Mapped[int | None] = mapped_column(ForeignKey("deals.id", ondelete="SET NULL"))
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id", ondelete="SET NULL"))
+    status: Mapped[NotificationStatus] = mapped_column(
+        _enum(NotificationStatus, "notification_status"), nullable=False, default=NotificationStatus.SENT
+    )
+    # When a PENDING notification becomes due (reminders); NULL = immediate
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Guards against sending the same reminder twice, e.g. "booking:12:2030-01-05T15:00:T-2h:user:1"
+    dedupe_key: Mapped[str | None] = mapped_column(String(255), unique=True)
     created_at: Mapped[datetime] = _now_column()
 
 

@@ -9,7 +9,7 @@ from src.core.actor import Actor
 from src.core.errors import NotFoundError, SellerUnverifiedError, StateConflictError
 from src.db.models import SellerProfile, SellerVerificationStatus, User, UserRole
 from src.models.seller import SellerProfileOut, SellerReviewItem, SellerVerificationSubmit
-from src.services import audit
+from src.services import audit, notification_service
 
 _SUBMITTABLE = {SellerVerificationStatus.UNVERIFIED, SellerVerificationStatus.REJECTED}
 
@@ -104,5 +104,6 @@ def _review(
         before={"verification_status": SellerVerificationStatus.PENDING},
         after={"verification_status": to, **({"reason": reason} if reason else {})},
     )
+    notification_service.seller_reviewed(db, user_id, verified=to == SellerVerificationStatus.VERIFIED, reason=reason)
     db.commit()
     return SellerProfileOut.model_validate(profile)

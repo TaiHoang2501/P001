@@ -39,7 +39,7 @@ from src.db.models import (
     UserRole,
 )
 from src.models.booking import BookingCreate, BookingOut, RescheduleRequest
-from src.services import audit, deal_service, hold_service, seller_service
+from src.services import audit, deal_service, hold_service, notification_service, seller_service
 from src.services.availability_service import is_exclusion_violation, list_slots
 
 # Booking lifecycle (spec §4.12)
@@ -201,6 +201,7 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
         after={"status": booking.status, "property_id": prop.id, "deal_id": deal.id, "start_at": start_at.isoformat()},
     )
     deal_service.sync_status(db, actor, deal)
+    notification_service.viewing_requested(db, booking)
     db.commit()
     return to_out(_load(db, booking.id), actor)
 
@@ -257,9 +258,10 @@ def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     booking.cancelled_at = _now()
     booking.cancelled_by = actor.id
     booking.proposed_start_at = booking.proposed_end_at = None
-    hold_service.release(db, actor, booking.id, "cancelled")
+    released = hold_service.release(db, actor, booking.id, "cancelled")
     _audit_transition(db, actor, "booking.cancel", booking, before)
     _sync_deal(db, actor, booking)
+    notification_service.viewing_cancelled(db, booking, actor, hold_released=released)
     db.commit()
     return to_out(booking, actor)
 
@@ -278,6 +280,7 @@ def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleReque
     booking.proposed_start_at, booking.proposed_end_at = start_at, end_at
     _audit_transition(db, actor, "booking.reschedule_request", booking, before, proposed_start_at=start_at.isoformat())
     _sync_deal(db, actor, booking)
+    notification_service.reschedule_requested(db, booking)
     db.commit()
     return to_out(booking, actor)
 
@@ -324,6 +327,7 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
         _raise_slot_taken(db, e, property_id)
     _audit_transition(db, actor, "booking.reschedule_approve" if rescheduling else "booking.approve", booking, before)
     _sync_deal(db, actor, booking)
+    notification_service.viewing_confirmed(db, booking, rescheduled=rescheduling)
     db.commit()
     return to_out(_load(db, booking.id), actor)
 
@@ -339,6 +343,7 @@ def reject(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOu
         booking.responded_at = _now()
         _audit_transition(db, actor, "booking.reschedule_decline", booking, before, reason=reason)
         _sync_deal(db, actor, booking)
+        notification_service.reschedule_declined(db, booking, reason)
         db.commit()
         return to_out(booking, actor)
     before = _transition(booking, BookingStatus.REJECTED)
@@ -346,6 +351,7 @@ def reject(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOu
     booking.rejection_reason = reason
     _audit_transition(db, actor, "booking.reject", booking, before, reason=reason)
     _sync_deal(db, actor, booking)
+    notification_service.viewing_rejected(db, booking, reason)
     db.commit()
     return to_out(booking, actor)
 
@@ -361,6 +367,7 @@ def complete(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     hold_service.release(db, actor, booking.id, "completed")
     _audit_transition(db, actor, "booking.complete", booking, before)
     _sync_deal(db, actor, booking)
+    notification_service.cancel_reminders(db, booking.id)
     db.commit()
     return to_out(booking, actor)
 
