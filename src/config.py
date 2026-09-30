@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=2, ge=0)
 
     @property
+    def otp_code_visible(self) -> bool:
+        return self.app_env != "production" if self.otp_expose_code is None else self.otp_expose_code
+
+    @property
     def llm_api_key(self) -> str:
         return self.google_api_key if self.llm_provider == "google" else self.openai_api_key
 
@@ -71,6 +75,9 @@ class Settings(BaseSettings):
     otp_max_attempts: int = Field(default=5, ge=1)
     otp_max_requests: int = Field(default=5, ge=1, description="Codes per target per rate-limit window")
     otp_rate_window_minutes: int = Field(default=15, ge=1)
+    # Return the code in the API response (no SMS/Zalo provider yet). Default: everywhere except production;
+    # a public demo with fake data can turn it on explicitly.
+    otp_expose_code: bool | None = None
 
     # Recommendation scoring weights (spec §4.6: TBD, calibrate with real data)
     score_weight_price: float = 0.25

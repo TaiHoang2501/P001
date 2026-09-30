@@ -41,6 +41,24 @@ cd frontend && npm install && npm run dev        # Web: http://localhost:5173
 `lan.hoang@gmail.com`, Chủ đầu tư `operator@vinhomes.vn`. Người mua/chủ căn cũng đăng nhập được
 bằng OTP; khi chưa có nhà cung cấp SMS/Zalo, mã hiện ngay trên màn hình (ngoài production).
 
+### Deploy (Vercel + Render + Neon, đều có gói miễn phí)
+
+Web (React) chạy trên **Vercel**; API (FastAPI, Dockerfile) chạy trên **Render**; PostgreSQL trên **Neon**.
+API không đặt trên Vercel vì cần tiến trình chạy lâu: bộ nhớ hội thoại AI, job nền (hết hạn giữ căn,
+nhắc lịch, chuyển ngoại lệ) và lượt chat có thể dài hơn giới hạn của serverless function.
+
+1. **Neon** — tạo project → copy connection string (`postgresql://...neon.tech/...?sslmode=require`).
+2. **Render** — Dashboard → New → Blueprint → chọn repo (dùng `render.yaml`). Điền `DATABASE_URL`
+   (Neon), `GOOGLE_API_KEY`, và tạm để `CORS_ORIGINS` trống. Lần khởi động đầu tự chạy migration,
+   nạp dữ liệu demo và mở lịch trống 7 ngày tới (`scripts/start.sh`); các lần sau không nạp lại.
+   Ghi lại URL API, ví dụ `https://bookingbot-api.onrender.com`.
+3. **Vercel** — New Project → chọn repo → **Root Directory: `frontend`** → thêm biến
+   `VITE_API_URL` = URL API ở bước 2 → Deploy. Ghi lại URL web, ví dụ `https://bookingbot.vercel.app`.
+4. Quay lại Render, đặt `CORS_ORIGINS` = URL web ở bước 3 (không có `/` ở cuối) → service tự deploy lại.
+
+Lưu ý: gói free của Render ngủ sau ~15 phút không dùng, request đầu tiên sau đó mất khoảng 1 phút.
+Dữ liệu demo công khai (mật khẩu `Password123!`, mã OTP hiện trên màn hình) — chỉ dùng dữ liệu giả.
+
 ### Kiểm thử
 
 ```bash

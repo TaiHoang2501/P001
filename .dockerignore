@@ -14,3 +14,9 @@ eval/
 .dockerignore
 Dockerfile
 docker-compose.yml
+# Not needed in the API image
+frontend/
+tests/
+data/
+DIagram/
+.specify/
