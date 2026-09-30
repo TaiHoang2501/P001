@@ -3,6 +3,7 @@
 Usage:
     python -m src.db.seed           # only if the database is empty
     python -m src.db.seed --reset   # wipe all rows first (dev only!)
+    python -m src.db.seed --if-empty --ensure-slots   # deploy start-up: seed once, keep demo slots in the future
 
 Seeded buyers and operators use the password below; sellers sign in with phone + OTP.
 Never run this against production.
@@ -185,20 +186,60 @@ def _media(props: list[Property]) -> list[PropertyMedia]:
     return media
 
 
-def _slots(props: list[Property]) -> list[AvailabilitySlot]:
+SLOT_HOURS = (9, 14, 16)
+SLOT_MINUTES = 30
+DEMO_OWNER_IDS = {uid for uid, role, *_ in USERS if role == UserRole.OWNER}
+
+
+def _slot_starts(days: int) -> list[datetime]:
+    """Viewing slot start times at 9:00 / 14:00 / 16:00 (Vietnam time) for `days` days from tomorrow."""
     tz = ZoneInfo(get_settings().timezone)
     tomorrow = datetime.now(tz).date() + timedelta(days=1)
-    slots = []
+    return [
+        datetime.combine(tomorrow + timedelta(days=day), time(hour, 0), tzinfo=tz)
+        for day in range(days)
+        for hour in SLOT_HOURS
+    ]
+
+
+def _slots(props: list[Property]) -> list[AvailabilitySlot]:
+    return [
+        AvailabilitySlot(property_id=prop.id, start_at=start, end_at=start + timedelta(minutes=SLOT_MINUTES))
+        for prop in props
+        if prop.status == PropertyStatus.AVAILABLE
+        for start in _slot_starts(3)
+    ]
+
+
+def ensure_slots(db: Session, days: int = 7) -> int:
+    """Top up the demo owners' viewing slots for the next `days` days (a long-running demo never runs out).
+
+    Only seeded demo owners are touched; real sellers manage their own availability.
+    Slots that already exist or overlap an existing one are skipped. Returns how many were added.
+    """
+    props = db.scalars(
+        select(Property).where(Property.owner_id.in_(DEMO_OWNER_IDS), Property.status == PropertyStatus.AVAILABLE)
+    ).all()
+    added = 0
     for prop in props:
-        if prop.status != PropertyStatus.AVAILABLE:
-            continue
-        for day in range(3):
-            for hour in (9, 14, 16):
-                start = datetime.combine(tomorrow + timedelta(days=day), time(hour, 0), tzinfo=tz)
-                slots.append(
-                    AvailabilitySlot(property_id=prop.id, start_at=start, end_at=start + timedelta(minutes=30))
+        for start in _slot_starts(days):
+            end = start + timedelta(minutes=SLOT_MINUTES)
+            taken = db.scalar(
+                select(AvailabilitySlot.id).where(
+                    AvailabilitySlot.property_id == prop.id,
+                    AvailabilitySlot.start_at < end,
+                    AvailabilitySlot.end_at > start,
                 )
-    return slots
+            )
+            if taken is None:
+                db.add(AvailabilitySlot(property_id=prop.id, start_at=start, end_at=end))
+                added += 1
+    db.commit()
+    return added
+
+
+def has_data(db: Session) -> bool:
+    return db.scalar(select(User.id).limit(1)) is not None
 
 
 def _ownership_verifications() -> list[PropertyOwnershipVerification]:
@@ -233,7 +274,7 @@ def seed(db: Session, *, reset: bool = False) -> None:
     if reset:
         tables = ", ".join(t.name for t in reversed(Base.metadata.sorted_tables))
         db.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
-    elif db.scalar(select(User.id).limit(1)) is not None:
+    elif has_data(db):
         raise SystemExit("Database already has data. Use --reset to wipe it (dev only).")
 
     pw = hash_password(SEED_PASSWORD)
@@ -299,6 +340,20 @@ def seed(db: Session, *, reset: bool = False) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed BookingBot demo data")
     parser.add_argument("--reset", action="store_true", help="Wipe all tables first (dev only)")
+    parser.add_argument("--if-empty", action="store_true", help="Seed only when the database has no users yet")
+    parser.add_argument(
+        "--ensure-slots",
+        type=int,
+        nargs="?",
+        const=7,
+        metavar="DAYS",
+        help="Top up demo owners' viewing slots for the next DAYS days (default 7)",
+    )
     args = parser.parse_args()
     with get_sessionmaker()() as session:
-        seed(session, reset=args.reset)
+        if args.if_empty and has_data(session):
+            print("Database already has data; skipping seed.")
+        else:
+            seed(session, reset=args.reset)
+        if args.ensure_slots:
+            print(f"Added {ensure_slots(session, args.ensure_slots)} demo viewing slot(s).")
