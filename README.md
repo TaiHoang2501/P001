@@ -26,7 +26,7 @@ pip install -r requirements.txt
 cp .env.example .env    # điền DATABASE_URL, JWT_SECRET và khóa LLM (xem bên dưới)
 
 alembic upgrade head    # tạo bảng
-python -m src.db.seed   # dữ liệu demo (mật khẩu mọi tài khoản: Password123!)
+python -m src.db.seed   # dữ liệu demo (DB trống); DB cũ sau khi pull: python -m src.db.seed --ensure-red-books
 uvicorn src.main:app --reload --port 8000        # API: http://localhost:8000/docs
 
 cd frontend && npm install && npm run dev        # Web: http://localhost:5173
@@ -37,9 +37,13 @@ cd frontend && npm install && npm run dev        # Web: http://localhost:5173
 `GOOGLE_API_KEY` (Gemini). `MODEL_NAME` tùy chọn; khi Gemini flash quá tải, dùng
 `MODEL_NAME=gemini-flash-lite-latest`.
 
-**Tài khoản demo:** người mua `an.nguyen@gmail.com`, chủ căn `tuan.pham@gmail.com` /
-`lan.hoang@gmail.com`, Chủ đầu tư `operator@vinhomes.vn`. Người mua/chủ căn cũng đăng nhập được
-bằng OTP; khi chưa có nhà cung cấp SMS/Zalo, mã hiện ngay trên màn hình (ngoài production).
+**Tài khoản demo:** người mua `an.nguyen@gmail.com` và Chủ đầu tư `operator@vinhomes.vn` (mật khẩu
+`Password123!`). Chủ căn chỉ đăng nhập bằng số điện thoại + OTP: Tuấn `0918765432`, Lan `0912345678`.
+Khi chưa có nhà cung cấp SMS/Zalo, mã OTP hiện ngay trên màn hình (ngoài production).
+
+**Đã có DB từ trước?** `seed` chỉ nạp vào DB trống. Sau khi pull bản có dữ liệu mới (vd. sổ đỏ),
+chạy `python -m src.db.seed --ensure-red-books` để thêm phần còn thiếu mà không xóa dữ liệu đang có
+(hoặc `--reset` để làm lại từ đầu).
 
 ### Deploy (Vercel + Render + Neon, đều có gói miễn phí)
 

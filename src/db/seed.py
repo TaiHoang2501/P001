@@ -3,7 +3,8 @@
 Usage:
     python -m src.db.seed           # only if the database is empty
     python -m src.db.seed --reset   # wipe all rows first (dev only!)
-    python -m src.db.seed --if-empty --ensure-slots   # deploy start-up: seed once, keep demo slots in the future
+    python -m src.db.seed --ensure-red-books  # add demo red books missing from an existing database
+    python -m src.db.seed --if-empty --ensure-slots --ensure-red-books   # deploy start-up
 
 Seeded buyers and operators use the password below; sellers sign in with phone + OTP.
 Never run this against production.
@@ -270,6 +271,45 @@ def _ownership_verifications() -> list[PropertyOwnershipVerification]:
         ]
 
 
+def _sync_red_book_id_sequence(db: Session) -> None:
+    # Rows are inserted with explicit ids; move the sequence past them
+    db.execute(
+        text(
+            "SELECT setval(pg_get_serial_sequence('property_ownership_verifications', 'id'), "
+            "(SELECT COALESCE(max(id), 1) FROM property_ownership_verifications))"
+        )
+    )
+
+
+def ensure_red_books(db: Session) -> int:
+    """Add the demo red books that are missing (by red book code) to an existing database.
+
+    `seed()` only loads them into an empty database, so a database seeded before red books existed
+    would otherwise keep an empty table. Existing rows are never changed: a real seller may already
+    have verified one or listed a property with it. A row whose user or id does not fit this database
+    is still added: without an owner, or with the next free id. Returns how many were added.
+    """
+    existing_codes = set(db.scalars(select(PropertyOwnershipVerification.red_book_code)))
+    existing_ids = set(db.scalars(select(PropertyOwnershipVerification.id)))
+    user_ids = set(db.scalars(select(User.id)))
+    added = 0
+    for record in _ownership_verifications():
+        if record.red_book_code in existing_codes:
+            continue
+        if record.user_id is not None and record.user_id not in user_ids:
+            record.user_id = None
+        if record.id in existing_ids:
+            record.id = None  # let the sequence pick one
+        else:
+            existing_ids.add(record.id)
+        db.add(record)
+        db.flush()  # a sequence-assigned id must not collide with a later explicit one
+        added += 1
+    _sync_red_book_id_sequence(db)
+    db.commit()
+    return added
+
+
 def seed(db: Session, *, reset: bool = False) -> None:
     if reset:
         tables = ", ".join(t.name for t in reversed(Base.metadata.sorted_tables))
@@ -323,12 +363,7 @@ def seed(db: Session, *, reset: bool = False) -> None:
     db.add_all(_slots(props))
     # Explicit ids were used for users; move the sequence past them
     db.execute(text("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT max(id) FROM users))"))
-    db.execute(
-        text(
-            "SELECT setval(pg_get_serial_sequence('property_ownership_verifications', 'id'), "
-            "(SELECT max(id) FROM property_ownership_verifications))"
-        )
-    )
+    _sync_red_book_id_sequence(db)
     db.commit()
     print(
         f"Seeded {len(USERS)} users, {len(red_books)} red books, {len(projects)} projects, "
@@ -349,11 +384,18 @@ if __name__ == "__main__":
         metavar="DAYS",
         help="Top up demo owners' viewing slots for the next DAYS days (default 7)",
     )
+    parser.add_argument(
+        "--ensure-red-books",
+        action="store_true",
+        help="Add demo red books missing from an existing database (never changes existing rows)",
+    )
     args = parser.parse_args()
     with get_sessionmaker()() as session:
         if args.if_empty and has_data(session):
             print("Database already has data; skipping seed.")
         else:
             seed(session, reset=args.reset)
+        if args.ensure_red_books:
+            print(f"Added {ensure_red_books(session)} red book(s).")
         if args.ensure_slots:
             print(f"Added {ensure_slots(session, args.ensure_slots)} demo viewing slot(s).")
