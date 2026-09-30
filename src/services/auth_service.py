@@ -51,7 +51,7 @@ def login(db: Session, data: LoginRequest) -> TokenResponse:
 
 def request_otp(db: Session, data: OtpRequest) -> OtpRequestResponse:
     code, ttl = otp_service.request_code(db, data.target)
-    debug_code = None if get_settings().app_env == "production" else code
+    debug_code = code if get_settings().otp_code_visible else None
     return OtpRequestResponse(expires_in=ttl, debug_code=debug_code)
 
 

@@ -115,3 +115,22 @@ async def test_otp_only_account_cannot_password_login(client):
 
     r = await client.post("/api/v1/auth/login", json={"identifier": NEW_PHONE, "password": "anything"})
     assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_code_hidden_in_production_unless_demo_enables_it(client, monkeypatch):
+    from src.config import get_settings
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "x" * 40)
+    get_settings.cache_clear()
+    try:
+        r = await client.post("/api/v1/auth/otp/request", json={"target": NEW_PHONE})
+        assert r.json()["debug_code"] is None
+
+        monkeypatch.setenv("OTP_EXPOSE_CODE", "true")
+        get_settings.cache_clear()
+        r = await client.post("/api/v1/auth/otp/request", json={"target": NEW_PHONE})
+        assert r.json()["debug_code"] is not None
+    finally:
+        get_settings.cache_clear()
