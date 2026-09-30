@@ -90,7 +90,7 @@ def claim(db: Session, actor: Actor, data: OwnershipClaim) -> OwnershipChallenge
         status=record.status,
         masked_phone=mask_phone(record.owner_phone),
         expires_in=ttl,
-        debug_code=None if get_settings().app_env == "production" else code,
+        debug_code=code if get_settings().otp_code_visible else None,
     )
 
 
