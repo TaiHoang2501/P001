@@ -51,6 +51,11 @@ function SellerRow({ seller: s }: { seller: SellerItem }) {
             {s.phone}
             {s.email && ` · ${s.email}`} · Nguồn: {s.source}
           </p>
+          {s.red_book_codes.length > 0 && (
+            <p className="mt-1 text-sm">
+              Sổ đỏ đã xác thực OTP: <span className="font-mono text-xs">{s.red_book_codes.join(", ")}</span>
+            </p>
+          )}
           {s.id_document_s3_key && <p className="mt-1 font-mono text-xs">Giấy tờ: {s.id_document_s3_key}</p>}
         </div>
         {!rejecting && (
@@ -81,7 +86,7 @@ function SellerRow({ seller: s }: { seller: SellerItem }) {
             required
             minLength={3}
             autoFocus
-            placeholder="Lý do (chủ căn sẽ thấy), VD: Ảnh CCCD bị mờ"
+            placeholder="Lý do (chủ căn sẽ thấy), VD: Sổ đỏ không khớp với căn đăng bán"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />

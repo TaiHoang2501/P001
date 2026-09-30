@@ -35,7 +35,7 @@ from src.models.property import (
     SearchCriteria,
     SearchResult,
 )
-from src.services import audit, notification_service, seller_service
+from src.services import audit, notification_service, ownership_service, seller_service
 
 # Listing lifecycle (spec §4.11). SOLD is terminal; a WITHDRAWN listing can be re-submitted.
 _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
@@ -168,6 +168,7 @@ def list_by_status(db: Session, status: PropertyStatus) -> list[PropertyOut]:
 def create(db: Session, actor: Actor, data: PropertyCreate) -> PropertyOut:
     if db.get(Building, data.building_id) is None:
         raise NotFoundError(f"Building {data.building_id} not found")
+    ownership_service.require_usable(db, actor, data.verification_id)
     prop = Property(owner_id=actor.id, status=PropertyStatus.DRAFT, **data.model_dump())
     db.add(prop)
     db.flush()
@@ -247,8 +248,8 @@ def delete_media(db: Session, actor: Actor, property_id: int, media_id: int) -> 
 
 def submit_for_review(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     prop = _load_owned(db, actor, property_id)
-    # Spec §4.5: the operator checks ownership during listing review, so a document is required
-    if not any(m.kind == MediaKind.OWNERSHIP_DOC for m in prop.media):
+    # Spec §4.5: ownership is proven by a verified red book; listings without one need a document for review
+    if prop.verification_id is None and not any(m.kind == MediaKind.OWNERSHIP_DOC for m in prop.media):
         raise BusinessRuleViolationError(
             "Upload an ownership document (sổ hồng / HĐMB) before submitting for review",
             details={"missing": MediaKind.OWNERSHIP_DOC.value},

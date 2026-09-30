@@ -1,51 +1,72 @@
 import type { ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useParams } from "react-router";
 
 import type { Role } from "./api/types";
-import { homePathFor, useAuth } from "./auth/AuthContext";
 import { RequireRole } from "./auth/RequireRole";
+import { BuyerBookingPage } from "./buyer/BuyerBookingPage";
+import { BuyerBookingsPage } from "./buyer/BuyerBookingsPage";
+import { BuyerChatPage } from "./buyer/BuyerChatPage";
+import { BuyerHomePage } from "./buyer/BuyerHomePage";
+import { BuyerLayout } from "./buyer/BuyerLayout";
+import { BuyerLoginPage } from "./buyer/BuyerLoginPage";
+import { BuyerPropertyPage } from "./buyer/BuyerPropertyPage";
+import { BuyerSchedulePage } from "./buyer/BuyerSchedulePage";
+import { BuyerStartPage } from "./buyer/BuyerStartPage";
+import { RequireBuyer, RequireBuyerOrGuest } from "./buyer/shared";
 import { Layout } from "./components/Layout";
 import { EmptyState } from "./components/ui";
-import { ChatPage } from "./pages/ChatPage";
 import { LoginPage } from "./pages/LoginPage";
-import { MyBookingsPage } from "./pages/MyBookingsPage";
 import { BookingsMonitorPage } from "./pages/operator/BookingsMonitorPage";
 import { EscalationsPage } from "./pages/operator/EscalationsPage";
 import { ModerationPage } from "./pages/operator/ModerationPage";
 import { SellerVerificationPage } from "./pages/operator/SellerVerificationPage";
 import { OwnerBookingsPage } from "./pages/owner/OwnerBookingsPage";
+import { OwnershipVerifyPage } from "./pages/owner/OwnershipVerifyPage";
 import { OwnerPropertiesPage } from "./pages/owner/OwnerPropertiesPage";
 import { PropertyFormPage } from "./pages/owner/PropertyFormPage";
 import { SlotsPage } from "./pages/owner/SlotsPage";
-import { PropertyDetailPage } from "./pages/PropertyDetailPage";
-import { RegisterPage } from "./pages/RegisterPage";
-
-/** Buyers land straight in the AI assistant after login; there is no search/filter page (spec §4.4). */
-function Home() {
-  const { user } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "CUSTOMER") return <Navigate to={homePathFor(user)} replace />;
-  return <ChatPage />;
-}
+import { RoleSelectPage } from "./pages/RoleSelectPage";
 
 const as = (roles: Role[], page: ReactNode) => <RequireRole roles={roles}>{page}</RequireRole>;
+const buyer = (page: ReactNode) => <RequireBuyer>{page}</RequireBuyer>;
+const buyerOrGuest = (page: ReactNode) => <RequireBuyerOrGuest>{page}</RequireBuyerOrGuest>;
+
+/** Old buyer links (/properties/:id) now live in the buyer area. */
+function LegacyPropertyRedirect() {
+  return <Navigate to={`/buyer/properties/${useParams().id}`} replace />;
+}
 
 export function App() {
   return (
     <Routes>
-      <Route element={<Layout />}>
-        {/* Public */}
-        <Route index element={<Home />} />
-        <Route path="login" element={<LoginPage />} />
-        <Route path="register" element={<RegisterPage />} />
-        <Route path="properties/:id" element={<PropertyDetailPage />} />
-        <Route path="chat" element={<Navigate to="/" replace />} />
+      {/* Entry: "view homes" -> buyer area, "sell a home" -> BookingBot */}
+      <Route index element={<RoleSelectPage />} />
 
-        {/* Buyer */}
-        <Route path="bookings" element={as(["CUSTOMER"], <MyBookingsPage />)} />
+      {/* Buyer area: AI agent chat + viewing requests (wireframe 1.1-1.6) */}
+      <Route path="buyer" element={<BuyerLayout />}>
+        <Route index element={<BuyerHomePage />} />
+        <Route path="start" element={<BuyerStartPage />} />
+        <Route path="login" element={<BuyerLoginPage />} />
+        <Route path="chat" element={buyerOrGuest(<BuyerChatPage />)} />
+        <Route path="properties/:id" element={<BuyerPropertyPage />} />
+        <Route path="properties/:id/schedule" element={buyerOrGuest(<BuyerSchedulePage />)} />
+        <Route path="bookings" element={buyer(<BuyerBookingsPage />)} />
+        <Route path="bookings/:id" element={buyer(<BuyerBookingPage />)} />
+        <Route path="*" element={<EmptyState title="Không tìm thấy trang" />} />
+      </Route>
+      <Route path="chat" element={<Navigate to="/buyer/chat" replace />} />
+      <Route path="bookings" element={<Navigate to="/buyer/bookings" replace />} />
+      <Route path="properties/:id" element={<LegacyPropertyRedirect />} />
+
+      {/* BookingBot: sellers and the investor/operator */}
+      <Route element={<Layout />}>
+        <Route path="login" element={<LoginPage />} />
+        {/* Sellers sign up with phone + OTP on the login page; there is no password sign-up */}
+        <Route path="register" element={<Navigate to="/login" replace />} />
 
         {/* Seller (spec §4.15 Seller screens) */}
         <Route path="owner" element={as(["OWNER"], <OwnerPropertiesPage />)} />
+        <Route path="owner/verify" element={as(["OWNER"], <OwnershipVerifyPage />)} />
         <Route path="owner/properties/new" element={as(["OWNER"], <PropertyFormPage />)} />
         <Route path="owner/properties/:id/edit" element={as(["OWNER"], <PropertyFormPage />)} />
         <Route path="owner/properties/:id/slots" element={as(["OWNER"], <SlotsPage />)} />

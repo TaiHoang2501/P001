@@ -6,9 +6,10 @@ from src.core.deps import DbSession, OwnerActor
 from src.core.errors import NotFoundError
 from src.db.models import BookingStatus, Property
 from src.models.booking import BookingOut, BookingRejectRequest, SlotCreate, SlotOut
+from src.models.ownership import OwnershipChallengeOut, OwnershipClaim, OwnershipOtpConfirm, OwnershipVerificationOut
 from src.models.property import MediaCreate, PropertyCreate, PropertyOut, PropertyUpdate
 from src.models.seller import SellerProfileOut, SellerVerificationSubmit
-from src.services import availability_service, booking_service, property_service, seller_service
+from src.services import availability_service, booking_service, ownership_service, property_service, seller_service
 
 router = APIRouter(prefix="/owner", tags=["owner"])
 
@@ -24,6 +25,27 @@ def my_verification(actor: OwnerActor, db: DbSession) -> SellerProfileOut:
 @router.post("/verification", response_model=SellerProfileOut)
 def submit_verification(data: SellerVerificationSubmit, actor: OwnerActor, db: DbSession) -> SellerProfileOut:
     return seller_service.submit(db, actor, data)
+
+
+# ---------- Red book ownership (required before listing) ----------
+
+
+@router.get("/ownership", response_model=list[OwnershipVerificationOut])
+def my_red_books(actor: OwnerActor, db: DbSession) -> list[OwnershipVerificationOut]:
+    return ownership_service.list_own(db, actor)
+
+
+@router.post("/ownership/claim", response_model=OwnershipChallengeOut)
+def claim_red_book(data: OwnershipClaim, actor: OwnerActor, db: DbSession) -> OwnershipChallengeOut:
+    """Holder name + red book code must match the records; the OTP goes to the owner's phone on record."""
+    return ownership_service.claim(db, actor, data)
+
+
+@router.post("/ownership/{verification_id}/confirm", response_model=OwnershipVerificationOut)
+def confirm_red_book(
+    verification_id: int, data: OwnershipOtpConfirm, actor: OwnerActor, db: DbSession
+) -> OwnershipVerificationOut:
+    return ownership_service.confirm(db, actor, verification_id, data)
 
 
 # ---------- Listings ----------

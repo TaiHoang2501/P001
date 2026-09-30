@@ -1,6 +1,6 @@
 import pytest
 
-from tests.helpers import CUSTOMER_AN, OPERATOR, OWNER_LAN, OWNER_TUAN, auth
+from tests.helpers import CUSTOMER_AN, OPERATOR, OWNER_LAN, OWNER_TUAN, TUAN_RED_BOOK, auth
 
 NEW_LISTING = {
     "building_id": 1,
@@ -16,6 +16,7 @@ NEW_LISTING = {
     "furnishing": "FULL",
     "legal_status": "PINK_BOOK",
     "description": "Căn góc view hồ",
+    "verification_id": TUAN_RED_BOOK,
 }
 
 
@@ -81,8 +82,7 @@ async def test_listing_lifecycle_draft_submit_approve(client):
     pid = r.json()["id"]
     assert r.json()["status"] == "DRAFT"
 
-    doc = {"kind": "OWNERSHIP_DOC", "s3_key": "private/x/so-hong.pdf", "content_type": "application/pdf"}
-    await client.post(f"/api/v1/owner/properties/{pid}/media", json=doc, headers=owner)
+    # Backed by a verified red book, so no ownership document is needed for review
     r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
     assert r.json()["status"] == "PENDING_REVIEW"
 

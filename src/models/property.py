@@ -34,7 +34,8 @@ class PropertyBase(BaseModel):
 
 
 class PropertyCreate(PropertyBase):
-    pass
+    # A red book the seller verified (red book + OTP) and no other listing uses yet
+    verification_id: int
 
 
 class PropertyUpdate(BaseModel):

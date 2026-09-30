@@ -111,5 +111,6 @@ export function useAuth(): AuthState {
 export function homePathFor(user: User | null): string {
   if (user?.role === "OWNER") return "/owner";
   if (user?.role === "INVESTOR_OPERATOR") return "/operator";
+  if (user?.role === "CUSTOMER") return "/buyer/chat";
   return "/";
 }

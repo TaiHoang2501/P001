@@ -10,6 +10,8 @@ _PHONE_RE = re.compile(PHONE_PATTERN)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 SelfServiceRole = Literal["CUSTOMER", "OWNER"]
+# Password sign-up is for buyers only: sellers sign up and sign in with phone + OTP
+PasswordSignupRole = Literal["CUSTOMER"]
 
 
 def is_phone(target: str) -> bool:
@@ -28,8 +30,8 @@ class RegisterRequest(BaseModel):
     phone: str = Field(..., pattern=PHONE_PATTERN, description="Vietnamese phone, e.g. 0901234567")
     email: EmailStr | None = None
     password: str = Field(..., min_length=8, max_length=128)
-    # Operators are created by admins/seed only
-    role: SelfServiceRole = "CUSTOMER"
+    # Operators are created by admins/seed only; sellers use phone + OTP
+    role: PasswordSignupRole = "CUSTOMER"
 
 
 class LoginRequest(BaseModel):

@@ -18,6 +18,22 @@
   --color-canvas: #faf8f6;
 }
 
+/* Role chooser + buyer area: blue per the buyer wireframe. Redefining the tokens re-skins every brand-* utility inside. */
+.theme-buyer {
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe7ff;
+  --color-brand-200: #b9cffe;
+  --color-brand-500: #3b7bff;
+  --color-brand-600: #1463ff;
+  --color-brand-700: #0f4fd6;
+  --color-brand-900: #0b2e7a;
+
+  --color-ink: #111827;
+  --color-muted: #5f6b7a;
+  --color-line: #e3e8f0;
+  --color-canvas: #f5f7fb;
+}
+
 @layer base {
   body {
     @apply bg-canvas text-ink antialiased;

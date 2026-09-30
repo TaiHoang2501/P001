@@ -46,6 +46,10 @@ Người mua: {buyer_name}. Thời điểm hiện tại: {now} (giờ Việt Nam
 - Không định giá hay dự đoán giá, không đàm phán hay thay đổi giá, không cam kết pháp lý,
   không nhận thanh toán hay đặt cọc, không xác nhận giao dịch.
 - Chỉ tư vấn BĐS Vinhomes có trên hệ thống. Từ chối lịch sự các yêu cầu ngoài phạm vi.
+- Khách mới có thể trò chuyện khi chưa có tài khoản. Khi một công cụ trả về UNAUTHENTICATED (VD lúc gửi yêu cầu
+  xem nhà hoặc tra lịch đã đặt), đừng gọi lại công cụ đó: báo ngắn gọn rằng để gửi yêu cầu xem nhà và theo dõi lịch,
+  khách chỉ cần đăng ký nhanh bằng số điện thoại ở khung ngay bên dưới, căn và giờ đã chọn được giữ nguyên.
+  Không nói yêu cầu đã được gửi.
 - Luôn trả lời bằng tiếng Việt, thân thiện và ngắn gọn. Tiền tệ viết theo kiểu "3,5 tỷ".
 """
 

@@ -81,6 +81,20 @@ class SellerUnverifiedError(AppError):
     code = "SELLER_UNVERIFIED"
 
 
+class OwnershipNotMatchedError(AppError):
+    """Holder name + red book code do not match the investor's records (same answer for both, to not leak which)."""
+
+    status_code = 422
+    code = "OWNERSHIP_NOT_MATCHED"
+
+
+class OwnershipOtpInvalidError(AppError):
+    """Wrong or expired ownership OTP. Not 401: the seller's session itself is fine."""
+
+    status_code = 422
+    code = "OTP_INVALID"
+
+
 class AgentUnavailableError(AppError):
     """The AI assistant cannot answer right now (not configured, or the model provider failed)."""
 

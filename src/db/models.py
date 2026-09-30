@@ -142,6 +142,16 @@ class MediaKind(StrEnum):
 
 class OtpPurpose(StrEnum):
     LOGIN = "LOGIN"
+    # Sent to the phone recorded on a red book to prove the seller owns it
+    OWNERSHIP = "OWNERSHIP"
+
+
+class OwnershipVerificationStatus(StrEnum):
+    UNVERIFIED = "UNVERIFIED"
+    OTP_SENT = "OTP_SENT"
+    VERIFIED = "VERIFIED"
+    # Too many wrong codes: locked until the investor/operator looks at it
+    FAILED = "FAILED"
 
 
 class BookingStatus(StrEnum):
@@ -343,6 +353,34 @@ class SellerProfile(Base):
     )
 
 
+class PropertyOwnershipVerification(Base):
+    """Red book (sổ đỏ/sổ hồng) ground truth; a seller claims one by naming its holder + code and passing an OTP.
+
+    Rows are loaded from the investor's records with `user_id` NULL; it is set when a seller verifies.
+    A verified red book backs exactly one listing (`properties.verification_id`).
+    """
+
+    __tablename__ = "property_ownership_verifications"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    red_book_holder_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    red_book_code: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    # Where the ownership OTP goes: the phone on record, not the seller's login phone
+    owner_phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[OwnershipVerificationStatus] = mapped_column(
+        _enum(OwnershipVerificationStatus, "ownership_verification_status"),
+        nullable=False,
+        default=OwnershipVerificationStatus.UNVERIFIED,
+    )
+    otp_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -390,6 +428,10 @@ class Property(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     building_id: Mapped[int] = mapped_column(ForeignKey("buildings.id", ondelete="RESTRICT"), nullable=False)
+    # Red book proving ownership; required for new listings (legacy seed listings carry an ownership document instead)
+    verification_id: Mapped[int | None] = mapped_column(
+        ForeignKey("property_ownership_verifications.id", ondelete="RESTRICT"), unique=True
+    )
     unit_code: Mapped[str] = mapped_column(String(50), nullable=False)
     property_type: Mapped[PropertyType] = mapped_column(_enum(PropertyType, "property_type"), nullable=False)
     bedrooms: Mapped[int] = mapped_column(Integer, nullable=False)

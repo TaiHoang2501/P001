@@ -27,7 +27,7 @@ from src.db.models import (
     Recommendation,
 )
 from src.services import booking_service, hold_service, notification_service
-from tests.helpers import OPERATOR, auth
+from tests.helpers import OPERATOR, UNCLAIMED_RED_BOOK, auth
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 SAT = datetime(2030, 1, 5, tzinfo=VN)
@@ -67,14 +67,21 @@ async def test_core_demo_flow(client, db, monkeypatch):
     monkeypatch.setattr(agent_graph, "get_agent", lambda: agent)
     operator = await auth(client, OPERATOR)
 
-    # ---- Seller onboarding (spec §4.5) ----
+    # ---- Seller onboarding (spec §4.5): phone OTP login, then red book + OTP to the phone on record ----
     seller = await _otp_signup(client, "0966000001", "Chủ Căn Demo", "OWNER")
     assert (await client.get("/api/v1/owner/verification", headers=seller)).json()[
         "verification_status"
     ] == "UNVERIFIED"
-    await client.post(
-        "/api/v1/owner/verification", json={"id_document_s3_key": "private/demo/cccd.jpg"}, headers=seller
+    claim = {k: v for k, v in UNCLAIMED_RED_BOOK.items() if k != "id"}
+    challenge = (await client.post("/api/v1/owner/ownership/claim", json=claim, headers=seller)).json()
+    r = await client.post(
+        f"/api/v1/owner/ownership/{challenge['verification_id']}/confirm",
+        json={"code": challenge["debug_code"]},
+        headers=seller,
     )
+    assert r.json()["status"] == "VERIFIED"
+    # The red book puts the seller in the operator's queue; the operator verifies them
+    assert (await client.get("/api/v1/owner/verification", headers=seller)).json()["verification_status"] == "PENDING"
     seller_id = (await client.get("/api/v1/auth/me", headers=seller)).json()["id"]
     r = await client.post(f"/api/v1/operator/sellers/{seller_id}/verify", headers=operator)
     assert r.json()["verification_status"] == "VERIFIED"
@@ -93,11 +100,10 @@ async def test_core_demo_flow(client, db, monkeypatch):
         "furnishing": "FULL",
         "legal_status": "PINK_BOOK",
         "description": "Căn demo 2PN view hồ",
+        "verification_id": challenge["verification_id"],
     }
     prop = (await client.post("/api/v1/owner/properties", json=listing, headers=seller)).json()
     pid = prop["id"]
-    doc = {"kind": "OWNERSHIP_DOC", "s3_key": "private/demo/so-hong.pdf", "content_type": "application/pdf"}
-    await client.post(f"/api/v1/owner/properties/{pid}/media", json=doc, headers=seller)
     assert (await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=seller)).json()[
         "status"
     ] == "PENDING_REVIEW"

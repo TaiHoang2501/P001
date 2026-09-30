@@ -55,6 +55,8 @@ const FRIENDLY: Record<string, string> = {
   ALREADY_EXISTS: "Dữ liệu đã tồn tại.",
   STATE_CONFLICT: "Trạng thái hiện tại không cho phép thao tác này.",
   SLOT_UNAVAILABLE: "Khung giờ này vừa có người đặt. Vui lòng chọn khung giờ khác.",
+  OWNERSHIP_NOT_MATCHED: "Họ tên hoặc mã số sổ đỏ không khớp với dữ liệu của Chủ đầu tư.",
+  OTP_INVALID: "Mã OTP không đúng hoặc đã hết hạn.",
   BUSINESS_RULE_VIOLATION: "Thao tác không hợp lệ.",
   VALIDATION_ERROR: "Dữ liệu nhập chưa hợp lệ.",
   NETWORK_ERROR: "Không kết nối được máy chủ.",

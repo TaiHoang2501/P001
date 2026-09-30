@@ -10,7 +10,7 @@ import { formatTimeRange } from "../lib/format";
 
 const CANCELLABLE = new Set<Booking["status"]>(["REQUESTED", "CONFIRMED", "RESCHEDULE_REQUESTED"]);
 
-export function MyBookingsPage() {
+export function BuyerBookingsPage() {
   const queryClient = useQueryClient();
   const bookings = useQuery({ queryKey: ["my-bookings"], queryFn: () => call(api.GET("/api/v1/bookings")) });
   const [rescheduling, setRescheduling] = useState<number | null>(null);
@@ -49,8 +49,8 @@ export function MyBookingsPage() {
       {bookings.isError && <ErrorBox error={bookings.error} onRetry={() => bookings.refetch()} />}
       {bookings.data?.length === 0 && (
         <EmptyState title="Bạn chưa có lịch xem nào">
-          <Link to="/" className="font-medium text-brand-700 hover:underline">
-            Trò chuyện với trợ lý AI để tìm căn
+          <Link to="/buyer/chat" className="font-medium text-brand-700 hover:underline">
+            Trò chuyện với AI Agent để tìm căn
           </Link>
         </EmptyState>
       )}
@@ -62,13 +62,16 @@ export function MyBookingsPage() {
               <div className="flex flex-wrap items-center gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link to={`/properties/${b.property_id}`} className="font-medium hover:underline">
+                    <Link to={`/buyer/properties/${b.property_id}`} className="font-medium hover:underline">
                       {b.property_label}
                     </Link>
                     <BookingBadge status={b.status} />
                   </div>
                   <p className="mt-1 text-sm text-muted">
-                    {formatTimeRange(b.start_at, b.end_at)} · Deal <span className="font-mono">{b.deal_code}</span>
+                    {formatTimeRange(b.start_at, b.end_at)} · Deal{" "}
+                    <Link to={`/buyer/bookings/${b.id}`} className="font-mono text-brand-700 hover:underline">
+                      {b.deal_code}
+                    </Link>
                   </p>
                   {b.hold_status === "ACTIVE" && (
                     <p className="mt-1 text-xs text-emerald-800">Căn được giữ riêng cho bạn trong khung giờ này.</p>

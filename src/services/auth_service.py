@@ -41,8 +41,13 @@ def register(db: Session, data: RegisterRequest) -> TokenResponse:
 def login(db: Session, data: LoginRequest) -> TokenResponse:
     identifier = data.identifier.strip().lower()
     user = db.scalar(select(User).where(or_(User.phone == identifier, User.email == identifier)))
-    # Same error for unknown user, OTP-only account and wrong password: don't reveal which accounts exist
-    if user is None or user.password_hash is None or not verify_password(data.password, user.password_hash):
+    # Same error for unknown user, OTP-only account (every seller) and wrong password: don't reveal which accounts exist
+    if (
+        user is None
+        or user.password_hash is None
+        or user.role == UserRole.OWNER
+        or not verify_password(data.password, user.password_hash)
+    ):
         raise InvalidCredentialsError("Wrong phone/email or password")
     if user.status == UserStatus.SUSPENDED:
         raise InvalidCredentialsError("Account is suspended")
@@ -69,6 +74,8 @@ def verify_otp(db: Session, data: OtpVerifyRequest) -> TokenResponse:
         user = _create_user(db, role=UserRole(data.role), full_name=data.full_name, phone=data.target)
     elif user.role == UserRole.INVESTOR_OPERATOR:
         raise ForbiddenError("Operators sign in with email and password")
+    elif user.role == UserRole.OWNER and not is_phone(data.target):
+        raise ForbiddenError("Sellers sign in with their phone number")
     elif user.status == UserStatus.SUSPENDED:
         raise InvalidCredentialsError("Account is suspended")
 

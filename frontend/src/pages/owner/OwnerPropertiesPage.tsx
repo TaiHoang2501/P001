@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
 import { api, call } from "../../api/client";
 import type { Property } from "../../api/types";
 import { EmptyState, ErrorBox, Notice, PageHeader, PropertyBadge, Spinner } from "../../components/ui";
 import { bedroomsLabel, formatArea, formatVnd } from "../../lib/format";
+import { usableRedBooks, useRedBooks } from "./OwnershipVerifyPage";
 
 const EDITABLE = new Set<Property["status"]>(["DRAFT", "REJECTED", "WITHDRAWN"]);
 
@@ -33,14 +33,14 @@ export function OwnerPropertiesPage() {
     <div>
       <PageHeader
         title="Căn của tôi"
-        subtitle="Tin mới cần Chủ đầu tư duyệt (kèm giấy tờ sở hữu) trước khi người mua được AI gợi ý."
+        subtitle="Mỗi tin đăng gắn với một sổ đỏ đã xác thực và cần Chủ đầu tư duyệt trước khi người mua được AI gợi ý."
         action={
           <Link to="/owner/properties/new" className="btn-primary">
             + Đăng bán căn
           </Link>
         }
       />
-      <VerificationBanner />
+      <RedBookBanner />
       {actionError && (
         <div className="mb-4">
           <ErrorBox error={actionError} />
@@ -118,54 +118,43 @@ export function OwnerPropertiesPage() {
   );
 }
 
-/** Owner verification (spec §4.5 "Owner Verification", AC-04): required before listings go live. */
-function VerificationBanner() {
-  const queryClient = useQueryClient();
-  const [docKey, setDocKey] = useState("");
+/** Selling needs a verified red book (holder name + code + OTP to the owner's phone on record). */
+function RedBookBanner() {
+  const books = useRedBooks();
   const profile = useQuery({ queryKey: ["owner-verification"], queryFn: () => call(api.GET("/api/v1/owner/verification")) });
-  const submit = useMutation({
-    mutationFn: () => call(api.POST("/api/v1/owner/verification", { body: { id_document_s3_key: docKey.trim() } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["owner-verification"] }),
-  });
-
-  if (!profile.data) return null;
-  const status = profile.data.verification_status;
-  if (status === "VERIFIED") return null;
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    submit.mutate();
-  }
+  if (!books.data) return null;
+  const usable = usableRedBooks(books.data).length;
+  const status = profile.data?.verification_status;
 
   return (
     <div className="mb-4 space-y-2">
-      {status === "PENDING" ? (
-        <Notice>Hồ sơ chủ căn đang chờ Chủ đầu tư xác thực. Tin đăng chỉ được duyệt sau khi bạn được xác thực.</Notice>
-      ) : (
+      {/* After the red book, the investor/operator still reviews the seller before listings can go live */}
+      {status === "PENDING" && (
+        <Notice>Hồ sơ người bán đang chờ Chủ đầu tư duyệt. Tin đăng chỉ được duyệt sau khi hồ sơ của bạn được xác thực.</Notice>
+      )}
+      {status === "REJECTED" && (
         <Notice tone="warning">
-          {status === "REJECTED"
-            ? `Xác thực chưa thành công: ${profile.data.rejection_reason ?? ""}. Vui lòng gửi lại giấy tờ.`
-            : "Bạn cần xác thực chủ căn (CCCD) trước khi tin đăng được duyệt và người mua đặt lịch xem."}
-          <form onSubmit={onSubmit} className="mt-2 flex flex-wrap gap-2">
-            <label htmlFor="id-doc" className="sr-only">
-              Ảnh CCCD (S3 key hoặc URL)
-            </label>
-            <input
-              id="id-doc"
-              className="input min-w-0 flex-1 font-mono text-xs"
-              required
-              minLength={3}
-              placeholder="S3 key/URL ảnh CCCD"
-              value={docKey}
-              onChange={(e) => setDocKey(e.target.value)}
-            />
-            <button type="submit" className="btn-primary btn-sm" disabled={submit.isPending}>
-              Gửi xác thực
-            </button>
-          </form>
+          Chủ đầu tư chưa xác thực hồ sơ của bạn{profile.data?.rejection_reason ? `: ${profile.data.rejection_reason}` : ""}. Xác thực
+          một sổ đỏ khác để gửi lại hồ sơ, hoặc liên hệ Chủ đầu tư.
         </Notice>
       )}
-      {submit.isError && <ErrorBox error={submit.error} />}
+      {books.data.length === 0 ? (
+        <Notice tone="warning">
+          Bạn cần xác thực sổ đỏ (họ tên người đứng tên, mã số sổ và mã OTP gửi tới chủ sở hữu) trước khi đăng bán.{" "}
+          <Link to="/owner/verify" className="font-medium underline">
+            Xác thực sổ đỏ
+          </Link>
+        </Notice>
+      ) : (
+        <Notice tone={usable > 0 ? "success" : "info"}>
+          {usable > 0
+            ? `Bạn có ${usable} sổ đỏ đã xác thực chưa đăng bán.`
+            : "Tất cả sổ đỏ đã xác thực của bạn đều đã có tin đăng."}{" "}
+          <Link to="/owner/verify" className="font-medium underline">
+            {usable > 0 ? "Xem sổ đỏ" : "Xác thực thêm sổ đỏ"}
+          </Link>
+        </Notice>
+      )}
     </div>
   );
 }

@@ -10,13 +10,12 @@ type NavItem = { to: string; label: string; end?: boolean };
 
 const NAV: Record<Role | "GUEST", NavItem[]> = {
   GUEST: [],
-  CUSTOMER: [
-    { to: "/", label: "Trợ lý AI", end: true },
-    { to: "/bookings", label: "Lịch xem của tôi" },
-  ],
+  // Buyers use the separate buyer area (/buyer); BookingBot is for sellers and the investor/operator
+  CUSTOMER: [],
   OWNER: [
     { to: "/owner", label: "Căn của tôi", end: true },
     { to: "/owner/bookings", label: "Yêu cầu xem nhà" },
+    { to: "/owner/verify", label: "Xác thực sổ đỏ" },
   ],
   INVESTOR_OPERATOR: [
     { to: "/operator", label: "Duyệt tin", end: true },
@@ -72,14 +71,9 @@ export function Layout() {
                 </button>
               </>
             ) : (
-              <>
-                <Link to="/login" className="btn-secondary btn-sm">
-                  Đăng nhập
-                </Link>
-                <Link to="/register" className="btn-primary btn-sm">
-                  Đăng ký
-                </Link>
-              </>
+              <Link to="/login" className="btn-primary btn-sm">
+                Đăng nhập
+              </Link>
             )}
           </div>
 
@@ -120,14 +114,9 @@ export function Layout() {
                   Đăng xuất ({user.full_name})
                 </button>
               ) : (
-                <>
-                  <Link to="/login" className="btn-secondary btn-sm" onClick={() => setOpen(false)}>
-                    Đăng nhập
-                  </Link>
-                  <Link to="/register" className="btn-primary btn-sm" onClick={() => setOpen(false)}>
-                    Đăng ký
-                  </Link>
-                </>
+                <Link to="/login" className="btn-primary btn-sm" onClick={() => setOpen(false)}>
+                  Đăng nhập
+                </Link>
               )}
             </div>
           </nav>
