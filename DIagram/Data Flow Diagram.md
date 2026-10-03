@@ -147,7 +147,7 @@ sequenceDiagram
     API->>DB: otp_codes (gửi tới owner_phone ghi trên sổ), sổ → OTP_SENT
     S->>W: nhập OTP
     W->>API: POST /owner/ownership/{id}/confirm
-    API->>DB: sổ → VERIFIED, gắn user_id; seller_profiles → PENDING; audit_logs
+    API->>DB: sổ → VERIFIED, gắn user_id, seller_profiles → PENDING, ghi audit_logs
     Note over API,DB: Sai OTP 5 lần → sổ FAILED (khóa)
     S->>W: tạo tin đăng, chọn sổ đỏ đã xác thực
     W->>API: POST /owner/properties (verification_id)
