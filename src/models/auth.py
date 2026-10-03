@@ -41,6 +41,8 @@ class LoginRequest(BaseModel):
 
 class OtpRequest(BaseModel):
     target: str = Field(..., description="Phone (buyer/seller) or email (seller) to send the code to")
+    # The account kind being signed into: a phone already used by another kind is refused before any code is sent
+    role: SelfServiceRole | None = None
 
     _check_target = field_validator("target")(_phone_or_email)
 
@@ -49,6 +51,8 @@ class OtpRequestResponse(BaseModel):
     expires_in: int = Field(..., description="Seconds until the code expires")
     # Only filled outside production, until an SMS/Zalo provider exists
     debug_code: str | None = None
+    # With `role`: the phone already has an account of that kind (the code signs in, no sign-up details needed)
+    account_exists: bool = False
 
 
 class OtpVerifyRequest(BaseModel):
@@ -56,7 +60,8 @@ class OtpVerifyRequest(BaseModel):
     code: str = Field(..., pattern=r"^\d{6}$")
     # Sign-up details, required only the first time this phone is used
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
-    role: SelfServiceRole = "CUSTOMER"
+    # The account kind being signed into (and created on first use; buyer when omitted)
+    role: SelfServiceRole | None = None
 
     _check_target = field_validator("target")(_phone_or_email)
 

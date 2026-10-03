@@ -57,6 +57,7 @@ const FRIENDLY: Record<string, string> = {
   SLOT_UNAVAILABLE: "Khung giờ này vừa có người đặt. Vui lòng chọn khung giờ khác.",
   OWNERSHIP_NOT_MATCHED: "Họ tên hoặc mã số sổ đỏ không khớp với dữ liệu của Chủ đầu tư.",
   OTP_INVALID: "Mã OTP không đúng hoặc đã hết hạn.",
+  PHONE_IN_USE: "Số điện thoại này đã tồn tại trên hệ thống (đã dùng cho loại tài khoản khác). Vui lòng dùng số điện thoại khác.",
   BUSINESS_RULE_VIOLATION: "Thao tác không hợp lệ.",
   VALIDATION_ERROR: "Dữ liệu nhập chưa hợp lệ.",
   NETWORK_ERROR: "Không kết nối được máy chủ.",

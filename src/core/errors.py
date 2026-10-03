@@ -55,6 +55,13 @@ class AlreadyExistsError(AppError):
     code = "ALREADY_EXISTS"
 
 
+class PhoneInUseError(AppError):
+    """The phone/email already belongs to another kind of account (e.g. a seller's phone on the buyer sign-up)."""
+
+    status_code = 409
+    code = "PHONE_IN_USE"
+
+
 class StateConflictError(AppError):
     """Requested action is not allowed from the record's current status (F10)."""
 

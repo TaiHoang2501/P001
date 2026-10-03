@@ -12,7 +12,8 @@ type OtpRequestResult = components["schemas"]["OtpRequestResponse"];
 interface AuthState {
   user: User | null;
   login: (identifier: string, password: string) => Promise<User>;
-  requestOtp: (target: string) => Promise<OtpRequestResult>;
+  /** `role` = the account kind being signed into: a phone used by another kind is refused (PHONE_IN_USE) */
+  requestOtp: (target: string, role?: "CUSTOMER" | "OWNER") => Promise<OtpRequestResult>;
   verifyOtp: (input: OtpVerifyInput) => Promise<User>;
   register: (input: RegisterInput) => Promise<User>;
   logout: () => void;
@@ -73,7 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const requestOtp = useCallback(
-    (target: string) => call(api.POST("/api/v1/auth/otp/request", { body: { target } })),
+    (target: string, role?: "CUSTOMER" | "OWNER") =>
+      call(api.POST("/api/v1/auth/otp/request", { body: { target, role: role ?? null } })),
     [],
   );
 

@@ -126,7 +126,7 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
   const { requestOtp, verifyOtp } = useAuth();
   const [target, setTarget] = useState("");
   const [code, setCode] = useState("");
-  const [sent, setSent] = useState<{ debug_code?: string | null } | null>(null);
+  const [sent, setSent] = useState<{ debug_code?: string | null; account_exists?: boolean } | null>(null);
   const [needsSignup, setNeedsSignup] = useState(false);
   const [fullName, setFullName] = useState("");
   const role = audience === "buyer" ? "CUSTOMER" : "OWNER";
@@ -149,7 +149,7 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
   const send = (e: FormEvent) => {
     e.preventDefault();
     void run(async () => {
-      setSent(await requestOtp(target.trim()));
+      setSent(await requestOtp(target.trim(), role));
       setCode("");
     });
   };
@@ -201,6 +201,12 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
           Đổi
         </button>
       </p>
+      {sent.account_exists && (
+        <Notice>
+          Số điện thoại này đã tồn tại trên hệ thống. Nhập mã OTP để đăng nhập vào tài khoản của bạn
+          {audience === "buyer" ? " — yêu cầu xem nhà sẽ được gửi bằng tài khoản này." : "."}
+        </Notice>
+      )}
       {sent.debug_code && (
         <Notice>
           Môi trường thử nghiệm (chưa có nhà cung cấp SMS/Zalo): mã của bạn là <strong className="font-mono">{sent.debug_code}</strong>

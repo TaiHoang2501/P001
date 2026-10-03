@@ -134,3 +134,40 @@ async def test_code_hidden_in_production_unless_demo_enables_it(client, monkeypa
         assert r.json()["debug_code"] is not None
     finally:
         get_settings.cache_clear()
+
+
+OPERATOR_PHONE, SELLER_PHONE, BUYER_PHONE = "0901234567", "0918765432", "0901111222"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("phone", "role"), [(OPERATOR_PHONE, "CUSTOMER"), (SELLER_PHONE, "CUSTOMER"), (BUYER_PHONE, "OWNER")]
+)
+async def test_phone_of_another_kind_of_account_is_refused_before_sending_a_code(client, db, phone, role):
+    r = await client.post("/api/v1/auth/otp/request", json={"target": phone, "role": role})
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "PHONE_IN_USE"
+    # No code was sent
+    assert db.query(OtpCode).filter(OtpCode.target == phone).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_buyer_sign_up_with_a_known_buyer_phone_says_it_exists_and_signs_in(client):
+    r = await client.post("/api/v1/auth/otp/request", json={"target": BUYER_PHONE, "role": "CUSTOMER"})
+    assert r.status_code == 202
+    assert r.json()["account_exists"] is True
+
+    r = await _verify(client, BUYER_PHONE, r.json()["debug_code"], role="CUSTOMER")
+    assert r.status_code == 200
+    assert r.json()["user"]["email"] == CUSTOMER_AN
+
+    r = await client.post("/api/v1/auth/otp/request", json={"target": NEW_PHONE, "role": "CUSTOMER"})
+    assert r.json()["account_exists"] is False
+
+
+@pytest.mark.asyncio
+async def test_verify_with_another_role_is_refused(client):
+    code = await _request(client, SELLER_PHONE)
+    r = await _verify(client, SELLER_PHONE, code, role="CUSTOMER")
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "PHONE_IN_USE"

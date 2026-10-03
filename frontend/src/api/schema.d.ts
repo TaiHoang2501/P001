@@ -1397,6 +1397,8 @@ export interface components {
              * @description Phone (buyer/seller) or email (seller) to send the code to
              */
             target: string;
+            /** Role */
+            role?: ("CUSTOMER" | "OWNER") | null;
         };
         /** OtpRequestResponse */
         OtpRequestResponse: {
@@ -1407,6 +1409,11 @@ export interface components {
             expires_in: number;
             /** Debug Code */
             debug_code?: string | null;
+            /**
+             * Account Exists
+             * @default false
+             */
+            account_exists: boolean;
         };
         /** OtpVerifyRequest */
         OtpVerifyRequest: {
@@ -1416,12 +1423,8 @@ export interface components {
             code: string;
             /** Full Name */
             full_name?: string | null;
-            /**
-             * Role
-             * @default CUSTOMER
-             * @enum {string}
-             */
-            role: "CUSTOMER" | "OWNER";
+            /** Role */
+            role?: ("CUSTOMER" | "OWNER") | null;
         };
         /**
          * OwnershipChallengeOut
@@ -1699,7 +1702,7 @@ export interface components {
             area_min?: number | string | null;
             /**
              * Keyword
-             * @description Fuzzy match on description
+             * @description A unit code (e.g. S1.08-2410) or words fuzzy-matched on the description
              */
             keyword?: string | null;
             /** Preferred Bedrooms */
