@@ -430,6 +430,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/owner/properties/{property_id}/media/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Media
+         * @description Upload a photo / floor plan / video / ownership document to object storage and attach it to the listing.
+         */
+        post: operations["upload_media_api_v1_owner_properties__property_id__media_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/owner/properties/{property_id}/media/{media_id}": {
         parameters: {
             query?: never;
@@ -1013,6 +1033,12 @@ export interface components {
          * @enum {string}
          */
         ActorType: "USER" | "AI_AGENT" | "SYSTEM";
+        /** Body_upload_media_api_v1_owner_properties__property_id__media_upload_post */
+        Body_upload_media_api_v1_owner_properties__property_id__media_upload_post: {
+            kind: components["schemas"]["MediaKind"];
+            /** File */
+            file: string;
+        };
         /**
          * BookingCreate
          * @description Viewing request: pick a seller slot (`slot_id`) or a proposed start time (`start_at`).
@@ -2715,6 +2741,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MediaCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_media_api_v1_owner_properties__property_id__media_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                property_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_media_api_v1_owner_properties__property_id__media_upload_post"];
             };
         };
         responses: {

@@ -50,6 +50,7 @@ const FRIENDLY: Record<string, string> = {
   RATE_LIMITED: "Bạn yêu cầu mã quá nhiều lần, vui lòng thử lại sau ít phút.",
   SELLER_UNVERIFIED: "Chủ căn chưa được Chủ đầu tư xác thực.",
   AGENT_UNAVAILABLE: "Trợ lý AI đang tạm thời gián đoạn, vui lòng thử lại sau.",
+  STORAGE_UNAVAILABLE: "Không tải được tệp lên lúc này, vui lòng thử lại sau.",
   FORBIDDEN: "Bạn không có quyền thực hiện thao tác này.",
   NOT_FOUND: "Không tìm thấy dữ liệu.",
   ALREADY_EXISTS: "Dữ liệu đã tồn tại.",

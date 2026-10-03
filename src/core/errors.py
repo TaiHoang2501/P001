@@ -102,6 +102,13 @@ class AgentUnavailableError(AppError):
     code = "AGENT_UNAVAILABLE"
 
 
+class StorageUnavailableError(AppError):
+    """Media storage is not configured or the storage provider failed."""
+
+    status_code = 503
+    code = "STORAGE_UNAVAILABLE"
+
+
 class RateLimitedError(AppError):
     status_code = 429
     code = "RATE_LIMITED"
