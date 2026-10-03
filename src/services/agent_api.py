@@ -21,13 +21,14 @@ BUSINESS_RULE_VIOLATION, VALIDATION_ERROR, INTERNAL_ERROR.
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.config import get_settings
 from src.core.actor import Actor
 from src.core.errors import AppError, BusinessRuleViolationError, NotAuthenticatedError, NotFoundError
 from src.db.models import (
@@ -236,9 +237,22 @@ def create_viewing_request(
                 "note": note,
             }
         )
+        _require_inside_buyer_windows(data)
         return _dump(booking_service.create_request(db, _actor(db, user_id), data))
 
     return _run(fn, tool="create_viewing_request", user_id=user_id)
+
+
+def _require_inside_buyer_windows(data: BookingCreate) -> None:
+    """The agent may pick a time for the buyer, but never outside the free time the buyer gave."""
+    if not data.buyer_windows or data.start_at is None:
+        return
+    end_at = data.start_at + timedelta(minutes=get_settings().viewing_duration_minutes)
+    if not any(w.start_at <= data.start_at and end_at <= w.end_at for w in data.buyer_windows):
+        raise BusinessRuleViolationError(
+            "start_at is outside the buyer's free windows; pick one of the proposals from check_property_availability",
+            details={"reason": "OUTSIDE_BUYER_WINDOWS"},
+        )
 
 
 def cancel_viewing(user_id: int, booking_id: int) -> Envelope:

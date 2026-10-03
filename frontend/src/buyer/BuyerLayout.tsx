@@ -1,6 +1,7 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/AuthContext";
+import { NotificationBell } from "../components/NotificationBell";
 import { endGuest } from "./guest";
 import { BuildingIcon } from "./icons";
 
@@ -43,6 +44,8 @@ export function BuyerLayout() {
             </Link>
             {buyer ? (
               <>
+                {/* Booking updates + what the AI agent found while the buyer was away */}
+                <NotificationBell />
                 <span className="hidden max-w-40 truncate text-sm font-medium md:inline">{buyer.full_name}</span>
                 <button
                   type="button"

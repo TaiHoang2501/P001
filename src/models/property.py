@@ -112,7 +112,11 @@ class SearchCriteria(BaseModel):
     budget_max: int | None = Field(default=None, gt=0)
     bedrooms_min: int | None = Field(default=None, ge=0)
     area_min: Decimal | None = Field(default=None, gt=0)
-    keyword: str | None = Field(default=None, max_length=200, description="Fuzzy match on description")
+    keyword: str | None = Field(
+        default=None,
+        max_length=200,
+        description="A unit code (e.g. S1.08-2410) or words fuzzy-matched on the description",
+    )
 
     # Soft preferences
     preferred_bedrooms: int | None = Field(default=None, ge=0)

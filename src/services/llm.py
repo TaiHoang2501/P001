@@ -3,14 +3,21 @@ from langchain_core.language_models import BaseChatModel
 from src.config import get_settings
 
 
-def get_llm() -> BaseChatModel:
-    """Chat model for the agent, from LLM_PROVIDER (openai | google)."""
+def get_fallback_llm() -> BaseChatModel | None:
+    """A lighter model to answer when the main one fails (None when not configured)."""
+    name = get_settings().llm_fallback_model
+    return get_llm(name) if name else None
+
+
+def get_llm(model: str | None = None) -> BaseChatModel:
+    """Chat model for the agent, from LLM_PROVIDER (openai | google); `model` overrides MODEL_NAME."""
     settings = get_settings()
+    model = model or settings.llm_model
     if settings.llm_provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(
-            model=settings.llm_model,
+            model=model,
             google_api_key=settings.google_api_key,
             temperature=settings.llm_temperature,
             timeout=settings.llm_timeout_seconds,
@@ -20,7 +27,7 @@ def get_llm() -> BaseChatModel:
     from langchain_openai import ChatOpenAI
 
     return ChatOpenAI(
-        model=settings.llm_model,
+        model=model,
         api_key=settings.openai_api_key,
         temperature=settings.llm_temperature,
         timeout=settings.llm_timeout_seconds,

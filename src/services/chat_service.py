@@ -22,7 +22,7 @@ from src.db.session import get_sessionmaker
 from src.models.booking import BookingOut, ViewingTimesOut
 from src.models.property import Recommendation
 from src.models.schemas import ChatRequest, ChatResponse, PendingViewingRequest
-from src.services import conversation_service
+from src.services import buyer_memory, conversation_service
 
 logger = logging.getLogger(__name__)
 
@@ -85,12 +85,23 @@ async def chat(actor: Actor, request: ChatRequest) -> ChatResponse:
             "thread_id": f"{actor.id}:{request.conversation_id}",
             "user_id": actor.id,
             "buyer_name": actor.user.full_name,
+            "buyer_memory": _memory(actor.id),
         },
         "recursion_limit": _RECURSION_LIMIT,
     }
     new_messages, latency_ms = await _run_turn(config, request.message)
     _record(actor, request.conversation_id, config["configurable"]["thread_id"], new_messages, latency_ms)
     return _response(request.conversation_id, new_messages)
+
+
+def _memory(user_id: int) -> str | None:
+    # A memory read failure must not stop the conversation
+    try:
+        with get_sessionmaker()() as db:
+            return buyer_memory.summary(db, user_id)
+    except Exception:
+        logger.exception("could not load buyer memory")
+        return None
 
 
 async def guest_chat(request: ChatRequest) -> ChatResponse:

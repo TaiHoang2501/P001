@@ -37,6 +37,25 @@ Trang đầu (`/`) hỏi **"Bạn muốn làm gì hôm nay?"** với hai lựa c
     trước khi căn được AI gợi ý cho người mua.
   - Chủ đầu tư đăng nhập bằng email + mật khẩu (tab "Quản trị viên").
 
+### AI Agent làm được gì
+
+Agent (LangGraph + Gemini) nhận **mục tiêu** rồi tự gọi công cụ đến khi xong, chỉ hỏi lại khi thiếu thông tin:
+
+- **Tìm căn xong là đề xuất giờ luôn:** cùng câu trả lời, agent kiểm tra lịch của căn khớp nhất và đưa 2–3 giờ
+  trống để khách bấm chọn.
+- **Tự chọn giờ và đặt:** "Đặt căn S1.08-2410 chiều Chủ nhật, giờ nào cũng được" → agent đặt giờ sớm nhất
+  khớp lịch chủ căn, báo mã Deal và giờ thay thế. Backend từ chối mọi giờ nằm ngoài khung giờ khách đã nói.
+- **Làm trọn chuỗi:** "Đặt giúp tôi căn hợp nhất chiều Chủ nhật này" → tìm → chọn căn → khớp lịch → đặt.
+- **Nhớ khách:** tiêu chí, ngân sách và giờ rảnh của khách đã đăng nhập được lưu ở `buyer_profiles`, nên sang
+  cuộc chat mới không phải hỏi lại. Lịch sử hội thoại lưu trong PostgreSQL, khởi động lại server không mất.
+- **Làm việc khi khách không chat** (job nền, thông báo trong chuông 🔔 của khu người mua):
+  - Chủ căn chưa phản hồi sau `AGENT_FOLLOWUP_MINUTES` (mặc định 60 phút) hoặc đã từ chối → agent gửi khách giờ
+    trống khác của căn đó và căn tương tự. Yêu cầu gốc giữ nguyên; sau 24h vẫn chuyển Chủ đầu tư như cũ.
+  - Có căn mới được duyệt khớp tiêu chí đã lưu → báo khách.
+  - Nhắc lịch T-24h / T-2h được agent viết riêng cho khách.
+  - Tin nhắn chỉ dùng dữ kiện từ database; model lỗi hoặc làm mất dữ kiện (mã Deal, giờ) thì dùng mẫu cố định.
+- Giới hạn giữ nguyên: agent không xác nhận lịch thay chủ căn, không đàm phán giá, không nhận cọc.
+
 Dữ liệu đi qua các lớp và bảng nào: xem [`DIagram/Data Flow Diagram.md`](DIagram/Data%20Flow%20Diagram.md).
 
 ### Chạy local
@@ -57,8 +76,14 @@ cd frontend && npm install && npm run dev        # Web: http://localhost:5173
 ```
 
 **Mô hình AI** (`.env`): `LLM_PROVIDER=openai` + `OPENAI_API_KEY`, hoặc `LLM_PROVIDER=google` +
-`GOOGLE_API_KEY` (Gemini). `MODEL_NAME` tùy chọn; khi Gemini flash quá tải, dùng
-`MODEL_NAME=gemini-flash-lite-latest`.
+`GOOGLE_API_KEY` (Gemini). Nên dùng `MODEL_NAME=gemini-flash-latest` (bản lite hay chọn sai ngày/giờ khi tự
+đặt lịch); khi model chính lỗi hoặc quá tải, `MODEL_FALLBACK_NAME` (mặc định `gemini-flash-lite-latest`) trả lời thay.
+
+**Bộ nhớ hội thoại** (`AGENT_MEMORY=postgres`, mặc định): lưu trong PostgreSQL (bảng `checkpoint*` do
+LangGraph tự tạo). Trên **Windows** phải chạy uvicorn với `--reload` (như lệnh trên / `make run`); chạy không
+`--reload` thì server vẫn lên nhưng dùng bộ nhớ RAM (mất khi khởi động lại) và ghi cảnh báo vào log.
+Chạy server nền / demo không cần tự nạp lại code: `python scripts/run_api.py` (tự chọn event loop đúng trên
+Windows, giữ bộ nhớ Postgres).
 
 **Tài khoản demo:** người mua `an.nguyen@gmail.com` và Chủ đầu tư `operator@vinhomes.vn` (mật khẩu
 `Password123!`). Chủ căn chỉ đăng nhập bằng số điện thoại + OTP: Tuấn `0918765432`, Lan `0912345678`.
@@ -99,7 +124,7 @@ Dữ liệu demo công khai (mật khẩu `Password123!`, mã OTP hiện trên m
 ### Kiểm thử
 
 ```bash
-pytest tests -q                # 170+ test, cần PostgreSQL (tự tạo DB <tên>_test)
+pytest tests -q                # 180+ test, cần PostgreSQL (tự tạo DB <tên>_test)
 python eval/run_golden.py      # golden set AI ≥20 kịch bản với model thật -> eval/results/golden_report.md
 ```
 

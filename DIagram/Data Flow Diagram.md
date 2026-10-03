@@ -27,22 +27,22 @@ flowchart LR
         AUTH["Auth: OTP / JWT<br/>phân quyền theo vai trò"]
         CHAT["Chat service<br/>/chat, /chat/guest, /claim"]
         SVC["Service layer<br/>property · booking · deal · hold<br/>ownership · seller · notification · escalation"]
-        JOBS["Job nền<br/>hết hạn giữ căn, nhắc lịch T-24h/T-2h"]
+        JOBS["Job nền<br/>hết hạn giữ căn, nhắc lịch T-24h/T-2h<br/>agent follow-up: gợi ý giờ/căn khác"]
     end
 
     subgraph AI["AI Agent"]
-        AGENT["LangGraph agent<br/>bộ nhớ hội thoại (RAM)"]
+        AGENT["LangGraph agent<br/>nhận mục tiêu, tự gọi tool đến khi xong"]
         TOOLS["Agent tools<br/>tìm căn · khớp lịch · đặt/đổi/hủy · chuyển người thật"]
     end
-    LLM[["Gemini API"]]
+    LLM[["Gemini API<br/>flash, dự phòng flash-lite"]]
 
     %% ---------- Kho dữ liệu ----------
     subgraph DB["PostgreSQL (Neon)"]
-        D_ID[("Danh tính<br/>users · otp_codes<br/>buyer_profiles · seller_profiles")]
+        D_ID[("Danh tính + trí nhớ khách<br/>users · otp_codes · seller_profiles<br/>buyer_profiles (tiêu chí, giờ rảnh)")]
         D_RB[("Sổ đỏ<br/>property_ownership_verifications")]
         D_INV[("Kho căn<br/>projects · buildings · properties<br/>property_media · availability_slots")]
         D_DEAL[("Giao dịch xem<br/>deals · bookings · property_holds")]
-        D_AI[("AI<br/>ai_conversations · ai_messages<br/>recommendations")]
+        D_AI[("AI<br/>ai_conversations · ai_messages · recommendations<br/>checkpoint* (bộ nhớ hội thoại)")]
         D_OPS[("Vận hành<br/>notifications · escalations · audit_logs")]
     end
 
@@ -55,6 +55,8 @@ flowchart LR
     AGENT --> TOOLS
     TOOLS -- "gọi qua kiểm tra quyền + quy tắc" --> SVC
     CHAT -- "lưu lượt chat (người đã đăng nhập)" --> D_AI
+    AGENT <-- "lịch sử hội thoại" --> D_AI
+    TOOLS -- "nhớ tiêu chí + giờ rảnh" --> D_ID
     W_BUYER -- "đặt lịch trực tiếp, xem lịch của tôi" --> SVC
 
     %% ---------- Người bán ----------
@@ -75,7 +77,8 @@ flowchart LR
     SVC --> D_OPS
     SVC -- "cập nhật trạng thái người bán" --> D_ID
     JOBS <--> D_DEAL
-    JOBS --> D_OPS
+    JOBS -- "đọc tiêu chí, giờ rảnh" --> D_ID
+    JOBS -- "gợi ý cho khách" --> D_OPS
 
     %% ---------- Dữ liệu trả về ----------
     SVC -. "căn phù hợp, giờ trống, Deal + trạng thái" .-> W_BUYER
@@ -164,17 +167,18 @@ sequenceDiagram
 | Kho (bảng) | Ghi bởi | Đọc bởi | Ghi chú |
 |---|---|---|---|
 | `users`, `otp_codes` | Auth (đăng nhập/đăng ký OTP) | Auth, mọi API cần đăng nhập | OTP chỉ lưu hash, hết hạn 5 phút, sai 5 lần thì hủy |
-| `buyer_profiles` | Auth khi tạo người mua | Booking (chủ căn chỉ thấy ngân sách) | Không chứa SĐT/email |
+| `buyer_profiles` | Auth khi tạo người mua; agent ghi tiêu chí + giờ rảnh khi tìm căn / khớp lịch | Booking (chủ căn chỉ thấy ngân sách); prompt của agent ở các cuộc chat sau; job follow-up | Không chứa SĐT/email |
 | `seller_profiles` | Auth, xác thực sổ đỏ, Chủ đầu tư | Duyệt tin, tìm căn | Chỉ người bán VERIFIED mới có căn được gợi ý |
 | `property_ownership_verifications` | Seed từ dữ liệu Chủ đầu tư; xác thực sổ đỏ | Xác thực sổ đỏ, tạo tin đăng | Mỗi sổ gắn đúng một tin (`properties.verification_id`) |
 | `properties`, `property_media` | Người bán; Chủ đầu tư duyệt | Agent (tìm căn), web | Giấy tờ sở hữu không bao giờ công khai |
 | `availability_slots` | Người bán (lịch trống) | Khớp lịch | Seed bổ sung lịch demo 7 ngày tới |
 | `deals`, `bookings` | Đặt lịch (web hoặc agent), chủ căn xác nhận/từ chối | Người mua, chủ căn, Chủ đầu tư | Chặn đặt trùng giờ bằng ràng buộc DB |
 | `property_holds` | Khi chủ căn xác nhận; job nền nhả hold | Khớp lịch | Giữ căn cho buổi xem, không phải giữ để mua |
-| `ai_conversations`, `ai_messages`, `recommendations` | Chat service (người đã đăng nhập) | Lịch sử chat | Chat khách chỉ nằm trong bộ nhớ agent, không ghi DB |
-| `notifications` | Booking, sổ đỏ, duyệt tin, job nhắc lịch | Chuông thông báo trên web | Chưa có SMS/Zalo |
+| `ai_conversations`, `ai_messages`, `recommendations` | Chat service (người đã đăng nhập) | Lịch sử chat | |
+| `checkpoints`, `checkpoint_*` | LangGraph (bộ nhớ hội thoại, cả chat khách) | Agent mỗi lượt chat | Bảng do LangGraph tự tạo/migrate, Alembic bỏ qua |
+| `notifications` | Booking, sổ đỏ, duyệt tin, job nhắc lịch, agent follow-up (`AGENT_FOLLOWUP`, `AGENT_NEW_MATCH`) | Chuông thông báo trên web (cả khu người mua) | Chưa có SMS/Zalo; mỗi gợi ý của agent gửi một lần (`dedupe_key`) |
 | `escalations` | Agent (`create_human_escalation`) | Chủ đầu tư (hàng ngoại lệ) | Khi không có giờ chung, khách muốn gặp người thật… |
 | `audit_logs` | Mọi hành động quan trọng | Kiểm tra, truy vết | |
 
-**Chưa lưu bền:** bộ nhớ hội thoại của agent nằm trong RAM của server (mất khi server khởi động lại);
-tài khoản, căn, Deal và lịch xem thì vẫn còn trong PostgreSQL.
+**Bộ nhớ hội thoại** nằm trong PostgreSQL (`AGENT_MEMORY=postgres`), khởi động lại server không mất ngữ cảnh.
+Nếu không kết nối được (vd. Windows chạy uvicorn không có `--reload`), server dùng RAM và ghi cảnh báo.

@@ -301,6 +301,10 @@ def approve(db: Session, actor: Actor, property_id: int) -> PropertyOut:
         db, actor, "property.approve", "property", prop.id, before={"status": before}, after={"status": prop.status}
     )
     notification_service.listing_reviewed(db, prop, approved=True)
+    # The agent tells buyers whose remembered needs this home fits (imported here: it uses this module)
+    from src.services import agent_followup
+
+    agent_followup.announce_listing(db, prop)
     db.commit()
     return get_property(db, prop.id, actor)
 
@@ -363,6 +367,8 @@ def search(db: Session, criteria: SearchCriteria) -> SearchResult:
         escaped = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         stmt = stmt.where(
             or_(
+                # A unit code the buyer names ("căn S1.08-2410") finds that home directly
+                Property.unit_code.ilike(f"%{escaped}%", escape="\\"),
                 Property.description.ilike(f"%{escaped}%", escape="\\"),
                 func.word_similarity(kw, Property.description) > 0.4,
             )
@@ -371,6 +377,27 @@ def search(db: Session, criteria: SearchCriteria) -> SearchResult:
     candidates = list(db.scalars(stmt.order_by(Property.price_vnd).limit(_MAX_CANDIDATES)))
     ranked = sorted((_score(p, criteria) for p in candidates), key=lambda r: (-r.match_score, r.property.price_vnd))
     return SearchResult(total_candidates=len(candidates), results=ranked[: criteria.limit])
+
+
+def match(prop: Property, criteria: SearchCriteria) -> Recommendation | None:
+    """One property against saved criteria: None when a hard constraint rules it out, else its ranking.
+
+    Same rules as `search` (minus the keyword), for checking a newly approved listing against buyers' needs.
+    """
+    c = criteria
+    if c.project_codes and prop.building.project.code not in {code.upper() for code in c.project_codes}:
+        return None
+    if c.property_types and prop.property_type not in c.property_types:
+        return None
+    if (c.budget_min is not None and prop.price_vnd < c.budget_min) or (
+        c.budget_max is not None and prop.price_vnd > c.budget_max
+    ):
+        return None
+    if c.bedrooms_min is not None and prop.bedrooms < c.bedrooms_min:
+        return None
+    if c.area_min is not None and prop.area_m2 < c.area_min:
+        return None
+    return _score(prop, c)
 
 
 _PRIORITY_MULTIPLIER = {"high": 2.0, "normal": 1.0, "low": 0.5}

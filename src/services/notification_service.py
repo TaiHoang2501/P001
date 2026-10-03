@@ -46,6 +46,7 @@ def notify(
     *,
     booking: Booking | None = None,
     payload: dict | None = None,
+    dedupe_key: str | None = None,
 ) -> None:
     now = _now()
     db.add(
@@ -59,6 +60,7 @@ def notify(
             deal_id=booking.deal_id if booking else None,
             status=NotificationStatus.SENT,
             sent_at=now,
+            dedupe_key=dedupe_key,
         )
     )
 

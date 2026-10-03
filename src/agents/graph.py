@@ -20,22 +20,32 @@ from src.agents.state import AgentState
 from src.agents.tools import TOOLS
 from src.config import get_settings
 from src.core.errors import AgentUnavailableError
-from src.services.llm import get_llm
+from src.services.llm import get_fallback_llm, get_llm
 
 # Messages of history sent to the model each turn (full history stays in the checkpoint)
 _HISTORY_WINDOW = 40
 
 
-def build_graph(llm: BaseChatModel, checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
+def build_graph(
+    llm: BaseChatModel,
+    checkpointer: BaseCheckpointSaver | None = None,
+    fallback_llm: BaseChatModel | None = None,
+) -> CompiledStateGraph:
     model = llm.bind_tools(TOOLS)
+    if fallback_llm is not None:
+        # The main model overloaded or failing (e.g. Gemini 503) -> the lighter model answers this step
+        model = model.with_fallbacks([fallback_llm.bind_tools(TOOLS)])
 
     async def call_model(state: AgentState, config: RunnableConfig) -> dict:
-        buyer_name = config.get("configurable", {}).get("buyer_name", "Quý khách")
+        configurable = config.get("configurable", {})
+        buyer_name = configurable.get("buyer_name", "Quý khách")
+        # What the signed-in buyer told us in earlier conversations (buyer_memory)
+        memory = configurable.get("buyer_memory")
         # start_on="human" keeps tool calls and their results together when older turns are dropped
         history = trim_messages(
             state["messages"], strategy="last", token_counter=len, max_tokens=_HISTORY_WINDOW, start_on="human"
         )
-        response = await model.ainvoke([SystemMessage(system_prompt(buyer_name)), *history], config)
+        response = await model.ainvoke([SystemMessage(system_prompt(buyer_name, memory)), *history], config)
         return {"messages": [response]}
 
     graph = StateGraph(AgentState)
@@ -47,11 +57,22 @@ def build_graph(llm: BaseChatModel, checkpointer: BaseCheckpointSaver | None = N
     return graph.compile(checkpointer=checkpointer)
 
 
+# Conversation memory: set to a Postgres saver at start-up (src/services/agent_memory.py); in-process otherwise
+_checkpointer: BaseCheckpointSaver | None = None
+
+
+def use_checkpointer(checkpointer: BaseCheckpointSaver | None) -> None:
+    """Swap where conversations are kept; the agent is rebuilt on its next use."""
+    global _checkpointer
+    _checkpointer = checkpointer
+    get_agent.cache_clear()
+
+
 @lru_cache
 def get_agent() -> CompiledStateGraph:
     settings = get_settings()
     if not settings.llm_api_key:
         key = "GOOGLE_API_KEY" if settings.llm_provider == "google" else "OPENAI_API_KEY"
         raise AgentUnavailableError(f"AI assistant is not configured ({key} missing)")
-    # In-process memory: conversations are lost on restart and not shared between workers
-    return build_graph(get_llm(), InMemorySaver())
+    # Without Postgres the memory is in-process: lost on restart and not shared between workers
+    return build_graph(get_llm(), _checkpointer or InMemorySaver(), get_fallback_llm())
