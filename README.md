@@ -37,6 +37,8 @@ Trang đầu (`/`) hỏi **"Bạn muốn làm gì hôm nay?"** với hai lựa c
     trước khi căn được AI gợi ý cho người mua.
   - Chủ đầu tư đăng nhập bằng email + mật khẩu (tab "Quản trị viên").
 
+Dữ liệu đi qua các lớp và bảng nào: xem [`DIagram/Data Flow Diagram.md`](DIagram/Data%20Flow%20Diagram.md).
+
 ### Chạy local
 
 Cần Python 3.11+, PostgreSQL 15+ và Node 20+.
