@@ -96,7 +96,6 @@ def get_agent() -> CompiledStateGraph:
         key = "GOOGLE_API_KEY" if settings.llm_provider == "google" else "OPENAI_API_KEY"
         raise AgentUnavailableError(f"AI assistant is not configured ({key} missing)")
     # Without Postgres the memory is in-process: lost on restart and not shared between workers
-    fallback = get_fallback_llm()
-    # With a fallback, a failing main model (e.g. quota 429) hands over at once instead of retrying first
-    main = get_llm(max_retries=0 if fallback is not None else None)
-    return build_graph(main, _checkpointer or InMemorySaver(), fallback)
+    # The main model keeps its retries: a short rate-limit blip is better retried than handed to the
+    # fallback, whose free quota (Flash: 20 requests/day) is easily used up
+    return build_graph(get_llm(), _checkpointer or InMemorySaver(), get_fallback_llm())
