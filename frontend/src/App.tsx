@@ -3,14 +3,10 @@ import { Navigate, Route, Routes, useParams } from "react-router";
 
 import type { Role } from "./api/types";
 import { RequireRole } from "./auth/RequireRole";
-import { BuyerBookingPage } from "./buyer/BuyerBookingPage";
-import { BuyerBookingsPage } from "./buyer/BuyerBookingsPage";
 import { BuyerChatPage } from "./buyer/BuyerChatPage";
 import { BuyerHomePage } from "./buyer/BuyerHomePage";
 import { BuyerLayout } from "./buyer/BuyerLayout";
 import { BuyerLoginPage } from "./buyer/BuyerLoginPage";
-import { BuyerPropertyPage } from "./buyer/BuyerPropertyPage";
-import { BuyerSchedulePage } from "./buyer/BuyerSchedulePage";
 import { BuyerStartPage } from "./buyer/BuyerStartPage";
 import { RequireBuyer, RequireBuyerOrGuest } from "./buyer/shared";
 import { Layout } from "./components/Layout";
@@ -27,9 +23,35 @@ import { PropertyFormPage } from "./pages/owner/PropertyFormPage";
 import { SlotsPage } from "./pages/owner/SlotsPage";
 import { RoleSelectPage } from "./pages/RoleSelectPage";
 
-const as = (roles: Role[], page: ReactNode) => <RequireRole roles={roles}>{page}</RequireRole>;
+const as = (roles: Role[], page: ReactNode) => (
+  <RequireRole roles={roles}>{page}</RequireRole>
+);
 const buyer = (page: ReactNode) => <RequireBuyer>{page}</RequireBuyer>;
-const buyerOrGuest = (page: ReactNode) => <RequireBuyerOrGuest>{page}</RequireBuyerOrGuest>;
+const buyerOrGuest = (page: ReactNode) => (
+  <RequireBuyerOrGuest>{page}</RequireBuyerOrGuest>
+);
+
+/** /buyer/properties/:id[/schedule] opens that home as a card in the agent chat. */
+function ToChat({ schedule = false }: { schedule?: boolean }) {
+  const id = useParams().id;
+  return (
+    <Navigate
+      to={`/buyer/chat?property=${id}${schedule ? "&schedule=1" : ""}`}
+      replace
+    />
+  );
+}
+
+/** /buyer/bookings[/:id]: the buyer's viewings and their status also open as cards in the agent chat. */
+function BookingsToChat() {
+  const id = useParams().id;
+  return (
+    <Navigate
+      to={id ? `/buyer/chat?booking=${id}` : "/buyer/chat?bookings=1"}
+      replace
+    />
+  );
+}
 
 /** Old buyer links (/properties/:id) now live in the buyer area. */
 function LegacyPropertyRedirect() {
@@ -48,14 +70,18 @@ export function App() {
         <Route path="start" element={<BuyerStartPage />} />
         <Route path="login" element={<BuyerLoginPage />} />
         <Route path="chat" element={buyerOrGuest(<BuyerChatPage />)} />
-        <Route path="properties/:id" element={<BuyerPropertyPage />} />
-        <Route path="properties/:id/schedule" element={buyerOrGuest(<BuyerSchedulePage />)} />
-        <Route path="bookings" element={buyer(<BuyerBookingsPage />)} />
-        <Route path="bookings/:id" element={buyer(<BuyerBookingPage />)} />
+        {/* A home's details and its viewing-time picker live inside the agent chat */}
+        <Route path="properties/:id" element={<ToChat />} />
+        <Route path="properties/:id/schedule" element={<ToChat schedule />} />
+        <Route path="bookings" element={buyer(<BookingsToChat />)} />
+        <Route path="bookings/:id" element={buyer(<BookingsToChat />)} />
         <Route path="*" element={<EmptyState title="Không tìm thấy trang" />} />
       </Route>
       <Route path="chat" element={<Navigate to="/buyer/chat" replace />} />
-      <Route path="bookings" element={<Navigate to="/buyer/bookings" replace />} />
+      <Route
+        path="bookings"
+        element={<Navigate to="/buyer/bookings" replace />}
+      />
       <Route path="properties/:id" element={<LegacyPropertyRedirect />} />
 
       {/* BookingBot: sellers and the investor/operator */}
@@ -66,17 +92,44 @@ export function App() {
 
         {/* Seller (spec §4.15 Seller screens) */}
         <Route path="owner" element={as(["OWNER"], <OwnerPropertiesPage />)} />
-        <Route path="owner/verify" element={as(["OWNER"], <OwnershipVerifyPage />)} />
-        <Route path="owner/properties/new" element={as(["OWNER"], <PropertyFormPage />)} />
-        <Route path="owner/properties/:id/edit" element={as(["OWNER"], <PropertyFormPage />)} />
-        <Route path="owner/properties/:id/slots" element={as(["OWNER"], <SlotsPage />)} />
-        <Route path="owner/bookings" element={as(["OWNER"], <OwnerBookingsPage />)} />
+        <Route
+          path="owner/verify"
+          element={as(["OWNER"], <OwnershipVerifyPage />)}
+        />
+        <Route
+          path="owner/properties/new"
+          element={as(["OWNER"], <PropertyFormPage />)}
+        />
+        <Route
+          path="owner/properties/:id/edit"
+          element={as(["OWNER"], <PropertyFormPage />)}
+        />
+        <Route
+          path="owner/properties/:id/slots"
+          element={as(["OWNER"], <SlotsPage />)}
+        />
+        <Route
+          path="owner/bookings"
+          element={as(["OWNER"], <OwnerBookingsPage />)}
+        />
 
         {/* Investor / Operator (spec §4.15 Operator screens) */}
-        <Route path="operator" element={as(["INVESTOR_OPERATOR"], <ModerationPage />)} />
-        <Route path="operator/sellers" element={as(["INVESTOR_OPERATOR"], <SellerVerificationPage />)} />
-        <Route path="operator/escalations" element={as(["INVESTOR_OPERATOR"], <EscalationsPage />)} />
-        <Route path="operator/bookings" element={as(["INVESTOR_OPERATOR"], <BookingsMonitorPage />)} />
+        <Route
+          path="operator"
+          element={as(["INVESTOR_OPERATOR"], <ModerationPage />)}
+        />
+        <Route
+          path="operator/sellers"
+          element={as(["INVESTOR_OPERATOR"], <SellerVerificationPage />)}
+        />
+        <Route
+          path="operator/escalations"
+          element={as(["INVESTOR_OPERATOR"], <EscalationsPage />)}
+        />
+        <Route
+          path="operator/bookings"
+          element={as(["INVESTOR_OPERATOR"], <BookingsMonitorPage />)}
+        />
 
         <Route path="*" element={<EmptyState title="Không tìm thấy trang" />} />
       </Route>
