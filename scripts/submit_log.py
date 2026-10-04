@@ -12,12 +12,25 @@ If the POST fails, the pending file is restored so nothing is lost.
 import json
 import os
 import shutil
+import ssl
 import sys
 import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+def _get_ssl_context():
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    try:
+        return ssl.create_default_context()
+    except Exception:
+        return None
 
 try:
     from dotenv import load_dotenv
@@ -119,7 +132,8 @@ def main():
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        ctx = _get_ssl_context()
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
             print(f"[ai-log] Submitted {len(entries)} entries → {resp.status}", file=sys.stderr)
     except urllib.error.URLError as e:
         # Failure: restore the whole pending (including leftover) for next push.
