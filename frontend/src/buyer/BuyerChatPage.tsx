@@ -42,6 +42,7 @@ import {
   MatchBadge,
   PropertyImage,
   specLine,
+  BackButton,
 } from "./shared";
 import { ViewingScheduler } from "./ViewingScheduler";
 
@@ -58,6 +59,12 @@ type Card =
     }
   | { kind: "status"; bookingId: number }
   | { kind: "bookings" };
+
+// A home's details or its viewing-time picker: shown in a column left of the chat, not inside it,
+// so the whole card fits without scrolling the conversation
+type Panel =
+  | { kind: "property"; propertyId: number }
+  | { kind: "schedule"; propertyId: number; reschedule?: Booking };
 
 interface Message {
   id?: string;
@@ -275,7 +282,9 @@ export function BuyerChatPage() {
     loadConversation(userId, name),
   );
   const [input, setInput] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  // "Cuộc trò chuyện mới" asks once before clearing the chat
+  const [confirmRestart, setConfirmRestart] = useState(false);
   // The home the buyer last opened in the chat, so "đặt căn này chiều mai" reaches the agent with its id
   const [viewing, setViewing] = useState<{ id: number; code?: string } | null>(
     null,
@@ -496,22 +505,26 @@ export function BuyerChatPage() {
       });
   }
 
-  // Everything happens in this chat: details, viewing-time picker, status and the buyer's viewings open as cards here
-  const addCard = (card: Card) => append({ role: "assistant", text: "", card });
-
+  // A home's details and its viewing-time picker open in the side panel; status and the buyer's viewings
+  // open as cards in the chat
   function openProperty(id: number, code?: string) {
     setViewing({ id, code });
-    addCard({ kind: "property", propertyId: id });
+    setPanel({ kind: "property", propertyId: id });
   }
 
   function openSchedule(p: Pick<Property, "id" | "unit_code">) {
-    setViewing({ id: p.id, code: p.unit_code });
-    addCard({ kind: "schedule", propertyId: p.id });
+    setViewing({ id: p.id, code: p.unit_code || undefined });
+    setPanel({ kind: "schedule", propertyId: p.id });
   }
 
   function openReschedule(b: Booking) {
     setViewing({ id: b.property_id });
-    addCard({ kind: "schedule", propertyId: b.property_id, reschedule: b });
+    setPanel({ kind: "schedule", propertyId: b.property_id, reschedule: b });
+  }
+
+  function closePanel() {
+    setPanel(null);
+    setViewing(null);
   }
 
   /** One card per viewing / one list: opening it again moves it to the bottom. */
@@ -533,7 +546,6 @@ export function BuyerChatPage() {
   }
 
   function openBookings() {
-    setMenuOpen(false);
     openOnce({ kind: "bookings" }, (c) => c.kind === "bookings");
   }
 
@@ -563,6 +575,7 @@ export function BuyerChatPage() {
   }
 
   function onScheduled(booking: Booking, rescheduled: boolean) {
+    setPanel(null);
     markKnown([booking]);
     setConversation((c) => ({
       ...c,
@@ -650,7 +663,8 @@ export function BuyerChatPage() {
   }
 
   function restart() {
-    setMenuOpen(false);
+    setConfirmRestart(false);
+    closePanel();
     setConversation(fresh(name));
     setInput("");
     inputRef.current?.focus();
@@ -668,10 +682,49 @@ export function BuyerChatPage() {
     [...conversation.messages].reverse().find((m) => m.recommendations?.length)
       ?.recommendations ?? [];
   const hasResults = latest.length > 0;
+  // Just the chat at first; the details panel opens on its left, the matching homes on its right
+  const columns = panel
+    ? hasResults
+      ? "grid gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_380px]"
+      : "mx-auto grid max-w-7xl gap-5 lg:grid-cols-2"
+    : hasResults
+      ? "mx-auto grid max-w-6xl gap-5 lg:grid-cols-[minmax(0,1fr)_400px]"
+      : "mx-auto w-full max-w-4xl";
 
   return (
-    // Just the chat until the assistant has found homes; then the needs + matching homes panel opens beside it
-    <div className={hasResults ? "grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]" : "mx-auto w-full max-w-4xl"}>
+    <div className={columns}>
+      {panel && (
+        // Phones/tablets: full screen over the chat; desktop: its own scrolling column
+        <aside
+          className="fixed inset-0 z-30 animate-rise-in overflow-y-auto bg-canvas p-4 lg:static lg:z-auto lg:h-[calc(100dvh-12rem)] lg:min-h-[28rem] lg:bg-transparent lg:p-0"
+          aria-label={panel.kind === "property" ? "Chi tiết căn" : "Chọn lịch xem nhà"}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            {panel.kind === "schedule" && !panel.reschedule ? (
+              <BackButton onClick={() => setPanel({ kind: "property", propertyId: panel.propertyId })}>Chi tiết căn</BackButton>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={closePanel}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-slate-100 hover:text-ink"
+            >
+              Đóng <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+          {panel.kind === "property" ? (
+            <PropertyDetailCard key={panel.propertyId} propertyId={panel.propertyId} onBook={openSchedule} />
+          ) : (
+            <ViewingScheduler
+              key={`${panel.propertyId}-${panel.reschedule?.id ?? "new"}`}
+              propertyId={panel.propertyId}
+              reschedule={panel.reschedule}
+              onBooked={(b) => onScheduled(b, !!panel.reschedule)}
+            />
+          )}
+        </aside>
+      )}
       <section
         className="card flex h-[calc(100dvh-12rem)] min-h-[28rem] flex-col overflow-hidden shadow-sm"
         aria-label="Chat AI"
@@ -685,36 +738,29 @@ export function BuyerChatPage() {
               {userId === null && " · Bạn đang trò chuyện với tư cách khách"}
             </p>
           </div>
-          <div className="relative">
+          {confirmRestart ? (
+            <div className="flex items-center gap-2 text-sm" role="group" aria-label="Xác nhận cuộc trò chuyện mới">
+              <span className="hidden text-muted sm:inline">Xóa cuộc trò chuyện này?</span>
+              <button type="button" className="btn-primary btn-sm" onClick={restart}>
+                Bắt đầu mới
+              </button>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setConfirmRestart(false)}>
+                Hủy
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
-              className="grid size-9 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-ink"
-              aria-label="Tùy chọn"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((v) => !v)}
+              className="btn btn-sm border border-line bg-white text-ink hover:border-brand-500 hover:text-brand-700 disabled:opacity-40"
+              disabled={!started || busy}
+              onClick={() => setConfirmRestart(true)}
+              title="Cuộc trò chuyện mới"
             >
-              <span className="text-xl leading-none">⋮</span>
+              <span aria-hidden="true" className="text-base leading-none">＋</span>
+              <span className="hidden sm:inline">Cuộc trò chuyện mới</span>
+              <span className="sr-only sm:hidden">Cuộc trò chuyện mới</span>
             </button>
-            {menuOpen && (
-              <div className="card absolute right-0 z-10 mt-1 w-56 overflow-hidden py-1 shadow-lg">
-                <button
-                  type="button"
-                  className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
-                  disabled={!started || busy}
-                  onClick={restart}
-                >
-                  Cuộc trò chuyện mới
-                </button>
-                <button
-                  type="button"
-                  className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
-                  onClick={openBookings}
-                >
-                  Lịch xem của tôi
-                </button>
-              </div>
-            )}
-          </div>
+          )}
         </header>
 
         <div
@@ -832,7 +878,14 @@ export function BuyerChatPage() {
         </form>
       </section>
 
-      {hasResults && <ResultsPanel recommendations={latest} onOpen={openProperty} />}
+      {hasResults && (
+        <ResultsPanel
+          recommendations={latest}
+          onOpen={openProperty}
+          // With the details panel open there is room for the list only on wide screens
+          className={panel ? "xl:flex" : "lg:flex"}
+        />
+      )}
     </div>
   );
 }
@@ -1114,14 +1167,17 @@ function PropertyChip({
 function ResultsPanel({
   recommendations,
   onOpen,
+  className,
 }: {
   recommendations: Recommendation[];
   onOpen: (id: number, code?: string) => void;
+  /** Breakpoint from which it shows (hidden below) */
+  className: string;
 }) {
   const criteria = criteriaOf(recommendations);
   return (
     <aside
-      className="card hidden h-[calc(100dvh-12rem)] min-h-[28rem] animate-rise-in flex-col overflow-hidden shadow-sm lg:flex"
+      className={`card hidden h-[calc(100dvh-12rem)] min-h-[28rem] animate-rise-in flex-col overflow-hidden shadow-sm ${className}`}
       aria-label="Kết quả đề xuất"
     >
       <div className="border-b border-line px-5 py-4">
