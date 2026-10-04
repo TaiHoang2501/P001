@@ -7,7 +7,10 @@ import type { ChatResponse } from "./types";
  * Typed API client generated from the FastAPI OpenAPI spec.
  * Regenerate types after backend changes: `npm run gen:api` (backend must be running).
  */
-export const api = createClient<paths>({ baseUrl: import.meta.env.VITE_API_URL ?? "" });
+// No trailing slash: VITE_API_URL may be set as "https://host/", and paths already start with "/"
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+
+export const api = createClient<paths>({ baseUrl: API_BASE });
 
 let token: string | null = null;
 let onUnauthorized: (() => void) | null = null;
@@ -119,7 +122,7 @@ export async function streamChat(
 ): Promise<ChatResponse> {
   let response: Response;
   try {
-    response = await fetch(`${import.meta.env.VITE_API_URL ?? ""}${path}`, {
+    response = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),
