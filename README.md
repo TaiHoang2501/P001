@@ -172,7 +172,46 @@ Mật khẩu mặc định cho các tài khoản dùng email: `Password123!`
 
 ---
 
-## 6. Kiểm thử & Đánh giá chất lượng
+## 6. Các câu truy vấn mẫu (Sample Queries)
+
+Dưới đây là các câu truy vấn / prompt mẫu đại diện cho 5 kịch bản tương tác chính của Người mua với AI Agent:
+
+### 1. Tìm kiếm căn hộ theo nhu cầu tự nhiên
+- **Tìm kiếm cơ bản:**
+  > *"Tôi cần tìm căn hộ 2 phòng ngủ ở Vinhomes Ocean Park, tài chính khoảng 3 đến 3,5 tỷ."*
+- **Tìm kiếm đa tiêu chí nâng cao (khoảng tầng, hướng, phân khu):**
+  > *"Tìm cho tôi căn 3 phòng ngủ tại Vinhomes Smart City, phân khu Sapphire hoặc Tonkin, ban công hướng Đông Nam, tầng trung từ 10 đến 20, giá dưới 5 tỷ."*
+- **Tìm kiếm theo tiện ích nội khu:**
+  > *"Có căn studio hoặc 1PN nào ở Grand Park gần công viên ánh sáng 36ha và trường Vinschool không?"*
+
+### 2. Xem chi tiết căn hộ & Giải thích đề xuất
+- **Xem thông số và pháp lý:**
+  > *"Cho tôi xem chi tiết căn S1.08-2410: diện tích thông thủy, giá bán, nội thất bàn giao và căn này đã có Sổ đỏ chưa?"*
+- **So sánh và giải thích:**
+  > *"Tại sao bạn lại đề xuất căn S1.08-2410 này cho tôi? So với căn S2.05 thì căn nào tối ưu hơn về diện tích và tầm view?"*
+
+### 3. Đặt lịch xem nhà thông minh (Goal-Driven Booking)
+- **Tự động khớp lịch sớm nhất (Ủy quyền toàn bộ cho Agent):**
+  > *"Đặt giúp tôi căn 2PN giá tốt nhất Ocean Park vào chiều Chủ nhật tuần này, khung giờ nào cũng được."*
+  *(Agent tự bóc tách: tìm căn phù hợp nhất ➔ kiểm tra lịch trống chủ nhà ➔ chọn giờ sớm nhất ➔ tạo Deal ID và gửi yêu cầu xem).*
+- **Chỉ định khoảng thời gian rảnh:**
+  > *"Tôi ưng căn S1.08-2410 rồi, thứ Bảy này tôi rảnh từ 9h đến 11h sáng, hãy kiểm tra lịch chủ nhà và xếp lịch xem giúp tôi."*
+
+### 4. Dời lịch hoặc Hủy lịch hẹn
+- **Dời lịch khi chủ nhà chưa duyệt:**
+  > *"Tôi có việc bận đột xuất vào chiều Chủ nhật, dời lịch xem căn S1.08 sang 15h chiều thứ Hai giúp tôi nhé."*
+- **Hủy lịch hẹn:**
+  > *"Hủy yêu cầu xem căn S2.05 của tôi vào sáng mai đi, tôi đã chọn được căn khác rồi."*
+
+### 5. Yêu cầu chuyển cho người thật hỗ trợ (Human Escalation)
+- **Khiếu nại sự cố buổi xem nhà:**
+  > *"Tôi đã đến điểm hẹn căn S1.08 lúc 10h nhưng chủ nhà không có mặt và không nghe máy, hãy chuyển cho nhân viên hỗ trợ tôi ngay."*
+- **Tư vấn chuyên sâu về tài chính / ngân hàng:**
+  > *"Tôi cần gặp trực tiếp chuyên viên của chủ đầu tư để hỏi về gói vay 0% lãi suất và thủ tục sang tên sổ đỏ cho căn này."*
+
+---
+
+## 7. Kiểm thử & Đánh giá chất lượng
 
 Hệ thống được trang bị bộ kiểm thử tự động toàn diện:
 
@@ -196,7 +235,7 @@ python eval/run_golden.py
 
 ---
 
-## 7. Hướng dẫn Triển khai Production (Vercel + Render + Neon)
+## 8. Hướng dẫn Triển khai Production (Vercel + Render + Neon)
 
 Hệ thống được thiết kế theo mô hình phân tán tối ưu chi phí (hoàn toàn chạy được trên các gói Free Tier):
 - **PostgreSQL Database:** Lưu trữ trên **Neon Serverless Postgres**.
@@ -222,7 +261,7 @@ Hệ thống được thiết kế theo mô hình phân tán tối ưu chi phí 
 
 ---
 
-## 8. AI Usage Logging (Dành cho Học viên VinUni AI20K)
+## 9. AI Usage Logging (Dành cho Học viên VinUni AI20K)
 
 Dự án tích hợp sẵn hệ thống hook tự động ghi nhận nhật ký sử dụng AI vào `.ai-log/session.jsonl` và tự động gửi về máy chủ chấm điểm ở bước `git push`.
 
@@ -237,6 +276,7 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
 
 ---
 
-## 9. Giấy phép (License)
+## 10. Giấy phép (License)
 
 Dự án được phân phối dưới giấy phép [MIT License](LICENSE).
+
