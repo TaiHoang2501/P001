@@ -110,7 +110,14 @@ class SearchCriteria(BaseModel):
     property_types: list[PropertyType] | None = None
     budget_min: int | None = Field(default=None, ge=0)
     budget_max: int | None = Field(default=None, gt=0)
-    bedrooms_min: int | None = Field(default=None, ge=0)
+    bedrooms: int | None = Field(
+        default=None,
+        ge=0,
+        description="Exactly this many bedrooms: '2 phòng ngủ' / '2PN' -> 2 (0 = studio)",
+    )
+    bedrooms_min: int | None = Field(
+        default=None, ge=0, description="At least this many bedrooms, only for 'từ 2 PN trở lên' / 'ít nhất 2 PN'"
+    )
     area_min: Decimal | None = Field(default=None, gt=0)
     keyword: str | None = Field(
         default=None,
@@ -132,6 +139,13 @@ class SearchCriteria(BaseModel):
     )
 
     limit: int = Field(default=5, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def _rank_wanted_bedrooms_first(self) -> "SearchCriteria":
+        # "At least 2" still ranks exactly 2 first; an exact count shows as a matched criterion
+        if self.preferred_bedrooms is None:
+            self.preferred_bedrooms = self.bedrooms if self.bedrooms is not None else self.bedrooms_min
+        return self
 
     @model_validator(mode="after")
     def _check_ranges(self) -> "SearchCriteria":

@@ -187,6 +187,56 @@ def _media(props: list[Property]) -> list[PropertyMedia]:
     return media
 
 
+# Extra Ocean Park 1 two-bedroom listings (the random seed gives only three under 5 tỷ), so a search for
+# "2 phòng ngủ ở Ocean Park" has enough real answers.
+# (building, unit code, floor, bathrooms, area m², price VND, direction, view, furnishing, owner)
+DEMO_LISTINGS = [
+    ("S1.08", "S1.08-1512", 15, 2, "63.2", 3_950_000_000, Direction.SE, ViewType.LAKE, Furnishing.FULL, 4),
+    ("S2.01", "S2.01-0718", 7, 2, "65.8", 4_200_000_000, Direction.E, ViewType.PARK, Furnishing.BASIC, 5),
+    ("R1.02", "R1.02-2106", 21, 2, "68.5", 4_650_000_000, Direction.S, ViewType.LAKE, Furnishing.FULL, 4),
+    ("S1.08", "S1.08-0904", 9, 1, "59.0", 3_720_000_000, Direction.NE, ViewType.POOL, Furnishing.BASIC, 5),
+    ("S2.01", "S2.01-2209", 22, 2, "72.4", 4_890_000_000, Direction.SW, ViewType.CITY, Furnishing.NONE, 4),
+]
+
+
+def ensure_listings(db: Session) -> int:
+    """Add the DEMO_LISTINGS missing from this database (matched by unit code); existing rows are never changed.
+
+    Skipped when the buildings or demo owners are not there (a non-demo database). Returns how many were added.
+    """
+    buildings = {b.code: b for b in db.scalars(select(Building))}
+    owners = set(db.scalars(select(User.id).where(User.id.in_(DEMO_OWNER_IDS))))
+    existing = set(db.scalars(select(Property.unit_code)))
+    added: list[Property] = []
+    for code, unit, floor, baths, area, price, direction, view, furnishing, owner in DEMO_LISTINGS:
+        if unit in existing or code not in buildings or owner not in owners:
+            continue
+        prop = Property(
+            owner_id=owner,
+            building=buildings[code],
+            unit_code=unit,
+            property_type=PropertyType.APARTMENT,
+            bedrooms=2,
+            bathrooms=baths,
+            area_m2=Decimal(area),
+            floor=floor,
+            price_vnd=price,
+            direction=direction,
+            view=view,
+            furnishing=furnishing,
+            legal_status=LegalStatus.PINK_BOOK,
+            description=f"Căn 2PN {area} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
+            status=PropertyStatus.AVAILABLE,
+        )
+        db.add(prop)
+        added.append(prop)
+    db.flush()
+    db.add_all(_media(added))
+    db.add_all(_slots(added))
+    db.commit()
+    return len(added)
+
+
 SLOT_HOURS = (9, 14, 16)
 SLOT_MINUTES = 30
 DEMO_OWNER_IDS = {uid for uid, role, *_ in USERS if role == UserRole.OWNER}
@@ -365,9 +415,10 @@ def seed(db: Session, *, reset: bool = False) -> None:
     db.execute(text("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT max(id) FROM users))"))
     _sync_red_book_id_sequence(db)
     db.commit()
+    listings = ensure_listings(db)
     print(
         f"Seeded {len(USERS)} users, {len(red_books)} red books, {len(projects)} projects, "
-        f"{len(buildings)} buildings, {len(props)} properties."
+        f"{len(buildings)} buildings, {len(props) + listings} properties."
     )
     print(f"Buyer/operator seed accounts use password: {SEED_PASSWORD}; sellers sign in with phone + OTP")
 
@@ -385,6 +436,11 @@ if __name__ == "__main__":
         help="Top up demo owners' viewing slots for the next DAYS days (default 7)",
     )
     parser.add_argument(
+        "--ensure-listings",
+        action="store_true",
+        help="Add the extra demo listings missing from an existing database (never changes existing rows)",
+    )
+    parser.add_argument(
         "--ensure-red-books",
         action="store_true",
         help="Add demo red books missing from an existing database (never changes existing rows)",
@@ -397,5 +453,7 @@ if __name__ == "__main__":
             seed(session, reset=args.reset)
         if args.ensure_red_books:
             print(f"Added {ensure_red_books(session)} red book(s).")
+        if args.ensure_listings:
+            print(f"Added {ensure_listings(session)} demo listing(s).")
         if args.ensure_slots:
             print(f"Added {ensure_slots(session, args.ensure_slots)} demo viewing slot(s).")

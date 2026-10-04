@@ -128,7 +128,7 @@ Mở `.env` và thiết lập các biến quan trọng:
 ```bash
 # 4. Khởi tạo cơ sở dữ liệu và nạp dữ liệu mẫu
 alembic upgrade head
-python -m src.db.seed   # Nếu DB đã có từ trước, chạy: python -m src.db.seed --ensure-red-books
+python -m src.db.seed   # Nếu DB đã có từ trước, chạy: python -m src.db.seed --if-empty --ensure-red-books --ensure-listings --ensure-slots 7
 
 # 5. Khởi động Backend API
 uvicorn src.main:app --reload --port 8000

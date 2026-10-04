@@ -358,6 +358,8 @@ def search(db: Session, criteria: SearchCriteria) -> SearchResult:
         stmt = stmt.where(Property.price_vnd >= criteria.budget_min)
     if criteria.budget_max is not None:
         stmt = stmt.where(Property.price_vnd <= criteria.budget_max)
+    if criteria.bedrooms is not None:
+        stmt = stmt.where(Property.bedrooms == criteria.bedrooms)
     if criteria.bedrooms_min is not None:
         stmt = stmt.where(Property.bedrooms >= criteria.bedrooms_min)
     if criteria.area_min is not None:
@@ -393,6 +395,8 @@ def match(prop: Property, criteria: SearchCriteria) -> Recommendation | None:
         c.budget_max is not None and prop.price_vnd > c.budget_max
     ):
         return None
+    if c.bedrooms is not None and prop.bedrooms != c.bedrooms:
+        return None
     if c.bedrooms_min is not None and prop.bedrooms < c.bedrooms_min:
         return None
     if c.area_min is not None and prop.area_m2 < c.area_min:
@@ -417,11 +421,10 @@ def _score(prop: Property, c: SearchCriteria) -> Recommendation:
         )
 
     if c.budget_min is not None or c.budget_max is not None:
-        if c.budget_min is not None and c.budget_max is not None:
-            target = (c.budget_min + c.budget_max) / 2
-        else:
-            target = c.budget_max if c.budget_max is not None else c.budget_min
-        score = _closeness(prop.price_vnd, target)
+        # The budget is a hard filter: every home left is within it. Being closer to the cap is not
+        # "a better match" (it used to rank a 4,85 tỷ home above a 3,5 tỷ one for "dưới 5 tỷ");
+        # among equally good homes the cheaper one comes first (see `search`).
+        score = 1.0
         wanted = (
             f"{_fmt_vnd(c.budget_min) if c.budget_min else '0'} - {_fmt_vnd(c.budget_max) if c.budget_max else '∞'}"
         )

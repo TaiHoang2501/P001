@@ -25,7 +25,8 @@ async def test_search_only_returns_available_listings_of_active_owners(client):
     r = await client.post("/api/v1/properties/search", json={"limit": 20})
     assert r.status_code == 200
     body = r.json()
-    assert body["total_candidates"] == 32  # 4 extra seed listings are pending/draft/unverified owner
+    # 32 random + 5 extra two-bedroom demo listings; 4 more seed listings are pending/draft/unverified owner
+    assert body["total_candidates"] == 37
     for rec in body["results"]:
         assert rec["property"]["status"] == "AVAILABLE"
         assert rec["property"]["owner_id"] in (4, 5)
