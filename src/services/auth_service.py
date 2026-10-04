@@ -72,7 +72,10 @@ def _require_same_role(user: User | None, role: str | None) -> None:
 
 def request_otp(db: Session, data: OtpRequest) -> OtpRequestResponse:
     user = _account_for(db, data.target)
-    # Say so before sending a code: a seller's or operator's phone cannot become a buyer account (and back)
+    # Say so before sending a code: a new account needs a phone nobody uses yet...
+    if data.purpose == "signup" and user is not None:
+        raise PhoneInUseError("This phone is already registered; sign up with another number or sign in")
+    # ...and a seller's or operator's phone cannot sign in as a buyer (and back)
     _require_same_role(user, data.role)
     code, ttl = otp_service.request_code(db, data.target)
     debug_code = code if get_settings().otp_code_visible else None

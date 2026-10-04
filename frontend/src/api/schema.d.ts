@@ -1399,6 +1399,12 @@ export interface components {
             target: string;
             /** Role */
             role?: ("CUSTOMER" | "OWNER") | null;
+            /**
+             * Purpose
+             * @default login
+             * @enum {string}
+             */
+            purpose: "login" | "signup";
         };
         /** OtpRequestResponse */
         OtpRequestResponse: {

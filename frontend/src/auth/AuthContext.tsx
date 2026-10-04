@@ -8,12 +8,13 @@ import type { TokenResponse, User } from "../api/types";
 type RegisterInput = components["schemas"]["RegisterRequest"];
 type OtpVerifyInput = components["schemas"]["OtpVerifyRequest"];
 type OtpRequestResult = components["schemas"]["OtpRequestResponse"];
+type OtpRequestOptions = { role?: "CUSTOMER" | "OWNER"; purpose?: "login" | "signup" };
 
 interface AuthState {
   user: User | null;
   login: (identifier: string, password: string) => Promise<User>;
-  /** `role` = the account kind being signed into: a phone used by another kind is refused (PHONE_IN_USE) */
-  requestOtp: (target: string, role?: "CUSTOMER" | "OWNER") => Promise<OtpRequestResult>;
+  /** Login sends a code to any account; `purpose: "signup"` refuses a phone that already has one (PHONE_IN_USE) */
+  requestOtp: (target: string, opts?: OtpRequestOptions) => Promise<OtpRequestResult>;
   verifyOtp: (input: OtpVerifyInput) => Promise<User>;
   register: (input: RegisterInput) => Promise<User>;
   logout: () => void;
@@ -74,8 +75,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const requestOtp = useCallback(
-    (target: string, role?: "CUSTOMER" | "OWNER") =>
-      call(api.POST("/api/v1/auth/otp/request", { body: { target, role: role ?? null } })),
+    (target: string, opts: OtpRequestOptions = {}) =>
+      call(
+        api.POST("/api/v1/auth/otp/request", {
+          body: { target, role: opts.role ?? null, purpose: opts.purpose ?? "login" },
+        }),
+      ),
     [],
   );
 
