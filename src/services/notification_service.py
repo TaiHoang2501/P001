@@ -160,6 +160,20 @@ def reschedule_requested(db: Session, booking: Booking) -> None:
     )
 
 
+def request_time_changed(db: Session, booking: Booking, old_start: datetime) -> None:
+    """The buyer moved a request the owner has not answered yet; it still needs the owner's confirmation."""
+    notify(
+        db,
+        booking.property.owner_id,
+        "VIEWING_REQUEST_UPDATED",
+        "Khách đổi giờ yêu cầu xem nhà",
+        f"Buyer #{booking.customer_id} đổi giờ xem {_label(booking.property)} từ "
+        f"{_when(old_start)} sang {_when(booking.start_at)} (deal {booking.deal.code}). "
+        "Vui lòng xác nhận hoặc từ chối giờ mới.",
+        booking=booking,
+    )
+
+
 def reschedule_declined(db: Session, booking: Booking, reason: str) -> None:
     notify(
         db,

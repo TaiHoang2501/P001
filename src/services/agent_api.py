@@ -264,7 +264,8 @@ def cancel_viewing(user_id: int, booking_id: int) -> Envelope:
 
 
 def reschedule_viewing(user_id: int, booking_id: int, start_at: datetime | str) -> Envelope:
-    """Asks the owner to move a CONFIRMED viewing; it stays at the old time until the owner confirms."""
+    """Moves a viewing: an unanswered request just changes time (still REQUESTED); a CONFIRMED one
+    stays at the old time until the owner confirms the new one."""
     return _run(
         lambda db: _dump(
             booking_service.reschedule(

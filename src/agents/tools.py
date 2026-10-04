@@ -166,8 +166,8 @@ def cancel_viewing(booking_id: int, config: RunnableConfig) -> Result:
 
 @tool(response_format="content_and_artifact", args_schema=_RescheduleArgs)
 def reschedule_viewing(booking_id: int, start_at: str, config: RunnableConfig) -> Result:
-    """Ask the seller to move a CONFIRMED viewing to a new time. The viewing stays at the old time until
-    the seller confirms the new one."""
+    """Move a viewing to a new time. A request the seller has not answered yet simply changes time (still
+    waiting for the seller); a CONFIRMED viewing stays at the old time until the seller confirms the new one."""
     user_id = _user_id(config)
     if user_id is None:
         return _result(_NO_SESSION)

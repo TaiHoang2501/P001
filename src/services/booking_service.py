@@ -267,14 +267,18 @@ def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
 
 
 def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleRequest) -> BookingOut:
-    """Buyer asks to move a CONFIRMED viewing; the owner must confirm again (spec §4.12).
+    """Buyer moves a viewing to another time (spec §4.12, extended).
 
-    The current time and its hold stay in place until the owner accepts the new time.
+    - REQUESTED (owner has not answered yet): the request itself moves to the new time and stays REQUESTED;
+      the owner is told and still has to confirm it.
+    - CONFIRMED: the owner must confirm the new time; the current time and its hold stay until then.
     """
     booking = _load(db, booking_id, for_update=True)
     if booking.customer_id != actor.id:
         raise NotFoundError(f"Booking {booking_id} not found")
     deal_service.require_open(booking.deal)
+    if booking.status == BookingStatus.REQUESTED:
+        return _move_request(db, actor, booking, data)
     _, start_at, end_at = _resolve_time(db, booking.property, start_at=data.start_at)
     before = _transition(booking, BookingStatus.RESCHEDULE_REQUESTED)
     booking.proposed_start_at, booking.proposed_end_at = start_at, end_at
@@ -283,6 +287,31 @@ def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleReque
     notification_service.reschedule_requested(db, booking)
     db.commit()
     return to_out(booking, actor)
+
+
+def _move_request(db: Session, actor: Actor, booking: Booking, data: RescheduleRequest) -> BookingOut:
+    """Change the time of a request the owner has not answered: nothing is held yet, so it simply moves."""
+    property_id = booking.property_id  # read now: attributes can't be loaded after a failed flush
+    old_start, old_end = booking.start_at, booking.end_at
+    slot, start_at, end_at = _resolve_time(db, booking.property, start_at=data.start_at)
+    try:
+        booking.slot_id = slot.id if slot else None
+        booking.start_at, booking.end_at = start_at, end_at
+        db.flush()
+    except TimeConflictError as e:
+        _raise_slot_taken(db, e, property_id)
+    audit.record(
+        db,
+        actor,
+        "booking.request_time_change",
+        "booking",
+        booking.id,
+        before={"status": booking.status, "start_at": old_start.isoformat(), "end_at": old_end.isoformat()},
+        after={"status": booking.status, "start_at": start_at.isoformat(), "end_at": end_at.isoformat()},
+    )
+    notification_service.request_time_changed(db, booking, old_start)
+    db.commit()
+    return to_out(_load(db, booking.id), actor)
 
 
 def _sync_deal(db: Session, actor: Actor, booking: Booking) -> None:
