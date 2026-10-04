@@ -23,6 +23,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -154,6 +155,40 @@ def search_properties(criteria: dict[str, Any]) -> Envelope:
         lambda db: _dump(property_service.search(db, SearchCriteria.model_validate(criteria))),
         tool="search_properties",
     )
+
+
+def _default_windows() -> list[dict[str, Any]]:
+    """08:00-20:00 today and the next 2 days (local time), when the buyer has not said when they are free."""
+    tz = ZoneInfo(get_settings().timezone)
+    today = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    return [
+        {"start_at": today + timedelta(days=d, hours=8), "end_at": today + timedelta(days=d, hours=20)}
+        for d in range(3)
+    ]
+
+
+def search_with_viewing_times(criteria: dict[str, Any], buyer_windows: list[dict[str, Any]] | None = None) -> Envelope:
+    """search_properties plus the best match's viewing times, so the agent needs no extra
+    check_property_availability round before offering times (each round is one more LLM call)."""
+
+    def fn(db: Session) -> Any:
+        result = property_service.search(db, SearchCriteria.model_validate(criteria))
+        data = _dump(result)
+        data["top_viewing_times"] = None
+        if result.results:
+            windows = buyer_windows or _default_windows()
+            request = ViewingTimesRequest.model_validate({"windows": windows})
+            try:
+                times = availability_service.propose_viewing_times(db, result.results[0].property.id, request)
+            except AppError:
+                # Times are a convenience: the search itself still succeeded
+                logger.warning("no viewing times for top search result", exc_info=True)
+            else:
+                data["top_viewing_times"] = _dump(times)
+                data["top_viewing_times"]["buyer_windows"] = _dump(request.windows)
+        return data
+
+    return _run(fn, tool="search_properties")
 
 
 def get_property_detail(property_id: int) -> Envelope:

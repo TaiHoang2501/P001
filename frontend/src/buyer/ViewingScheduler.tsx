@@ -48,7 +48,7 @@ export function ViewingScheduler({
   propertyId: number;
   reschedule?: Booking;
   onBooked: (b: Booking) => void;
-  onBack: () => void;
+  onBack?: () => void;
 }) {
   const queryClient = useQueryClient();
   const days = Array.from({ length: DAYS_AHEAD }, (_, i) => vnToday(i + 1));
@@ -133,7 +133,7 @@ export function ViewingScheduler({
         aria-label={reschedule ? "Chọn giờ mới" : "Chọn lịch xem nhà"}
       >
         <div>
-          <BackButton onClick={onBack}>Quay lại</BackButton>
+          {onBack && <BackButton onClick={onBack}>Quay lại</BackButton>}
           <h3 className="mt-1 text-lg font-bold">
             {reschedule ? "Chọn giờ mới" : "Chọn lịch xem nhà"}
           </h3>
@@ -213,7 +213,7 @@ export function ViewingScheduler({
             proposals.length === 0 &&
             alternatives.length === 0 && (
               <Notice tone="warning">
-                Chủ căn chưa có giờ trống trong 2 tuần tới. Hãy nhờ AI Agent
+                Chủ căn chưa có giờ trống trong 2 tuần tới. Hãy nhờ Trợ lý AI
                 chuyển yêu cầu cho bộ phận hỗ trợ.
               </Notice>
             )}

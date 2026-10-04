@@ -110,7 +110,9 @@ class SearchCriteria(BaseModel):
     property_types: list[PropertyType] | None = None
     budget_min: int | None = Field(default=None, ge=0)
     budget_max: int | None = Field(default=None, gt=0)
-    bedrooms_min: int | None = Field(default=None, ge=0)
+    bedrooms_min: int | None = Field(
+        default=None, ge=0, description="Set whenever the buyer names a bedroom count ('căn 2 phòng ngủ', '3PN')"
+    )
     area_min: Decimal | None = Field(default=None, gt=0)
     keyword: str | None = Field(
         default=None,
@@ -119,7 +121,11 @@ class SearchCriteria(BaseModel):
     )
 
     # Soft preferences
-    preferred_bedrooms: int | None = Field(default=None, ge=0)
+    preferred_bedrooms: int | None = Field(
+        default=None,
+        ge=0,
+        description="Ranking only; alone just for soft wishes ('khoảng 2PN'), else with bedrooms_min",
+    )
     preferred_area_m2: Decimal | None = Field(default=None, gt=0)
     preferred_directions: list[Direction] | None = None
     preferred_views: list[ViewType] | None = None

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -8,10 +9,11 @@ import {
 } from "react";
 import { useSearchParams } from "react-router";
 
-import { api, call, errorMessage } from "../api/client";
+import { api, call, errorMessage, streamChat } from "../api/client";
 import type { components } from "../api/schema";
 import type {
   Booking,
+  ChatResponse,
   Property,
   Recommendation,
   User,
@@ -31,7 +33,8 @@ import { BookingsListCard } from "./BookingsListCard";
 import { BookingStatusCard } from "./BookingStatusCard";
 import { chatStorageKey } from "./guest";
 import { GuestSignup } from "./GuestSignup";
-import { SendIcon, SparkleIcon } from "./icons";
+import { SendIcon } from "./icons";
+import { AiBot } from "./AiBot";
 import { PropertyDetailCard, useProperty } from "./PropertyDetailCard";
 import {
   featureLine,
@@ -39,6 +42,7 @@ import {
   MatchBadge,
   PropertyImage,
   specLine,
+  BackButton,
 } from "./shared";
 import { ViewingScheduler } from "./ViewingScheduler";
 
@@ -55,6 +59,12 @@ type Card =
     }
   | { kind: "status"; bookingId: number }
   | { kind: "bookings" };
+
+// A home's details or its viewing-time picker: shown in a column left of the chat, not inside it,
+// so the whole card fits without scrolling the conversation
+type Panel =
+  | { kind: "property"; propertyId: number }
+  | { kind: "schedule"; propertyId: number; reschedule?: Booking };
 
 interface Message {
   id?: string;
@@ -141,6 +151,22 @@ function statusNews(
       return null;
   }
 }
+
+// What the assistant is doing while it works, by the tool it called
+const TOOL_STATUS: Record<string, string> = {
+  list_projects: "Đang xem danh sách dự án...",
+  search_properties: "Đang tìm căn phù hợp...",
+  get_property_detail: "Đang xem chi tiết căn...",
+  get_seller_status: "Đang kiểm tra chủ căn...",
+  check_seller_availability: "Đang xem lịch trống của chủ căn...",
+  check_property_availability: "Đang khớp lịch xem...",
+  get_deal_status: "Đang kiểm tra lịch xem của bạn...",
+  get_booking_status: "Đang kiểm tra lịch xem của bạn...",
+  create_viewing_request: "Đang gửi yêu cầu xem nhà...",
+  cancel_viewing: "Đang hủy lịch xem...",
+  reschedule_viewing: "Đang đổi giờ xem...",
+  create_human_escalation: "Đang chuyển cho nhân viên hỗ trợ...",
+};
 
 const SUGGESTIONS = [
   "Tôi cần căn 2 phòng ngủ ở Ocean Park, dưới 3,5 tỷ",
@@ -256,12 +282,18 @@ export function BuyerChatPage() {
     loadConversation(userId, name),
   );
   const [input, setInput] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  // "Cuộc trò chuyện mới" asks once before clearing the chat
+  const [confirmRestart, setConfirmRestart] = useState(false);
   // The home the buyer last opened in the chat, so "đặt căn này chiều mai" reaches the agent with its id
   const [viewing, setViewing] = useState<{ id: number; code?: string } | null>(
     null,
   );
   const [searchParams, setSearchParams] = useSearchParams();
+  // The reply being written (streamed), or what the assistant is doing meanwhile
+  // `final`: the finished turn, shown once the typing-out has caught up with the streamed text
+  const [live, setLive] = useState<{ text: string; status: string | null; final?: ChatResponse } | null>(null);
+  const streamed = useRef("");
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Going back scrolls to the previous step instead of the end
@@ -380,12 +412,34 @@ export function BuyerChatPage() {
         message: context + message,
         conversation_id: conversation.id,
       };
-      return userId === null
-        ? call(api.POST("/api/v1/chat/guest", { body }))
-        : call(api.POST("/api/v1/chat", { body }));
+      streamed.current = "";
+      setLive({ text: "", status: null });
+      // The reply appears word by word; cards and bookings come with the final event
+      return streamChat(userId === null ? "/api/v1/chat/guest/stream" : "/api/v1/chat/stream", body, {
+        onToken: (text) => {
+          streamed.current += text;
+          setLive({ text: streamed.current, status: null });
+        },
+        onTools: (names) => {
+          streamed.current = "";
+          setLive({ text: "", status: TOOL_STATUS[names[0]] ?? "Đang xử lý..." });
+        },
+      });
     },
     onSuccess: (res) => {
-      append({
+      // Let the typing-out finish first (StreamingText calls finishTurn); nothing typed -> show it now
+      if (streamed.current) setLive((l) => (l ? { ...l, final: res } : l));
+      else finishTurn(res);
+    },
+    onError: (err) => {
+      setLive(null);
+      append({ role: "error", text: errorMessage(err) });
+    },
+  });
+
+  function finishTurn(res: ChatResponse) {
+    setLive(null);
+    append({
         role: "assistant",
         text: res.reply,
         recommendations: res.recommendations,
@@ -398,9 +452,7 @@ export function BuyerChatPage() {
         markKnown(res.bookings);
         queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
       }
-    },
-    onError: (err) => append({ role: "error", text: errorMessage(err) }),
-  });
+  }
 
   useEffect(
     () => saveConversation(userId, conversation),
@@ -453,22 +505,26 @@ export function BuyerChatPage() {
       });
   }
 
-  // Everything happens in this chat: details, viewing-time picker, status and the buyer's viewings open as cards here
-  const addCard = (card: Card) => append({ role: "assistant", text: "", card });
-
+  // A home's details and its viewing-time picker open in the side panel; status and the buyer's viewings
+  // open as cards in the chat
   function openProperty(id: number, code?: string) {
     setViewing({ id, code });
-    addCard({ kind: "property", propertyId: id });
+    setPanel({ kind: "property", propertyId: id });
   }
 
   function openSchedule(p: Pick<Property, "id" | "unit_code">) {
-    setViewing({ id: p.id, code: p.unit_code });
-    addCard({ kind: "schedule", propertyId: p.id });
+    setViewing({ id: p.id, code: p.unit_code || undefined });
+    setPanel({ kind: "schedule", propertyId: p.id });
   }
 
   function openReschedule(b: Booking) {
     setViewing({ id: b.property_id });
-    addCard({ kind: "schedule", propertyId: b.property_id, reschedule: b });
+    setPanel({ kind: "schedule", propertyId: b.property_id, reschedule: b });
+  }
+
+  function closePanel() {
+    setPanel(null);
+    setViewing(null);
   }
 
   /** One card per viewing / one list: opening it again moves it to the bottom. */
@@ -490,7 +546,6 @@ export function BuyerChatPage() {
   }
 
   function openBookings() {
-    setMenuOpen(false);
     openOnce({ kind: "bookings" }, (c) => c.kind === "bookings");
   }
 
@@ -520,6 +575,7 @@ export function BuyerChatPage() {
   }
 
   function onScheduled(booking: Booking, rescheduled: boolean) {
+    setPanel(null);
     markKnown([booking]);
     setConversation((c) => ({
       ...c,
@@ -578,6 +634,11 @@ export function BuyerChatPage() {
     setSearchParams({}, { replace: true });
   }, [searchParams]);
 
+  // Keeps the reply being typed out in view (instant: smooth scrolling on every frame would lag behind)
+  const scrollToEnd = useCallback(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, []);
+
   const lastId = conversation.messages[conversation.messages.length - 1]?.id;
   useEffect(() => {
     if (skipScroll.current) {
@@ -587,9 +648,10 @@ export function BuyerChatPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [lastId, conversation.messages.length, send.isPending]);
 
+
   function submit(text: string) {
     const message = text.trim();
-    if (!message || send.isPending) return;
+    if (!message || busy) return;
     append({ role: "user", text: message });
     setInput("");
     send.mutate(message);
@@ -601,7 +663,8 @@ export function BuyerChatPage() {
   }
 
   function restart() {
-    setMenuOpen(false);
+    setConfirmRestart(false);
+    closePanel();
     setConversation(fresh(name));
     setInput("");
     inputRef.current?.focus();
@@ -609,6 +672,8 @@ export function BuyerChatPage() {
 
   // Opening cards counts as starting too: the opening suggestions are no longer needed
   const started = conversation.messages.length > 1;
+  // Waiting for the assistant, or its reply is still being typed out
+  const busy = send.isPending || live !== null;
   // Guests see the sign-up prompt under the latest reply that needs an account
   let signupAt = -1;
   if (userId === null)
@@ -616,52 +681,86 @@ export function BuyerChatPage() {
   const latest =
     [...conversation.messages].reverse().find((m) => m.recommendations?.length)
       ?.recommendations ?? [];
+  const hasResults = latest.length > 0;
+  // Just the chat at first; the details panel opens on its left, the matching homes on its right
+  const columns = panel
+    ? hasResults
+      ? "grid gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_380px]"
+      : "mx-auto grid max-w-7xl gap-5 lg:grid-cols-2"
+    : hasResults
+      ? "mx-auto grid max-w-6xl gap-5 lg:grid-cols-[minmax(0,1fr)_400px]"
+      : "mx-auto w-full max-w-4xl";
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]">
+    <div className={columns}>
+      {panel && (
+        // Phones/tablets: full screen over the chat; desktop: its own scrolling column
+        <aside
+          className="fixed inset-0 z-30 animate-rise-in overflow-y-auto bg-canvas p-4 lg:static lg:z-auto lg:h-[calc(100dvh-12rem)] lg:min-h-[28rem] lg:bg-transparent lg:p-0"
+          aria-label={panel.kind === "property" ? "Chi tiết căn" : "Chọn lịch xem nhà"}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            {panel.kind === "schedule" && !panel.reschedule ? (
+              <BackButton onClick={() => setPanel({ kind: "property", propertyId: panel.propertyId })}>Chi tiết căn</BackButton>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={closePanel}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-slate-100 hover:text-ink"
+            >
+              Đóng <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+          {panel.kind === "property" ? (
+            <PropertyDetailCard key={panel.propertyId} propertyId={panel.propertyId} onBook={openSchedule} />
+          ) : (
+            <ViewingScheduler
+              key={`${panel.propertyId}-${panel.reschedule?.id ?? "new"}`}
+              propertyId={panel.propertyId}
+              reschedule={panel.reschedule}
+              onBooked={(b) => onScheduled(b, !!panel.reschedule)}
+            />
+          )}
+        </aside>
+      )}
       <section
         className="card flex h-[calc(100dvh-12rem)] min-h-[28rem] flex-col overflow-hidden shadow-sm"
         aria-label="Chat AI"
       >
         <header className="flex items-center gap-3 border-b border-line px-5 py-4">
-          <AgentAvatar />
+          <AiBot className="size-11" animated thinking={send.isPending} />
           <div className="min-w-0 flex-1">
-            <h1 className="font-semibold">AI Agent</h1>
+            <h1 className="font-semibold">Trợ lý AI</h1>
             <p className="text-xs text-muted">
               Trợ lý tìm nhà Vinhomes
               {userId === null && " · Bạn đang trò chuyện với tư cách khách"}
             </p>
           </div>
-          <div className="relative">
+          {confirmRestart ? (
+            <div className="flex items-center gap-2 text-sm" role="group" aria-label="Xác nhận cuộc trò chuyện mới">
+              <span className="hidden text-muted sm:inline">Xóa cuộc trò chuyện này?</span>
+              <button type="button" className="btn-primary btn-sm" onClick={restart}>
+                Bắt đầu mới
+              </button>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setConfirmRestart(false)}>
+                Hủy
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
-              className="grid size-9 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-ink"
-              aria-label="Tùy chọn"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((v) => !v)}
+              className="btn btn-sm border border-line bg-white text-ink hover:border-brand-500 hover:text-brand-700 disabled:opacity-40"
+              disabled={!started || busy}
+              onClick={() => setConfirmRestart(true)}
+              title="Cuộc trò chuyện mới"
             >
-              <span className="text-xl leading-none">⋮</span>
+              <span aria-hidden="true" className="text-base leading-none">＋</span>
+              <span className="hidden sm:inline">Cuộc trò chuyện mới</span>
+              <span className="sr-only sm:hidden">Cuộc trò chuyện mới</span>
             </button>
-            {menuOpen && (
-              <div className="card absolute right-0 z-10 mt-1 w-56 overflow-hidden py-1 shadow-lg">
-                <button
-                  type="button"
-                  className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
-                  disabled={!started || send.isPending}
-                  onClick={restart}
-                >
-                  Cuộc trò chuyện mới
-                </button>
-                <button
-                  type="button"
-                  className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
-                  onClick={openBookings}
-                >
-                  Lịch xem của tôi
-                </button>
-              </div>
-            )}
-          </div>
+          )}
         </header>
 
         <div
@@ -674,14 +773,14 @@ export function BuyerChatPage() {
               anchor={`msg-${i}`}
               message={m}
               onPickTime={
-                i === conversation.messages.length - 1 && !send.isPending
+                i === conversation.messages.length - 1 && !busy
                   ? (iso) =>
                       submit(
                         `Tôi chọn xem lúc ${timeOf(iso)} ngày ${dateOf(iso)}`,
                       )
                   : undefined
               }
-              onReply={send.isPending ? undefined : submit}
+              onReply={busy ? undefined : submit}
               onOpenProperty={openProperty}
               onBook={openSchedule}
               onScheduled={onScheduled}
@@ -705,17 +804,31 @@ export function BuyerChatPage() {
               Đang gửi yêu cầu xem nhà...
             </p>
           )}
-          {send.isPending && (
-            <div className="flex items-center gap-3">
-              <AgentAvatar />
-              <p className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-line">
-                <Dot delay="0ms" />
-                <Dot delay="150ms" />
-                <Dot delay="300ms" />
-                <span className="sr-only">Trợ lý đang trả lời</span>
-              </p>
-            </div>
-          )}
+          {live &&
+            (live.text ? (
+              <div className="flex items-start gap-3">
+                <AgentAvatar thinking />
+                <StreamingText
+                  text={live.text}
+                  onGrow={scrollToEnd}
+                  onCaughtUp={live.final ? () => finishTurn(live.final!) : undefined}
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <AgentAvatar thinking />
+                <p className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-line">
+                  <Dot delay="0ms" />
+                  <Dot delay="150ms" />
+                  <Dot delay="300ms" />
+                  {live.status ? (
+                    <span className="ml-2 text-xs text-muted">{live.status}</span>
+                  ) : (
+                    <span className="sr-only">Trợ lý đang trả lời</span>
+                  )}
+                </p>
+              </div>
+            ))}
           <div ref={endRef} />
         </div>
 
@@ -758,15 +871,56 @@ export function BuyerChatPage() {
             type="submit"
             className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
             aria-label="Gửi"
-            disabled={!input.trim() || send.isPending}
+            disabled={!input.trim() || busy}
           >
             <SendIcon className="size-5" />
           </button>
         </form>
       </section>
 
-      <ResultsPanel recommendations={latest} onOpen={openProperty} />
+      {hasResults && (
+        <ResultsPanel
+          recommendations={latest}
+          onOpen={openProperty}
+          // With the details panel open there is room for the list only on wide screens
+          className={panel ? "xl:flex" : "lg:flex"}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * The reply being written. The model sends text in bursts; it is typed out at an even pace (faster when
+ * far behind) so it reads like writing. `onGrow` keeps it in view (instant scroll: smooth would lag behind).
+ */
+function StreamingText({
+  text,
+  onGrow,
+  onCaughtUp,
+}: {
+  text: string;
+  onGrow: () => void;
+  /** Set once the whole reply has arrived: called when the typing-out reaches its end */
+  onCaughtUp?: () => void;
+}) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (shown >= text.length) return;
+    const id = requestAnimationFrame(() => setShown((n) => Math.min(text.length, n + Math.max(1, Math.ceil((text.length - n) / 12)))));
+    return () => cancelAnimationFrame(id);
+  }, [shown, text]);
+  useEffect(() => {
+    onGrow();
+  }, [onGrow, shown]);
+  useEffect(() => {
+    if (onCaughtUp && shown >= text.length) onCaughtUp();
+  }, [onCaughtUp, shown, text.length]);
+  return (
+    <p className="w-fit max-w-[90%] whitespace-pre-line rounded-2xl rounded-tl-sm bg-white px-4 py-2.5 text-sm shadow-sm ring-1 ring-line">
+      <RichText text={text.slice(0, shown)} />
+      <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-brand-500" aria-hidden="true" />
+    </p>
   );
 }
 
@@ -779,12 +933,8 @@ function Dot({ delay }: { delay: string }) {
   );
 }
 
-function AgentAvatar() {
-  return (
-    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
-      <SparkleIcon className="size-5" />
-    </span>
-  );
+function AgentAvatar({ thinking = false }: { thinking?: boolean }) {
+  return <AiBot thinking={thinking} />;
 }
 
 function MessageView({
@@ -1013,18 +1163,21 @@ function PropertyChip({
   );
 }
 
-/** Wireframe 1.3: needs as chips + the matching properties. */
+/** Wireframe 1.3: needs as chips + the matching properties (shown once there are some). */
 function ResultsPanel({
   recommendations,
   onOpen,
+  className,
 }: {
   recommendations: Recommendation[];
   onOpen: (id: number, code?: string) => void;
+  /** Breakpoint from which it shows (hidden below) */
+  className: string;
 }) {
   const criteria = criteriaOf(recommendations);
   return (
     <aside
-      className="card hidden h-[calc(100dvh-12rem)] min-h-[28rem] flex-col overflow-hidden shadow-sm lg:flex"
+      className={`card hidden h-[calc(100dvh-12rem)] min-h-[28rem] animate-rise-in flex-col overflow-hidden shadow-sm ${className}`}
       aria-label="Kết quả đề xuất"
     >
       <div className="border-b border-line px-5 py-4">
@@ -1053,19 +1206,13 @@ function ResultsPanel({
         </span>
       </p>
       <div className="flex-1 overflow-y-auto p-4">
-        {recommendations.length === 0 ? (
-          <p className="px-2 py-10 text-center text-sm text-muted">
-            Chưa có căn đề xuất. Hãy kể cho AI Agent về căn bạn mong muốn.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {recommendations.map((r) => (
-              <li key={r.property.id}>
-                <ResultRow rec={r} onOpen={onOpen} />
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="space-y-3">
+          {recommendations.map((r) => (
+            <li key={r.property.id}>
+              <ResultRow rec={r} onOpen={onOpen} />
+            </li>
+          ))}
+        </ul>
       </div>
     </aside>
   );

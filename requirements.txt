@@ -5,6 +5,10 @@ pydantic>=2.10.0
 pydantic-settings>=2.7.0
 email-validator>=2.2.0
 python-dotenv>=1.0.0
+python-multipart>=0.0.20
+
+# Media storage (S3-compatible: Supabase Storage / Cloudflare R2 / AWS S3)
+boto3>=1.35.0
 
 # AI / LangChain
 langchain>=0.3.0

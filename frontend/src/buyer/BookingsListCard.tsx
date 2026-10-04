@@ -29,7 +29,7 @@ export function BookingsListCard({
       {!signedIn && <p className="text-sm text-muted">Bạn chưa có tài khoản: lịch xem sẽ hiện ở đây sau khi bạn gửi yêu cầu xem nhà.</p>}
       {bookings.isPending && signedIn && <Spinner />}
       {bookings.isError && <ErrorBox error={bookings.error} onRetry={() => bookings.refetch()} />}
-      {bookings.data?.length === 0 && <p className="text-sm text-muted">Bạn chưa đặt lịch xem nào. Hãy kể cho AI Agent căn bạn muốn tìm.</p>}
+      {bookings.data?.length === 0 && <p className="text-sm text-muted">Bạn chưa đặt lịch xem nào. Hãy kể cho Trợ lý AI căn bạn muốn tìm.</p>}
       <ul className="space-y-2">
         {bookings.data?.map((b) => (
           <li key={b.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-line p-3">

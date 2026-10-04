@@ -430,6 +430,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/owner/properties/{property_id}/media/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Media
+         * @description Upload a photo / floor plan / video / ownership document to object storage and attach it to the listing.
+         */
+        post: operations["upload_media_api_v1_owner_properties__property_id__media_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/owner/properties/{property_id}/media/{media_id}": {
         parameters: {
             query?: never;
@@ -760,6 +780,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Stream
+         * @description Server-Sent Events: `token` {text} while the reply is written, `tools` {names} when the agent calls tools, `error` {code, message}, and finally `done` with the same body as the non-streaming endpoint.
+         */
+        post: operations["chat_stream_api_v1_chat_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/guest/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guest Chat Stream
+         * @description Server-Sent Events: `token` {text} while the reply is written, `tools` {names} when the agent calls tools, `error` {code, message}, and finally `done` with the same body as the non-streaming endpoint.
+         */
+        post: operations["guest_chat_stream_api_v1_chat_guest_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/guest/{conversation_id}/claim": {
         parameters: {
             query?: never;
@@ -1013,6 +1073,12 @@ export interface components {
          * @enum {string}
          */
         ActorType: "USER" | "AI_AGENT" | "SYSTEM";
+        /** Body_upload_media_api_v1_owner_properties__property_id__media_upload_post */
+        Body_upload_media_api_v1_owner_properties__property_id__media_upload_post: {
+            kind: components["schemas"]["MediaKind"];
+            /** File */
+            file: string;
+        };
         /**
          * BookingCreate
          * @description Viewing request: pick a seller slot (`slot_id`) or a proposed start time (`start_at`).
@@ -2747,6 +2813,41 @@ export interface operations {
             };
         };
     };
+    upload_media_api_v1_owner_properties__property_id__media_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                property_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_media_api_v1_owner_properties__property_id__media_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_media_api_v1_owner_properties__property_id__media__media_id__delete: {
         parameters: {
             query?: never;
@@ -3374,6 +3475,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ChatResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_stream_api_v1_chat_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    guest_chat_stream_api_v1_chat_guest_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
