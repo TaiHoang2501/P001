@@ -11,7 +11,7 @@ import { BuyerStartPage } from "./buyer/BuyerStartPage";
 import { RequireBuyer, RequireBuyerOrGuest } from "./buyer/shared";
 import { Layout } from "./components/Layout";
 import { EmptyState } from "./components/ui";
-import { LoginPage } from "./pages/LoginPage";
+import { LoginPage, OperatorLoginPage } from "./pages/LoginPage";
 import { BookingsMonitorPage } from "./pages/operator/BookingsMonitorPage";
 import { EscalationsPage } from "./pages/operator/EscalationsPage";
 import { ModerationPage } from "./pages/operator/ModerationPage";
@@ -87,6 +87,8 @@ export function App() {
       {/* BookingBot: sellers and the investor/operator */}
       <Route element={<Layout />}>
         <Route path="login" element={<LoginPage />} />
+        {/* Operators sign in on their own page; the seller login does not link to it */}
+        <Route path="operator/login" element={<OperatorLoginPage />} />
         {/* Sellers sign up with phone + OTP on the login page; there is no password sign-up */}
         <Route path="register" element={<Navigate to="/login" replace />} />
 

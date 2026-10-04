@@ -35,7 +35,7 @@ Trang đầu (`/`) hỏi **"Bạn muốn làm gì hôm nay?"** với hai lựa c
     là sổ thuộc tài khoản này. Sai OTP 5 lần thì sổ bị khóa. Mỗi sổ chỉ dùng cho **một** tin đăng.
   - Xác thực sổ xong, hồ sơ người bán vào hàng chờ; **Chủ đầu tư vẫn duyệt** hồ sơ và từng tin đăng
     trước khi căn được AI gợi ý cho người mua.
-  - Chủ đầu tư đăng nhập bằng email + mật khẩu (tab "Quản trị viên").
+  - Chủ đầu tư đăng nhập bằng email + mật khẩu ở trang riêng `/operator/login` (trang người bán `/login` chỉ có SĐT + OTP, không dẫn link tới đây; số của quản trị viên nhập vào trang người bán chỉ nhận thông báo chung "thông tin đăng nhập không đúng").
 
 ### AI Agent làm được gì
 

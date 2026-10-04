@@ -6,7 +6,6 @@ from src.core.actor import Actor
 from src.core.errors import (
     AccountNotFoundError,
     AlreadyExistsError,
-    ForbiddenError,
     InvalidCredentialsError,
     PhoneInUseError,
 )
@@ -97,10 +96,10 @@ def verify_otp(db: Session, data: OtpVerifyRequest) -> TokenResponse:
         if not is_phone(data.target):
             raise AccountNotFoundError("Sign up with a phone number; email can be added later")
         user = _create_user(db, role=UserRole(data.role or "CUSTOMER"), full_name=data.full_name, phone=data.target)
-    elif user.role == UserRole.INVESTOR_OPERATOR:
-        raise ForbiddenError("Operators sign in with email and password")
-    elif user.role == UserRole.OWNER and not is_phone(data.target):
-        raise ForbiddenError("Sellers sign in with their phone number")
+    elif user.role == UserRole.INVESTOR_OPERATOR or (user.role == UserRole.OWNER and not is_phone(data.target)):
+        # Operators use email + password, sellers their phone. Same neutral answer as a wrong code, so this form
+        # never tells which numbers belong to an operator (no account enumeration)
+        raise InvalidCredentialsError("This phone number or email cannot be used to sign in here")
     elif user.status == UserStatus.SUSPENDED:
         raise InvalidCredentialsError("Account is suspended")
 

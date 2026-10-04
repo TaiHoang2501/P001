@@ -66,7 +66,8 @@ async def test_sellers_cannot_log_in_with_password(client, db):
 async def test_sellers_sign_in_with_phone_not_email(client):
     code = (await client.post("/api/v1/auth/otp/request", json={"target": OWNER_TUAN})).json()["debug_code"]
     r = await client.post("/api/v1/auth/otp/verify", json={"target": OWNER_TUAN, "code": code})
-    assert r.status_code == 403
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "INVALID_CREDENTIALS"
 
     headers = await auth(client, OWNER_TUAN)  # phone + OTP
     assert (await client.get("/api/v1/auth/me", headers=headers)).json()["role"] == "OWNER"

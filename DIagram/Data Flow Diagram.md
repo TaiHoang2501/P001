@@ -100,7 +100,7 @@ nhận số điện thoại hay email của người mua (privacy Level 1).
 |---|---|---|---|
 | **Người xem nhà** | Khách mua. Có thể chat ngay với tư cách khách (chưa có tài khoản); chỉ khi gửi yêu cầu xem nhà mới phải đăng ký SĐT + OTP | Nhu cầu bằng lời, lựa chọn căn/giờ, SĐT + OTP | Căn phù hợp, giờ đề xuất, mã Deal, trạng thái lịch xem, tin nhắn chủ động của agent |
 | **Người bán nhà** | Chủ căn muốn bán. Chỉ đăng nhập bằng SĐT + OTP (backend chặn mật khẩu) | Tên người đứng tên + mã sổ đỏ, tin đăng, lịch trống, xác nhận/từ chối yêu cầu xem | Yêu cầu xem chỉ có mã người mua + khoảng ngân sách (không có SĐT/email) |
-| **Chủ đầu tư / Quản trị viên** | Lớp tin cậy (Trust Layer): duyệt người bán, duyệt tin, xử lý ngoại lệ. Đăng nhập bằng email + mật khẩu; không duyệt từng lịch xem | Quyết định duyệt / từ chối, xử lý ngoại lệ | Hàng chờ duyệt, toàn bộ lịch xem, hàng ngoại lệ |
+| **Chủ đầu tư / Quản trị viên** | Lớp tin cậy (Trust Layer): duyệt người bán, duyệt tin, xử lý ngoại lệ. Đăng nhập bằng email + mật khẩu ở trang riêng `/operator/login`; không duyệt từng lịch xem | Quyết định duyệt / từ chối, xử lý ngoại lệ | Hàng chờ duyệt, toàn bộ lịch xem, hàng ngoại lệ |
 
 ### 2.2. Giao diện web (React + Vite, deploy trên Vercel)
 
@@ -111,7 +111,7 @@ nhận số điện thoại hay email của người mua (privacy Level 1).
   chuyển về khung chat.
 - **Cổng người bán `/owner/*`**: xác thực sổ đỏ, tạo/sửa tin đăng, khai báo lịch trống, xác nhận hoặc từ chối
   yêu cầu xem (đây là bước "Owner xác nhận" bắt buộc — agent không làm thay được).
-- **Bảng Chủ đầu tư `/operator/*`**: duyệt hồ sơ người bán, duyệt tin đăng, theo dõi lịch xem, xử lý hàng ngoại lệ.
+- **Bảng Chủ đầu tư `/operator/*`** (đăng nhập tại `/operator/login`, tách khỏi trang người bán `/login`): duyệt hồ sơ người bán, duyệt tin đăng, theo dõi lịch xem, xử lý hàng ngoại lệ.
 
 Web chỉ gọi REST API (`openapi-fetch`, kiểu dữ liệu sinh từ OpenAPI của backend); không có logic nghiệp vụ
 nào chỉ nằm ở web.

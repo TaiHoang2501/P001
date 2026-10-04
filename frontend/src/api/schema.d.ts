@@ -1648,7 +1648,7 @@ export interface components {
             full_name: string;
             /**
              * Phone
-             * @description Vietnamese phone, e.g. 0901234567
+             * @description Vietnamese phone, e.g. 09xxxxxxxx
              */
             phone: string;
             /** Email */

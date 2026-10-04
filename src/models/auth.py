@@ -21,13 +21,13 @@ def is_phone(target: str) -> bool:
 def _phone_or_email(value: str) -> str:
     value = value.strip().lower()
     if not (is_phone(value) or _EMAIL_RE.fullmatch(value)):
-        raise ValueError("must be a Vietnamese phone number (e.g. 0901234567) or an email")
+        raise ValueError("must be a Vietnamese phone number (e.g. 09xxxxxxxx) or an email")
     return value
 
 
 class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=255)
-    phone: str = Field(..., pattern=PHONE_PATTERN, description="Vietnamese phone, e.g. 0901234567")
+    phone: str = Field(..., pattern=PHONE_PATTERN, description="Vietnamese phone, e.g. 09xxxxxxxx")
     email: EmailStr | None = None
     password: str = Field(..., min_length=8, max_length=128)
     # Operators are created by admins/seed only; sellers use phone + OTP

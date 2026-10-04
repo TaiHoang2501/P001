@@ -99,7 +99,10 @@ async def test_requests_are_rate_limited(client):
 async def test_operator_cannot_use_otp(client):
     code = await _request(client, OPERATOR)
     r = await _verify(client, OPERATOR, code)
-    assert r.status_code == 403
+    # Neutral answer: does not reveal that this is an operator account
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "INVALID_CREDENTIALS"
+    assert "operator" not in r.json()["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
