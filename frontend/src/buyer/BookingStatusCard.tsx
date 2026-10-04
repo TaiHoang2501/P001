@@ -135,8 +135,8 @@ export function BookingStatusCard({
       {ended ? (
         <Notice tone="warning">
           Lịch xem này đã kết thúc ({endedLabel(b)}).
-          {b.rejection_reason && <> Lý do: {b.rejection_reason}.</>} Nhắn AI
-          Agent để tìm giờ hoặc căn khác.
+          {b.rejection_reason && <> Lý do: {b.rejection_reason}.</>} Nhắn Trợ lý
+          AI để tìm giờ hoặc căn khác.
         </Notice>
       ) : (
         <StatusTimeline booking={b} deal={deal.data} compact />

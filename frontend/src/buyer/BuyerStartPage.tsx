@@ -42,7 +42,7 @@ export function BuyerStartPage() {
           <Choice
             icon={<SparkleIcon className="size-6" />}
             title="Tôi là người mới"
-            hint="Trò chuyện ngay với AI Agent, chỉ cần đăng ký khi gửi yêu cầu xem nhà"
+            hint="Trò chuyện ngay với Trợ lý AI, chỉ cần đăng ký khi gửi yêu cầu xem nhà"
             onClick={() => {
               startGuest();
               navigate("/buyer/chat");

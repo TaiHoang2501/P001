@@ -14,7 +14,7 @@ export function BuyerHomePage() {
     <section className="grid items-center gap-10 overflow-hidden rounded-3xl bg-white p-6 shadow-sm ring-1 ring-line md:grid-cols-[1.1fr_1fr] md:p-12">
       <div>
         <h1 className="text-4xl font-bold leading-tight tracking-tight md:text-5xl">
-          Tìm ngôi nhà Vinhomes phù hợp cùng <span className="text-brand-600">AI Agent</span>
+          Tìm ngôi nhà Vinhomes phù hợp cùng <span className="text-brand-600">Trợ lý AI</span>
         </h1>
         <ul className="mt-7 space-y-3">
           {BENEFITS.map((b) => (

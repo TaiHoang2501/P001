@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -8,10 +9,11 @@ import {
 } from "react";
 import { useSearchParams } from "react-router";
 
-import { api, call, errorMessage } from "../api/client";
+import { api, call, errorMessage, streamChat } from "../api/client";
 import type { components } from "../api/schema";
 import type {
   Booking,
+  ChatResponse,
   Property,
   Recommendation,
   User,
@@ -31,7 +33,8 @@ import { BookingsListCard } from "./BookingsListCard";
 import { BookingStatusCard } from "./BookingStatusCard";
 import { chatStorageKey } from "./guest";
 import { GuestSignup } from "./GuestSignup";
-import { SendIcon, SparkleIcon } from "./icons";
+import { SendIcon } from "./icons";
+import { AiBot } from "./AiBot";
 import { PropertyDetailCard, useProperty } from "./PropertyDetailCard";
 import {
   featureLine,
@@ -141,6 +144,22 @@ function statusNews(
       return null;
   }
 }
+
+// What the assistant is doing while it works, by the tool it called
+const TOOL_STATUS: Record<string, string> = {
+  list_projects: "Đang xem danh sách dự án...",
+  search_properties: "Đang tìm căn phù hợp...",
+  get_property_detail: "Đang xem chi tiết căn...",
+  get_seller_status: "Đang kiểm tra chủ căn...",
+  check_seller_availability: "Đang xem lịch trống của chủ căn...",
+  check_property_availability: "Đang khớp lịch xem...",
+  get_deal_status: "Đang kiểm tra lịch xem của bạn...",
+  get_booking_status: "Đang kiểm tra lịch xem của bạn...",
+  create_viewing_request: "Đang gửi yêu cầu xem nhà...",
+  cancel_viewing: "Đang hủy lịch xem...",
+  reschedule_viewing: "Đang đổi giờ xem...",
+  create_human_escalation: "Đang chuyển cho nhân viên hỗ trợ...",
+};
 
 const SUGGESTIONS = [
   "Tôi cần căn 2 phòng ngủ ở Ocean Park, dưới 3,5 tỷ",
@@ -262,6 +281,10 @@ export function BuyerChatPage() {
     null,
   );
   const [searchParams, setSearchParams] = useSearchParams();
+  // The reply being written (streamed), or what the assistant is doing meanwhile
+  // `final`: the finished turn, shown once the typing-out has caught up with the streamed text
+  const [live, setLive] = useState<{ text: string; status: string | null; final?: ChatResponse } | null>(null);
+  const streamed = useRef("");
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Going back scrolls to the previous step instead of the end
@@ -380,12 +403,34 @@ export function BuyerChatPage() {
         message: context + message,
         conversation_id: conversation.id,
       };
-      return userId === null
-        ? call(api.POST("/api/v1/chat/guest", { body }))
-        : call(api.POST("/api/v1/chat", { body }));
+      streamed.current = "";
+      setLive({ text: "", status: null });
+      // The reply appears word by word; cards and bookings come with the final event
+      return streamChat(userId === null ? "/api/v1/chat/guest/stream" : "/api/v1/chat/stream", body, {
+        onToken: (text) => {
+          streamed.current += text;
+          setLive({ text: streamed.current, status: null });
+        },
+        onTools: (names) => {
+          streamed.current = "";
+          setLive({ text: "", status: TOOL_STATUS[names[0]] ?? "Đang xử lý..." });
+        },
+      });
     },
     onSuccess: (res) => {
-      append({
+      // Let the typing-out finish first (StreamingText calls finishTurn); nothing typed -> show it now
+      if (streamed.current) setLive((l) => (l ? { ...l, final: res } : l));
+      else finishTurn(res);
+    },
+    onError: (err) => {
+      setLive(null);
+      append({ role: "error", text: errorMessage(err) });
+    },
+  });
+
+  function finishTurn(res: ChatResponse) {
+    setLive(null);
+    append({
         role: "assistant",
         text: res.reply,
         recommendations: res.recommendations,
@@ -398,9 +443,7 @@ export function BuyerChatPage() {
         markKnown(res.bookings);
         queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
       }
-    },
-    onError: (err) => append({ role: "error", text: errorMessage(err) }),
-  });
+  }
 
   useEffect(
     () => saveConversation(userId, conversation),
@@ -578,6 +621,11 @@ export function BuyerChatPage() {
     setSearchParams({}, { replace: true });
   }, [searchParams]);
 
+  // Keeps the reply being typed out in view (instant: smooth scrolling on every frame would lag behind)
+  const scrollToEnd = useCallback(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, []);
+
   const lastId = conversation.messages[conversation.messages.length - 1]?.id;
   useEffect(() => {
     if (skipScroll.current) {
@@ -587,9 +635,10 @@ export function BuyerChatPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [lastId, conversation.messages.length, send.isPending]);
 
+
   function submit(text: string) {
     const message = text.trim();
-    if (!message || send.isPending) return;
+    if (!message || busy) return;
     append({ role: "user", text: message });
     setInput("");
     send.mutate(message);
@@ -609,6 +658,8 @@ export function BuyerChatPage() {
 
   // Opening cards counts as starting too: the opening suggestions are no longer needed
   const started = conversation.messages.length > 1;
+  // Waiting for the assistant, or its reply is still being typed out
+  const busy = send.isPending || live !== null;
   // Guests see the sign-up prompt under the latest reply that needs an account
   let signupAt = -1;
   if (userId === null)
@@ -624,9 +675,9 @@ export function BuyerChatPage() {
         aria-label="Chat AI"
       >
         <header className="flex items-center gap-3 border-b border-line px-5 py-4">
-          <AgentAvatar />
+          <AiBot className="size-11" animated thinking={send.isPending} />
           <div className="min-w-0 flex-1">
-            <h1 className="font-semibold">AI Agent</h1>
+            <h1 className="font-semibold">Trợ lý AI</h1>
             <p className="text-xs text-muted">
               Trợ lý tìm nhà Vinhomes
               {userId === null && " · Bạn đang trò chuyện với tư cách khách"}
@@ -647,7 +698,7 @@ export function BuyerChatPage() {
                 <button
                   type="button"
                   className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
-                  disabled={!started || send.isPending}
+                  disabled={!started || busy}
                   onClick={restart}
                 >
                   Cuộc trò chuyện mới
@@ -674,14 +725,14 @@ export function BuyerChatPage() {
               anchor={`msg-${i}`}
               message={m}
               onPickTime={
-                i === conversation.messages.length - 1 && !send.isPending
+                i === conversation.messages.length - 1 && !busy
                   ? (iso) =>
                       submit(
                         `Tôi chọn xem lúc ${timeOf(iso)} ngày ${dateOf(iso)}`,
                       )
                   : undefined
               }
-              onReply={send.isPending ? undefined : submit}
+              onReply={busy ? undefined : submit}
               onOpenProperty={openProperty}
               onBook={openSchedule}
               onScheduled={onScheduled}
@@ -705,17 +756,31 @@ export function BuyerChatPage() {
               Đang gửi yêu cầu xem nhà...
             </p>
           )}
-          {send.isPending && (
-            <div className="flex items-center gap-3">
-              <AgentAvatar />
-              <p className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-line">
-                <Dot delay="0ms" />
-                <Dot delay="150ms" />
-                <Dot delay="300ms" />
-                <span className="sr-only">Trợ lý đang trả lời</span>
-              </p>
-            </div>
-          )}
+          {live &&
+            (live.text ? (
+              <div className="flex items-start gap-3">
+                <AgentAvatar thinking />
+                <StreamingText
+                  text={live.text}
+                  onGrow={scrollToEnd}
+                  onCaughtUp={live.final ? () => finishTurn(live.final!) : undefined}
+                />
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <AgentAvatar thinking />
+                <p className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-line">
+                  <Dot delay="0ms" />
+                  <Dot delay="150ms" />
+                  <Dot delay="300ms" />
+                  {live.status ? (
+                    <span className="ml-2 text-xs text-muted">{live.status}</span>
+                  ) : (
+                    <span className="sr-only">Trợ lý đang trả lời</span>
+                  )}
+                </p>
+              </div>
+            ))}
           <div ref={endRef} />
         </div>
 
@@ -758,7 +823,7 @@ export function BuyerChatPage() {
             type="submit"
             className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
             aria-label="Gửi"
-            disabled={!input.trim() || send.isPending}
+            disabled={!input.trim() || busy}
           >
             <SendIcon className="size-5" />
           </button>
@@ -767,6 +832,40 @@ export function BuyerChatPage() {
 
       <ResultsPanel recommendations={latest} onOpen={openProperty} />
     </div>
+  );
+}
+
+/**
+ * The reply being written. The model sends text in bursts; it is typed out at an even pace (faster when
+ * far behind) so it reads like writing. `onGrow` keeps it in view (instant scroll: smooth would lag behind).
+ */
+function StreamingText({
+  text,
+  onGrow,
+  onCaughtUp,
+}: {
+  text: string;
+  onGrow: () => void;
+  /** Set once the whole reply has arrived: called when the typing-out reaches its end */
+  onCaughtUp?: () => void;
+}) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (shown >= text.length) return;
+    const id = requestAnimationFrame(() => setShown((n) => Math.min(text.length, n + Math.max(1, Math.ceil((text.length - n) / 12)))));
+    return () => cancelAnimationFrame(id);
+  }, [shown, text]);
+  useEffect(() => {
+    onGrow();
+  }, [onGrow, shown]);
+  useEffect(() => {
+    if (onCaughtUp && shown >= text.length) onCaughtUp();
+  }, [onCaughtUp, shown, text.length]);
+  return (
+    <p className="w-fit max-w-[90%] whitespace-pre-line rounded-2xl rounded-tl-sm bg-white px-4 py-2.5 text-sm shadow-sm ring-1 ring-line">
+      <RichText text={text.slice(0, shown)} />
+      <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-brand-500" aria-hidden="true" />
+    </p>
   );
 }
 
@@ -779,12 +878,8 @@ function Dot({ delay }: { delay: string }) {
   );
 }
 
-function AgentAvatar() {
-  return (
-    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
-      <SparkleIcon className="size-5" />
-    </span>
-  );
+function AgentAvatar({ thinking = false }: { thinking?: boolean }) {
+  return <AiBot thinking={thinking} />;
 }
 
 function MessageView({
@@ -1055,7 +1150,7 @@ function ResultsPanel({
       <div className="flex-1 overflow-y-auto p-4">
         {recommendations.length === 0 ? (
           <p className="px-2 py-10 text-center text-sm text-muted">
-            Chưa có căn đề xuất. Hãy kể cho AI Agent về căn bạn mong muốn.
+            Chưa có căn đề xuất. Hãy kể cho Trợ lý AI về căn bạn mong muốn.
           </p>
         ) : (
           <ul className="space-y-3">

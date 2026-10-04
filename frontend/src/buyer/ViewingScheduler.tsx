@@ -213,7 +213,7 @@ export function ViewingScheduler({
             proposals.length === 0 &&
             alternatives.length === 0 && (
               <Notice tone="warning">
-                Chủ căn chưa có giờ trống trong 2 tuần tới. Hãy nhờ AI Agent
+                Chủ căn chưa có giờ trống trong 2 tuần tới. Hãy nhờ Trợ lý AI
                 chuyển yêu cầu cho bộ phận hỗ trợ.
               </Notice>
             )}

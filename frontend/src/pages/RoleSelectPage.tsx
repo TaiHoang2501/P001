@@ -47,7 +47,7 @@ export function RoleSelectPage() {
           <Choice
             icon={<SearchHomeIcon className="size-6" />}
             title="Tôi là người xem nhà"
-            hint="Trò chuyện với AI Agent để tìm căn phù hợp và đặt lịch xem"
+            hint="Trò chuyện với Trợ lý AI để tìm căn phù hợp và đặt lịch xem"
             onClick={viewHomes}
           />
           <Choice
