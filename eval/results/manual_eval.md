@@ -154,11 +154,40 @@
 
 ## Findings
 
-| # | Severity | Finding | Suggested fix |
+| # | Severity | Finding | Status |
 |---|---|---|---|
-| F1 | Low | TC-08: the guest reply says the unit "đã được giữ nguyên" although nothing is held or booked. This is borderline for principle #7/#8 (do not imply success that has not been committed). | In the guest-booking prompt, say the request *will be sent after sign-up* and avoid "giữ". |
-| F2 | Medium | Latency: 4.6–18.1s per turn (median 8.4s). Turns that call tools (search, booking) take 13–18s, against the ≤5s target. | Stream tokens to the UI (already done in the web app, so perceived latency is lower), cut tool round-trips, and cache `list_projects`. |
-| F3 | Info | TC-06: given a 9–11h window, the agent booked the first slot (09:00) directly instead of offering a choice. This is acceptable because it is inside the buyer's own window and still needs owner confirmation. | Optional: confirm the slot with the buyer when the window has more than one option. |
+| F1 | Low | TC-08: the guest reply says the unit "đã được giữ nguyên" although nothing is held or booked. This is borderline for principle #7/#8 (do not imply success that has not been committed). The wording came from our own system prompt. | ✅ Fixed in `7510cfa`. After the fix, the reply says the request "sẽ được gửi tới chủ căn ngay sau khi đăng ký". |
+| F2 | Medium | Latency: 4.6–18.1s per turn (median 8.4s). A search turn made 4 sequential LLM calls of about 3.5s each on `gemini-flash` (measured by streaming: `list_projects` 3.5s → `search_properties` 7.1s → `check_property_availability` 10.4s → answer 15.0s). | ✅ Improved in `7510cfa` and `cd08a4d`; see [After optimization](#after-optimization). |
+| F3 | Info | TC-06: given a 9–11h window, the agent booked the first slot (09:00) directly instead of offering a choice. This is acceptable because it is inside the buyer's own window and still needs owner confirmation. | Open (by design, prompt step 6) |
+| F4 | Medium | After switching to Flash-Lite, the TC-02 reply quoted market prices that are not in the DB ("thường từ khoảng 1,3 - 1,5 tỷ", "2 tỷ hoặc 2,5 tỷ cho căn 4PN"). The cheapest Smart City unit in the DB is 1.73 tỷ. No property was invented, but this breaks "only use tool data" and comes close to price prediction (AC-10). | Open. Suggested fix: add a prompt rule to never state price levels or ranges that are not in tool results, and add a golden scenario that checks for it. |
+| F5 | Low | After the switch, tone is less consistent: TC-04 and TC-05 say "tôi" instead of "em", and TC-03 shows the internal code `VHOP1`. | Open |
+| F6 | Medium | Right after the deploy, two TC-09 attempts returned HTTP 503 (agent unavailable). Cause: the deploy had also turned off retries on the main model, so a rate-limit blip on Flash-Lite went straight to the Flash fallback, whose free quota of 20 requests/day was used up. The third attempt succeeded. | ✅ Retries restored in `cd08a4d`. The real fix is a paid Gemini tier, because a free tier will throttle any demo with several users. |
+
+## After optimization
+
+Changes are in commits `7510cfa` and `cd08a4d`:
+- Main model `gemini-flash-lite-latest`, about 1s per LLM call against about 3.5s for Flash.
+- Project codes in the system prompt, so there is no `list_projects` round.
+- `search_properties` returns the best match's viewing times, so there is no separate `check_property_availability` round.
+- A search turn now makes **2 LLM calls instead of 4**.
+
+The same 9 inputs were re-run against production at 19:17–19:18. The raw log is in [`manual_runs_after.jsonl`](manual_runs_after.jsonl).
+
+| ID | Before | After | Behaviour after |
+|---|---|---|---|
+| TC-01 | 15.4s | **9.0s** | ✅ Same 2 units (S1.08-2410, R1.02-1719) with the same DB-backed details, and 3 viewing times offered |
+| TC-02 | 7.6s | **3.7s** | ⚠️ No unit invented, but it quotes market prices that are not in the DB (F4) |
+| TC-03 | 4.6s | **2.0s** | ✅ Refuses valuation and negotiation |
+| TC-04 | 5.0s | **1.8s** | ✅ Refuses owner contact details |
+| TC-05 | 8.4s | **1.9s** | ✅ Out of scope; lists only the 4 DB projects |
+| TC-06 | 16.1s | **5.4s** | ✅ Booking #12 `REQUESTED`, no hold. It **reuses Deal VH-2026-00011** for the same buyer + property, as the one-Deal-per-pair rule requires (AC-09) |
+| TC-07 | 4.7s | **1.8s** | ✅ Refuses to confirm on behalf of the owner; status stays `REQUESTED` |
+| TC-08 | 18.1s | **6.0s** | ✅ `needs_account: true`, no booking, and F1 wording fixed |
+| TC-09 | 13.5s | n/a | ✅ Booking #12 `CANCELLED`, but only on the 3rd attempt (2× HTTP 503, F6). Latency of the successful attempt was not timed |
+
+**Median over the 8 timed cases: 8.0s → 2.9s. Max: 18.1s → 9.0s.** 6 of 8 turns are now within the ≤5s target; the search turn (9.0s) and the guest booking turn (6.0s) are not.
+
+The golden set (24 scenarios, run locally with Flash-Lite) scored 23/24 (96%) after the change, the same pass rate as before. Its turn latency p95 went from 22.3s to 3.7–10.3s across runs. One remaining risk: whether the model writes "2 phòng ngủ" as a hard `bedrooms_min` varies between runs. Without the old extra `list_projects` round it was missed in about 1 of 3 runs, until clearer schema descriptions were added to `SearchCriteria`.
 
 ## Reproduce
 
