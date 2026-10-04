@@ -27,3 +27,5 @@ class SellerReviewItem(SellerProfileOut):
     full_name: str
     phone: str
     email: str | None
+    # Red books this seller proved with an OTP to the owner's phone on record
+    red_book_codes: list[str] = []

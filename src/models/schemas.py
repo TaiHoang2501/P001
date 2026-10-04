@@ -4,7 +4,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src.db.models import ConversationStatus, MessageRole
-from src.models.booking import BookingOut, ViewingTimesOut
+from src.models.booking import BookingOut, TimeWindow, ViewingTimesOut
 from src.models.property import Recommendation
 
 
@@ -19,6 +19,15 @@ class ChatRequest(BaseModel):
     )
 
 
+class PendingViewingRequest(BaseModel):
+    """A viewing request the agent tried to send for a guest; the client sends it once the guest has an account."""
+
+    property_id: int
+    start_at: datetime
+    buyer_windows: list[TimeWindow] = Field(default_factory=list)
+    note: str | None = None
+
+
 class ChatResponse(BaseModel):
     reply: str = Field(..., description="Agent reply to show the buyer")
     conversation_id: str
@@ -31,6 +40,17 @@ class ChatResponse(BaseModel):
     bookings: list[BookingOut] = Field(
         default_factory=list, description="Viewing requests the agent created, cancelled or rescheduled in this turn"
     )
+    needs_account: bool = Field(
+        default=False, description="Guest chat only: the buyer asked for something that needs an account (booking)"
+    )
+    pending_viewing: PendingViewingRequest | None = Field(
+        default=None, description="Guest chat only: the viewing request to send after the guest signs up"
+    )
+
+
+class GuestClaimResponse(BaseModel):
+    # False when there was no guest conversation, or the account already had this conversation
+    claimed: bool
 
 
 class ConversationOut(BaseModel):

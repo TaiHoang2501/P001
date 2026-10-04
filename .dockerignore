@@ -17,6 +17,8 @@ docker-compose.yml
 # Not needed in the API image
 frontend/
 tests/
-data/
+data/*
+# ...except the red book records the demo seed loads (src/db/seed.py)
+!data/property_ownership_verifications_seed.csv
 DIagram/
 .specify/

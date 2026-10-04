@@ -7,7 +7,14 @@ from sqlalchemy.orm import Session
 
 from src.core.actor import Actor
 from src.core.errors import NotFoundError, SellerUnverifiedError, StateConflictError
-from src.db.models import SellerProfile, SellerVerificationStatus, User, UserRole
+from src.db.models import (
+    OwnershipVerificationStatus,
+    PropertyOwnershipVerification,
+    SellerProfile,
+    SellerVerificationStatus,
+    User,
+    UserRole,
+)
 from src.models.seller import SellerProfileOut, SellerReviewItem, SellerVerificationSubmit
 from src.services import audit, notification_service
 
@@ -69,9 +76,24 @@ def list_by_status(db: Session, status: SellerVerificationStatus) -> list[Seller
         .where(SellerProfile.verification_status == status, User.role == UserRole.OWNER)
         .order_by(SellerProfile.updated_at)
     )
+    rows = rows.all()
+    red_books: dict[int, list[str]] = {}
+    for user_id, code in db.execute(
+        select(PropertyOwnershipVerification.user_id, PropertyOwnershipVerification.red_book_code)
+        .where(
+            PropertyOwnershipVerification.user_id.in_([p.user_id for p, _ in rows]),
+            PropertyOwnershipVerification.status == OwnershipVerificationStatus.VERIFIED,
+        )
+        .order_by(PropertyOwnershipVerification.verified_at)
+    ):
+        red_books.setdefault(user_id, []).append(code)
     return [
         SellerReviewItem(
-            **SellerProfileOut.model_validate(p).model_dump(), full_name=u.full_name, phone=u.phone, email=u.email
+            **SellerProfileOut.model_validate(p).model_dump(),
+            full_name=u.full_name,
+            phone=u.phone,
+            email=u.email,
+            red_book_codes=red_books.get(p.user_id, []),
         )
         for p, u in rows
     ]

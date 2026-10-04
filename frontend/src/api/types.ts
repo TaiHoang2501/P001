@@ -28,3 +28,5 @@ export type DealStatus = Deal["status"];
 export type Notification = S["NotificationOut"];
 export type Escalation = S["EscalationOut"];
 export type SellerProfile = S["SellerProfileOut"];
+export type OwnershipVerification = S["OwnershipVerificationOut"];
+export type OwnershipChallenge = S["OwnershipChallengeOut"];

@@ -18,6 +18,22 @@
   --color-canvas: #faf8f6;
 }
 
+/* Role chooser + buyer area: blue per the buyer wireframe. Redefining the tokens re-skins every brand-* utility inside. */
+.theme-buyer {
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe7ff;
+  --color-brand-200: #b9cffe;
+  --color-brand-500: #3b7bff;
+  --color-brand-600: #1463ff;
+  --color-brand-700: #0f4fd6;
+  --color-brand-900: #0b2e7a;
+
+  --color-ink: #111827;
+  --color-muted: #5f6b7a;
+  --color-line: #e3e8f0;
+  --color-canvas: #f5f7fb;
+}
+
 @layer base {
   body {
     @apply bg-canvas text-ink antialiased;
@@ -53,4 +69,55 @@
 }
 @utility page-title {
   @apply text-2xl font-semibold tracking-tight;
+}
+
+/* Buyer intro: the slogan grows in gently, then fades out before the new/returning question */
+@keyframes intro-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+@keyframes intro-out {
+  from {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility animate-intro-in {
+  animation: intro-in 2.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@utility animate-intro-out {
+  animation: intro-out 0.7s ease-in both;
+}
+@utility animate-rise-in {
+  animation: rise-in 0.5s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-intro-in,
+  .animate-intro-out,
+  .animate-rise-in {
+    animation-duration: 0.01s;
+  }
 }

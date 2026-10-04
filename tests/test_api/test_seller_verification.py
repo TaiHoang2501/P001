@@ -5,9 +5,8 @@ import pytest
 from src.db.models import Property, PropertyStatus, SellerProfile, SellerVerificationStatus
 from src.models.property import SearchCriteria
 from src.services import property_service
-from tests.helpers import CUSTOMER_AN, OPERATOR, auth, first_free_slot
+from tests.helpers import CUSTOMER_AN, OPERATOR, OWNER_KHOA, auth, first_free_slot
 
-OWNER_KHOA = "khoa.do@gmail.com"  # seeded with a PENDING verification
 KHOA_ID = 6
 TUAN_ID = 4
 

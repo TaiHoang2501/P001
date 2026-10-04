@@ -171,9 +171,49 @@ async def test_reschedule_to_taken_time_fails_at_confirmation(client):
 
 
 @pytest.mark.asyncio
-async def test_only_confirmed_viewings_can_be_rescheduled(client):
-    _, an = await _setup(client)
+async def test_unanswered_request_moves_to_the_new_time_and_still_needs_the_owner(client, db):
+    tuan, an = await _setup(client)
     booking = await _request(client, an, 15)
+
+    r = await client.post(f"/api/v1/bookings/{booking['id']}/reschedule", json={"start_at": at(16)}, headers=an)
+    assert r.status_code == 200, r.text
+    moved = r.json()
+    assert moved["id"] == booking["id"] and moved["deal_code"] == booking["deal_code"]
+    assert moved["status"] == "REQUESTED"
+    assert datetime.fromisoformat(moved["start_at"]) == SAT + timedelta(hours=16)
+    assert moved["proposed_start_at"] is None
+    assert moved["hold_status"] is None
+    actions = [a for (a,) in db.query(AuditLog.action).filter_by(target_type="booking", target_id=booking["id"])]
+    assert actions[-1] == "booking.request_time_change"
+
+    # The owner is told and confirms the new time as usual (AC-05)
+    r = await client.get("/api/v1/notifications", headers=tuan)
+    assert r.json()[0]["event_type"] == "VIEWING_REQUEST_UPDATED"
+    r = await client.post(f"/api/v1/owner/bookings/{booking['id']}/approve", headers=tuan)
+    assert r.json()["status"] == "CONFIRMED"
+    [hold] = _holds(db, booking["id"])
+    assert hold.start_at == SAT + timedelta(hours=16)
+
+
+@pytest.mark.asyncio
+async def test_unanswered_request_cannot_move_onto_a_taken_time(client):
+    _, an = await _setup(client)
+    binh = await auth(client, CUSTOMER_BINH)
+    mine = await _request(client, an, 15)
+    await _request(client, binh, 16)
+
+    r = await client.post(f"/api/v1/bookings/{mine['id']}/reschedule", json={"start_at": at(16)}, headers=an)
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "SLOT_UNAVAILABLE"
+    r = await client.get(f"/api/v1/bookings/{mine['id']}", headers=an)
+    assert datetime.fromisoformat(r.json()["start_at"]) == SAT + timedelta(hours=15)
+
+
+@pytest.mark.asyncio
+async def test_ended_viewings_cannot_be_rescheduled(client):
+    tuan, an = await _setup(client)
+    booking = await _request(client, an, 15)
+    await client.post(f"/api/v1/bookings/{booking['id']}/cancel", headers=an)
     r = await client.post(f"/api/v1/bookings/{booking['id']}/reschedule", json={"start_at": at(16)}, headers=an)
     assert r.status_code == 409
 

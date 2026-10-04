@@ -19,12 +19,14 @@ from src.api.routers import (
 )
 from src.config import get_settings
 from src.core.errors import register_error_handlers
+from src.services import agent_memory
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     print(f"Starting {settings.app_name} in {settings.app_env} mode")
+    memory_pool = await agent_memory.open_memory() if settings.app_env != "test" else None
     job = None
     if settings.jobs_enabled and settings.app_env != "test":
         job = asyncio.create_task(jobs.run_forever())
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
         job.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await job
+    await agent_memory.close_memory(memory_pool)
     print("Shutting down...")
 
 

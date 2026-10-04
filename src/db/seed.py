@@ -3,15 +3,19 @@
 Usage:
     python -m src.db.seed           # only if the database is empty
     python -m src.db.seed --reset   # wipe all rows first (dev only!)
-    python -m src.db.seed --if-empty --ensure-slots   # deploy start-up: seed once, keep demo slots in the future
+    python -m src.db.seed --ensure-red-books  # add demo red books missing from an existing database
+    python -m src.db.seed --if-empty --ensure-slots --ensure-red-books   # deploy start-up
 
-Every seeded account uses the password below. Never run this against production.
+Seeded buyers and operators use the password below; sellers sign in with phone + OTP.
+Never run this against production.
 """
 
 import argparse
+import csv
 import random
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
@@ -28,9 +32,11 @@ from src.db.models import (
     Furnishing,
     LegalStatus,
     MediaKind,
+    OwnershipVerificationStatus,
     Project,
     Property,
     PropertyMedia,
+    PropertyOwnershipVerification,
     PropertyStatus,
     PropertyType,
     SellerProfile,
@@ -43,6 +49,8 @@ from src.db.models import (
 from src.db.session import get_sessionmaker
 
 SEED_PASSWORD = "Password123!"
+
+DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 # From data/seed/users_seed.csv (feature/Baor)
 USERS = [
@@ -235,6 +243,73 @@ def has_data(db: Session) -> bool:
     return db.scalar(select(User.id).limit(1)) is not None
 
 
+def _ownership_verifications() -> list[PropertyOwnershipVerification]:
+    """Red book records from data/property_ownership_verifications_seed.csv (feature/Baor data set).
+
+    Seeded OTP codes are not imported: codes are only ever stored hashed, and the seeded one has expired.
+    """
+    tz = ZoneInfo("Asia/Ho_Chi_Minh")
+
+    def when(value: str) -> datetime | None:
+        return datetime.fromisoformat(value).replace(tzinfo=tz) if value else None
+
+    with open(DATA_DIR / "property_ownership_verifications_seed.csv", encoding="utf-8", newline="") as f:
+        return [
+            PropertyOwnershipVerification(
+                id=int(row["verification_id"]),
+                user_id=int(row["user_id"]) if row["user_id"] else None,
+                red_book_holder_name=row["red_book_holder_name"],
+                red_book_code=row["red_book_code"],
+                owner_phone=row["owner_phone"],
+                status=OwnershipVerificationStatus(row["status"].upper()),
+                otp_attempts=int(row["otp_attempts"] or 0),
+                verified_at=when(row["verified_at"]),
+                created_at=when(row["created_at"]),
+                updated_at=when(row["updated_at"]),
+            )
+            for row in csv.DictReader(f)
+        ]
+
+
+def _sync_red_book_id_sequence(db: Session) -> None:
+    # Rows are inserted with explicit ids; move the sequence past them
+    db.execute(
+        text(
+            "SELECT setval(pg_get_serial_sequence('property_ownership_verifications', 'id'), "
+            "(SELECT COALESCE(max(id), 1) FROM property_ownership_verifications))"
+        )
+    )
+
+
+def ensure_red_books(db: Session) -> int:
+    """Add the demo red books that are missing (by red book code) to an existing database.
+
+    `seed()` only loads them into an empty database, so a database seeded before red books existed
+    would otherwise keep an empty table. Existing rows are never changed: a real seller may already
+    have verified one or listed a property with it. A row whose user or id does not fit this database
+    is still added: without an owner, or with the next free id. Returns how many were added.
+    """
+    existing_codes = set(db.scalars(select(PropertyOwnershipVerification.red_book_code)))
+    existing_ids = set(db.scalars(select(PropertyOwnershipVerification.id)))
+    user_ids = set(db.scalars(select(User.id)))
+    added = 0
+    for record in _ownership_verifications():
+        if record.red_book_code in existing_codes:
+            continue
+        if record.user_id is not None and record.user_id not in user_ids:
+            record.user_id = None
+        if record.id in existing_ids:
+            record.id = None  # let the sequence pick one
+        else:
+            existing_ids.add(record.id)
+        db.add(record)
+        db.flush()  # a sequence-assigned id must not collide with a later explicit one
+        added += 1
+    _sync_red_book_id_sequence(db)
+    db.commit()
+    return added
+
+
 def seed(db: Session, *, reset: bool = False) -> None:
     if reset:
         tables = ", ".join(t.name for t in reversed(Base.metadata.sorted_tables))
@@ -244,7 +319,13 @@ def seed(db: Session, *, reset: bool = False) -> None:
 
     pw = hash_password(SEED_PASSWORD)
     for uid, role, name, phone, email, status in USERS:
-        db.add(User(id=uid, role=role, full_name=name, phone=phone, email=email, status=status, password_hash=pw))
+        # Sellers sign in with phone + OTP only, so they get no password
+        password_hash = None if role == UserRole.OWNER else pw
+        db.add(
+            User(
+                id=uid, role=role, full_name=name, phone=phone, email=email, status=status, password_hash=password_hash
+            )
+        )
     db.flush()
     for uid, role, *_, status in USERS:
         if role == UserRole.CUSTOMER:
@@ -263,6 +344,9 @@ def seed(db: Session, *, reset: bool = False) -> None:
                 )
             )
 
+    red_books = _ownership_verifications()
+    db.add_all(red_books)
+
     projects = {code: Project(code=code, name=name, city=city, district=d) for code, name, city, d in PROJECTS}
     db.add_all(projects.values())
     buildings = [
@@ -279,9 +363,13 @@ def seed(db: Session, *, reset: bool = False) -> None:
     db.add_all(_slots(props))
     # Explicit ids were used for users; move the sequence past them
     db.execute(text("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT max(id) FROM users))"))
+    _sync_red_book_id_sequence(db)
     db.commit()
-    print(f"Seeded {len(USERS)} users, {len(projects)} projects, {len(buildings)} buildings, {len(props)} properties.")
-    print(f"All seed accounts use password: {SEED_PASSWORD}")
+    print(
+        f"Seeded {len(USERS)} users, {len(red_books)} red books, {len(projects)} projects, "
+        f"{len(buildings)} buildings, {len(props)} properties."
+    )
+    print(f"Buyer/operator seed accounts use password: {SEED_PASSWORD}; sellers sign in with phone + OTP")
 
 
 if __name__ == "__main__":
@@ -296,11 +384,18 @@ if __name__ == "__main__":
         metavar="DAYS",
         help="Top up demo owners' viewing slots for the next DAYS days (default 7)",
     )
+    parser.add_argument(
+        "--ensure-red-books",
+        action="store_true",
+        help="Add demo red books missing from an existing database (never changes existing rows)",
+    )
     args = parser.parse_args()
     with get_sessionmaker()() as session:
         if args.if_empty and has_data(session):
             print("Database already has data; skipping seed.")
         else:
             seed(session, reset=args.reset)
+        if args.ensure_red_books:
+            print(f"Added {ensure_red_books(session)} red book(s).")
         if args.ensure_slots:
             print(f"Added {ensure_slots(session, args.ensure_slots)} demo viewing slot(s).")

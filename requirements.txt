@@ -11,6 +11,9 @@ langchain>=0.3.0
 langchain-openai>=0.3.0
 langchain-google-genai>=2.0
 langgraph>=0.2.0
+# Agent conversation memory in PostgreSQL (survives restarts)
+langgraph-checkpoint-postgres>=3.0
+psycopg-pool>=3.2
 
 # Database (PostgreSQL 15+)
 sqlalchemy>=2.0.36

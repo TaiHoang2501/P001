@@ -101,9 +101,18 @@ def test_agent_cannot_book_as_owner_or_cancel_others(db):
     assert agent_api.cancel_viewing(BUYER_ID, booking_id)["data"]["status"] == "CANCELLED"
 
 
-def test_reschedule_requires_confirmed_viewing(db):
+def test_reschedule_moves_an_unanswered_request_without_confirming_it(db):
     _seller_free(db, 14.5, 16)
     booking_id = agent_api.create_viewing_request(BUYER_ID, PROPERTY_ID, start_at=at(15))["data"]["id"]
+    result = agent_api.reschedule_viewing(BUYER_ID, booking_id, at(15.5))
+    assert result["data"]["status"] == "REQUESTED"
+    assert datetime.fromisoformat(str(result["data"]["start_at"])) == datetime.fromisoformat(at(15.5))
+
+
+def test_reschedule_of_an_ended_viewing_is_refused(db):
+    _seller_free(db, 14.5, 16)
+    booking_id = agent_api.create_viewing_request(BUYER_ID, PROPERTY_ID, start_at=at(15))["data"]["id"]
+    agent_api.cancel_viewing(BUYER_ID, booking_id)
     result = agent_api.reschedule_viewing(BUYER_ID, booking_id, at(15.5))
     assert result["error"]["code"] == "STATE_CONFLICT"
 

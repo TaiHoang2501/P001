@@ -55,6 +55,13 @@ class AlreadyExistsError(AppError):
     code = "ALREADY_EXISTS"
 
 
+class PhoneInUseError(AppError):
+    """The phone/email already belongs to another kind of account (e.g. a seller's phone on the buyer sign-up)."""
+
+    status_code = 409
+    code = "PHONE_IN_USE"
+
+
 class StateConflictError(AppError):
     """Requested action is not allowed from the record's current status (F10)."""
 
@@ -79,6 +86,20 @@ class SellerUnverifiedError(AppError):
 
     status_code = 422
     code = "SELLER_UNVERIFIED"
+
+
+class OwnershipNotMatchedError(AppError):
+    """Holder name + red book code do not match the investor's records (same answer for both, to not leak which)."""
+
+    status_code = 422
+    code = "OWNERSHIP_NOT_MATCHED"
+
+
+class OwnershipOtpInvalidError(AppError):
+    """Wrong or expired ownership OTP. Not 401: the seller's session itself is fine."""
+
+    status_code = 422
+    code = "OTP_INVALID"
 
 
 class AgentUnavailableError(AppError):

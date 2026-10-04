@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest)
     model_name: str = ""
+    # Used when the main model fails (e.g. Gemini "high demand" 503). Empty = provider default, "none" = off
+    model_fallback_name: str = ""
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     # Keep a chat turn from hanging for minutes when the provider is overloaded
     llm_timeout_seconds: float = Field(default=45, gt=0)
@@ -43,6 +45,11 @@ class Settings(BaseSettings):
     @property
     def llm_model(self) -> str:
         return self.model_name or ("gemini-flash-latest" if self.llm_provider == "google" else "gpt-4o-mini")
+
+    @property
+    def llm_fallback_model(self) -> str | None:
+        name = self.model_fallback_name or ("gemini-flash-lite-latest" if self.llm_provider == "google" else "")
+        return None if name in ("", "none") or name == self.llm_model else name
 
     # Database (PostgreSQL 15+ required: btree_gist exclusion constraints, pg_trgm)
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/bookingbot"
@@ -62,6 +69,13 @@ class Settings(BaseSettings):
 
     # Hours a seller has to answer a viewing request before an operator is asked (TBD in spec §10 Q8)
     seller_response_hours: int = Field(default=24, ge=1)
+
+    # Agent memory: "postgres" keeps conversations across restarts (falls back to "memory" if it cannot connect)
+    agent_memory: Literal["postgres", "memory"] = "postgres"
+    # Minutes a viewing request may wait for the seller before the agent sends the buyer alternatives
+    agent_followup_minutes: int = Field(default=60, ge=5)
+    # Let the model word follow-ups and reminders (facts are fixed; falls back to templates on any failure)
+    agent_personalize: bool = True
 
     # In-process periodic jobs (hold expiry, reminders); disabled under APP_ENV=test
     jobs_enabled: bool = True

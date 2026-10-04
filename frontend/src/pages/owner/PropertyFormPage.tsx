@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, call } from "../../api/client";
 import type { Direction, Furnishing, LegalStatus, Property, PropertyCreate, PropertyType, ViewType } from "../../api/types";
 import { MediaManager } from "../../components/MediaManager";
 import { ErrorBox, Notice, PageHeader, Spinner } from "../../components/ui";
 import { DIRECTION, FURNISHING, LEGAL, PROPERTY_TYPE, VIEW } from "../../lib/format";
+import { usableRedBooks, useRedBooks } from "./OwnershipVerifyPage";
 
 interface FormState {
+  verification_id: string;
   projectCode: string;
   building_id: string;
   unit_code: string;
@@ -26,6 +28,7 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
+  verification_id: "",
   projectCode: "",
   building_id: "",
   unit_code: "",
@@ -44,6 +47,8 @@ const EMPTY: FormState = {
 
 function fromProperty(p: Property): FormState {
   return {
+    // Only needed when creating; an existing listing keeps its red book
+    verification_id: "",
     projectCode: p.project_code,
     building_id: String(p.building_id),
     unit_code: p.unit_code,
@@ -63,6 +68,7 @@ function fromProperty(p: Property): FormState {
 
 function toPayload(f: FormState): PropertyCreate {
   return {
+    verification_id: Number(f.verification_id),
     building_id: Number(f.building_id),
     unit_code: f.unit_code.trim(),
     property_type: f.property_type,
@@ -85,7 +91,10 @@ export function PropertyFormPage() {
   const editingId = params.id ? Number(params.id) : null;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [searchParams] = useSearchParams();
+  const [form, setForm] = useState<FormState>(() => ({ ...EMPTY, verification_id: searchParams.get("verification") ?? "" }));
+  const redBooks = useRedBooks();
+  const usable = usableRedBooks(redBooks.data);
 
   const projects = useQuery({ queryKey: ["projects"], queryFn: () => call(api.GET("/api/v1/projects")) });
   const existing = useQuery({
@@ -98,10 +107,17 @@ export function PropertyFormPage() {
     if (existing.data) setForm(fromProperty(existing.data));
   }, [existing.data]);
 
+  // Drop a preselected red book (?verification=) that is not usable, e.g. already backing a listing
+  useEffect(() => {
+    if (redBooks.data && !usable.some((b) => String(b.id) === form.verification_id)) {
+      setForm((f) => (f.verification_id ? { ...f, verification_id: "" } : f));
+    }
+  }, [redBooks.data, usable, form.verification_id]);
+
   const save = useMutation({
     mutationFn: (payload: PropertyCreate) => {
       if (editingId === null) return call(api.POST("/api/v1/owner/properties", { body: payload }));
-      const { building_id: _ignored, ...changes } = payload;
+      const { building_id: _building, verification_id: _redBook, ...changes } = payload;
       return call(api.PATCH("/api/v1/owner/properties/{property_id}", { params: { path: { property_id: editingId } }, body: changes }));
     },
     onSuccess: (saved) => {
@@ -114,7 +130,9 @@ export function PropertyFormPage() {
 
   if (editingId !== null && existing.isPending) return <Spinner />;
   if (existing.isError) return <ErrorBox error={existing.error} />;
-  const locked = existing.data !== undefined && !["DRAFT", "REJECTED", "WITHDRAWN"].includes(existing.data.status);
+  // A new listing must be backed by a verified red book the seller has not used yet
+  const needsRedBook = editingId === null && redBooks.isSuccess && usable.length === 0;
+  const locked = needsRedBook || (existing.data !== undefined && !["DRAFT", "REJECTED", "WITHDRAWN"].includes(existing.data.status));
 
   const buildings = projects.data?.find((p) => p.code === form.projectCode)?.buildings ?? [];
   const set =
@@ -134,14 +152,34 @@ export function PropertyFormPage() {
       </Link>
       <PageHeader
         title={editingId === null ? "Đăng căn mới" : "Sửa tin đăng"}
-        subtitle="Tin được lưu dưới dạng bản nháp. Thêm giấy tờ sở hữu rồi bấm “Gửi duyệt” để Chủ đầu tư kiểm duyệt."
+        subtitle="Tin được lưu dưới dạng bản nháp. Thêm ảnh rồi bấm “Gửi duyệt” để Chủ đầu tư kiểm duyệt."
       />
-      {locked && <Notice tone="warning">Tin đã gửi duyệt hoặc đang bán nên không thể sửa.</Notice>}
+      {needsRedBook && (
+        <Notice tone="warning">
+          Bạn cần xác thực sổ đỏ của căn trước khi đăng bán.{" "}
+          <Link to="/owner/verify" className="font-medium underline">
+            Xác thực sổ đỏ
+          </Link>
+        </Notice>
+      )}
+      {locked && !needsRedBook && <Notice tone="warning">Tin đã gửi duyệt hoặc đang bán nên không thể sửa.</Notice>}
 
       <form onSubmit={onSubmit} className="card mt-4 space-y-5 p-5">
         {save.isError && <ErrorBox error={save.error} />}
 
         <fieldset disabled={locked} className="space-y-5">
+          {editingId === null && usable.length > 0 && (
+            <Field label="Sổ đỏ đã xác thực" id="red-book">
+              <select id="red-book" className="input" required value={form.verification_id} onChange={set("verification_id")}>
+                <option value="">Chọn sổ đỏ của căn</option>
+                {usable.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.red_book_code} · {b.red_book_holder_name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Dự án" id="project">
               <select

@@ -15,7 +15,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from src.models.property import SearchCriteria
-from src.services import agent_api
+from src.services import agent_api, buyer_memory
 
 Result = tuple[str, agent_api.Envelope]
 
@@ -70,14 +70,18 @@ def list_projects() -> Result:
 
 
 @tool(response_format="content_and_artifact", args_schema=SearchCriteria)
-def search_properties(**criteria: Any) -> Result:
+def search_properties(config: RunnableConfig, **criteria: Any) -> Result:
     """Find AVAILABLE Vinhomes properties of verified sellers matching the buyer's needs, ranked by match score.
 
     Money is in VND (3,5 tỷ = 3500000000). Hard constraints (project_codes, property_types,
     budget_min/budget_max, bedrooms_min, area_min, keyword) remove properties; preferred_* fields
     only affect ranking. Each result explains which preferences matched and which did not.
     """
-    return _result(agent_api.search_properties(criteria))
+    envelope = agent_api.search_properties(criteria)
+    # Remember the signed-in buyer's needs for later conversations
+    if envelope.get("ok") and (user_id := _user_id(config)) is not None:
+        buyer_memory.remember_criteria(user_id, criteria)
+    return _result(envelope)
 
 
 @tool(response_format="content_and_artifact")
@@ -99,14 +103,18 @@ def check_seller_availability(property_id: int) -> Result:
 
 
 @tool(response_format="content_and_artifact", args_schema=_AvailabilityArgs)
-def check_property_availability(property_id: int, buyer_windows: list[Any]) -> Result:
+def check_property_availability(property_id: int, buyer_windows: list[Any], config: RunnableConfig) -> Result:
     """Match the buyer's free windows with the seller's availability.
 
     Returns up to 3 `proposals` (viewing start/end times) inside the common windows. If `proposals`
     is empty there is no common slot: offer the `alternatives` (seller's next free times) instead.
     """
     windows = [w.model_dump() if isinstance(w, BaseModel) else w for w in buyer_windows]
-    return _result(agent_api.check_property_availability(property_id, windows))
+    envelope = agent_api.check_property_availability(property_id, windows)
+    # Remember when the signed-in buyer is free, so the next property needs no new question
+    if envelope.get("ok") and (user_id := _user_id(config)) is not None:
+        buyer_memory.remember_windows(user_id, windows)
+    return _result(envelope)
 
 
 @tool(response_format="content_and_artifact")
@@ -158,8 +166,8 @@ def cancel_viewing(booking_id: int, config: RunnableConfig) -> Result:
 
 @tool(response_format="content_and_artifact", args_schema=_RescheduleArgs)
 def reschedule_viewing(booking_id: int, start_at: str, config: RunnableConfig) -> Result:
-    """Ask the seller to move a CONFIRMED viewing to a new time. The viewing stays at the old time until
-    the seller confirms the new one."""
+    """Move a viewing to a new time. A request the seller has not answered yet simply changes time (still
+    waiting for the seller); a CONFIRMED viewing stays at the old time until the seller confirms the new one."""
     user_id = _user_id(config)
     if user_id is None:
         return _result(_NO_SESSION)

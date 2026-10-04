@@ -143,8 +143,10 @@ DRAFT → PENDING_REVIEW → AVAILABLE (= APPROVED) → SOLD
 REQUESTED ──(Owner confirm)──> CONFIRMED ──(xem xong)──> COMPLETED
     │                              │
     ├─> REJECTED (Owner)           ├─> CANCELLED (Buyer/Owner)
-    └─> CANCELLED (Buyer)          └─> RESCHEDULE_REQUESTED ──(Owner confirm)──> CONFIRMED
+    ├─> CANCELLED (Buyer)          └─> RESCHEDULE_REQUESTED ──(Owner confirm)──> CONFIRMED
+    └─> REQUESTED (Buyer đổi giờ, Owner chưa trả lời: chuyển thẳng sang giờ mới, vẫn chờ Owner xác nhận)
 ```
+- Đổi giờ khi `REQUESTED` (mở rộng so với spec §4.12): chưa có hold nên Booking chuyển ngay sang giờ mới, giữ nguyên Deal; Seller được báo (`VIEWING_REQUEST_UPDATED`) và vẫn phải xác nhận. Đổi giờ khi `CONFIRMED` giữ giờ cũ + hold cho tới khi Owner đồng ý giờ mới.
 - `OWNER_CONFIRMED` trong spec = `CONFIRMED`; `VIEWING_HELD` = Booking `CONFIRMED` có `property_hold` `ACTIVE`.
 - Owner confirm → tạo Viewing Hold (cùng transaction) → nhắc lịch T-24h & T-2h → xem nhà → `COMPLETED`.
 - Hệ thống phải ngăn double-booking (exclusion constraint trên `property_id` + khoảng thời gian).

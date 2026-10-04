@@ -1,8 +1,9 @@
-"""Listing media, ownership document requirement and withdrawal (spec §4.5, §4.11)."""
+"""Listing media, ownership proof and withdrawal (spec §4.5, §4.11)."""
 
 import pytest
+from sqlalchemy import text
 
-from tests.helpers import CUSTOMER_AN, OPERATOR, OWNER_LAN, OWNER_TUAN, auth, first_free_slot
+from tests.helpers import CUSTOMER_AN, OPERATOR, OWNER_LAN, OWNER_TUAN, TUAN_RED_BOOK, auth, first_free_slot
 
 DOC = {"kind": "OWNERSHIP_DOC", "s3_key": "private/new/so-hong.pdf", "content_type": "application/pdf"}
 PHOTO = {"kind": "IMAGE", "s3_key": "public/new/living-room.jpg", "content_type": "image/jpeg", "sort_order": 1}
@@ -24,6 +25,7 @@ async def _new_draft(client, headers) -> int:
             "view": "LAKE",
             "furnishing": "BASIC",
             "legal_status": "PINK_BOOK",
+            "verification_id": TUAN_RED_BOOK,
         },
         headers=headers,
     )
@@ -32,9 +34,22 @@ async def _new_draft(client, headers) -> int:
 
 
 @pytest.mark.asyncio
-async def test_submit_requires_ownership_document(client):
+async def test_red_book_backed_listing_submits_without_document(client):
     owner = await auth(client, OWNER_TUAN)
     pid = await _new_draft(client, owner)
+
+    r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "PENDING_REVIEW"
+
+
+@pytest.mark.asyncio
+async def test_legacy_listing_without_red_book_still_needs_document(client, db):
+    owner = await auth(client, OWNER_TUAN)
+    pid = await _new_draft(client, owner)
+    # Listings created before red book verification carry no verification_id
+    db.execute(text("UPDATE properties SET verification_id = NULL WHERE id = :id"), {"id": pid})
+    db.commit()
 
     r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
     assert r.status_code == 422

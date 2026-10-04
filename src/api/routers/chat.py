@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from src.core.deps import CustomerActor, DbSession
-from src.models.schemas import ChatMessageOut, ChatRequest, ChatResponse, ConversationOut
+from src.models.schemas import ChatMessageOut, ChatRequest, ChatResponse, ConversationOut, GuestClaimResponse
 from src.services import chat_service, conversation_service
 
 router = APIRouter(tags=["agent"])
@@ -12,6 +12,18 @@ router = APIRouter(tags=["agent"])
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, actor: CustomerActor) -> ChatResponse:
     return await chat_service.chat(actor, request)
+
+
+@router.post("/chat/guest", response_model=ChatResponse)
+async def guest_chat(request: ChatRequest) -> ChatResponse:
+    """New buyers chat before having an account; booking asks them to sign up (see `needs_account`)."""
+    return await chat_service.guest_chat(request)
+
+
+@router.post("/chat/guest/{conversation_id}/claim", response_model=GuestClaimResponse)
+async def claim_guest_chat(conversation_id: str, actor: CustomerActor) -> GuestClaimResponse:
+    """Right after a guest signs up: continue the same conversation under the new account."""
+    return GuestClaimResponse(claimed=await chat_service.claim_guest(actor, conversation_id))
 
 
 @router.get("/status")

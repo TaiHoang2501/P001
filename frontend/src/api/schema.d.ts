@@ -307,6 +307,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/owner/ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My Red Books */
+        get: operations["my_red_books_api_v1_owner_ownership_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/owner/ownership/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim Red Book
+         * @description Holder name + red book code must match the records; the OTP goes to the owner's phone on record.
+         */
+        post: operations["claim_red_book_api_v1_owner_ownership_claim_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/owner/ownership/{verification_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Red Book */
+        post: operations["confirm_red_book_api_v1_owner_ownership__verification_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/owner/properties": {
         parameters: {
             query?: never;
@@ -680,6 +734,46 @@ export interface paths {
         put?: never;
         /** Chat */
         post: operations["chat_api_v1_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/guest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guest Chat
+         * @description New buyers chat before having an account; booking asks them to sign up (see `needs_account`).
+         */
+        post: operations["guest_chat_api_v1_chat_guest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/guest/{conversation_id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim Guest Chat
+         * @description Right after a guest signs up: continue the same conversation under the new account.
+         */
+        post: operations["claim_guest_chat_api_v1_chat_guest__conversation_id__claim_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1066,6 +1160,14 @@ export interface components {
              * @description Viewing requests the agent created, cancelled or rescheduled in this turn
              */
             bookings?: components["schemas"]["BookingOut"][];
+            /**
+             * Needs Account
+             * @description Guest chat only: the buyer asked for something that needs an account (booking)
+             * @default false
+             */
+            needs_account: boolean;
+            /** @description Guest chat only: the viewing request to send after the guest signs up */
+            pending_viewing?: components["schemas"]["PendingViewingRequest"] | null;
         };
         /** ConversationOut */
         ConversationOut: {
@@ -1193,6 +1295,11 @@ export interface components {
          * @enum {string}
          */
         Furnishing: "NONE" | "BASIC" | "FULL";
+        /** GuestClaimResponse */
+        GuestClaimResponse: {
+            /** Claimed */
+            claimed: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1290,6 +1397,14 @@ export interface components {
              * @description Phone (buyer/seller) or email (seller) to send the code to
              */
             target: string;
+            /** Role */
+            role?: ("CUSTOMER" | "OWNER") | null;
+            /**
+             * Purpose
+             * @default login
+             * @enum {string}
+             */
+            purpose: "login" | "signup";
         };
         /** OtpRequestResponse */
         OtpRequestResponse: {
@@ -1300,6 +1415,11 @@ export interface components {
             expires_in: number;
             /** Debug Code */
             debug_code?: string | null;
+            /**
+             * Account Exists
+             * @default false
+             */
+            account_exists: boolean;
         };
         /** OtpVerifyRequest */
         OtpVerifyRequest: {
@@ -1309,12 +1429,80 @@ export interface components {
             code: string;
             /** Full Name */
             full_name?: string | null;
+            /** Role */
+            role?: ("CUSTOMER" | "OWNER") | null;
+        };
+        /**
+         * OwnershipChallengeOut
+         * @description Result of a claim: an OTP was sent to the phone on record (or the red book is already the caller's).
+         */
+        OwnershipChallengeOut: {
+            /** Verification Id */
+            verification_id: number;
+            status: components["schemas"]["OwnershipVerificationStatus"];
+            /** Masked Phone */
+            masked_phone: string;
+            /** Expires In */
+            expires_in?: number | null;
+            /** Debug Code */
+            debug_code?: string | null;
+        };
+        /**
+         * OwnershipClaim
+         * @description What the seller reads off their red book (sổ đỏ/sổ hồng).
+         */
+        OwnershipClaim: {
             /**
-             * Role
-             * @default CUSTOMER
-             * @enum {string}
+             * Red Book Holder Name
+             * @description Tên người đứng tên trên sổ
              */
-            role: "CUSTOMER" | "OWNER";
+            red_book_holder_name: string;
+            /**
+             * Red Book Code
+             * @description Số seri sổ, vd. SD-2017-0332211
+             */
+            red_book_code: string;
+        };
+        /** OwnershipOtpConfirm */
+        OwnershipOtpConfirm: {
+            /** Code */
+            code: string;
+        };
+        /** OwnershipVerificationOut */
+        OwnershipVerificationOut: {
+            /** Id */
+            id: number;
+            /** Red Book Holder Name */
+            red_book_holder_name: string;
+            /** Red Book Code */
+            red_book_code: string;
+            status: components["schemas"]["OwnershipVerificationStatus"];
+            /** Verified At */
+            verified_at: string | null;
+            /** Property Id */
+            property_id?: number | null;
+        };
+        /**
+         * OwnershipVerificationStatus
+         * @enum {string}
+         */
+        OwnershipVerificationStatus: "UNVERIFIED" | "OTP_SENT" | "VERIFIED" | "FAILED";
+        /**
+         * PendingViewingRequest
+         * @description A viewing request the agent tried to send for a guest; the client sends it once the guest has an account.
+         */
+        PendingViewingRequest: {
+            /** Property Id */
+            property_id: number;
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+            /** Buyer Windows */
+            buyer_windows?: components["schemas"]["TimeWindow"][];
+            /** Note */
+            note?: string | null;
         };
         /** ProjectOut */
         ProjectOut: {
@@ -1355,6 +1543,8 @@ export interface components {
              * @default
              */
             description: string;
+            /** Verification Id */
+            verification_id: number;
         };
         /** PropertyOut */
         PropertyOut: {
@@ -1458,7 +1648,7 @@ export interface components {
             full_name: string;
             /**
              * Phone
-             * @description Vietnamese phone, e.g. 0901234567
+             * @description Vietnamese phone, e.g. 09xxxxxxxx
              */
             phone: string;
             /** Email */
@@ -1468,9 +1658,9 @@ export interface components {
             /**
              * Role
              * @default CUSTOMER
-             * @enum {string}
+             * @constant
              */
-            role: "CUSTOMER" | "OWNER";
+            role: "CUSTOMER";
         };
         /** RejectRequest */
         RejectRequest: {
@@ -1518,7 +1708,7 @@ export interface components {
             area_min?: number | string | null;
             /**
              * Keyword
-             * @description Fuzzy match on description
+             * @description A unit code (e.g. S1.08-2410) or words fuzzy-matched on the description
              */
             keyword?: string | null;
             /** Preferred Bedrooms */
@@ -1591,6 +1781,11 @@ export interface components {
             phone: string;
             /** Email */
             email: string | null;
+            /**
+             * Red Book Codes
+             * @default []
+             */
+            red_book_codes: string[];
         };
         /**
          * SellerSource
@@ -2297,6 +2492,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SellerProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_red_books_api_v1_owner_ownership_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipVerificationOut"][];
+                };
+            };
+        };
+    };
+    claim_red_book_api_v1_owner_ownership_claim_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnershipClaim"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipChallengeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_red_book_api_v1_owner_ownership__verification_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                verification_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnershipOtpConfirm"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipVerificationOut"];
                 };
             };
             /** @description Validation Error */
@@ -3057,6 +3340,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    guest_chat_api_v1_chat_guest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_guest_chat_api_v1_chat_guest__conversation_id__claim_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestClaimResponse"];
                 };
             };
             /** @description Validation Error */
