@@ -667,9 +667,11 @@ export function BuyerChatPage() {
   const latest =
     [...conversation.messages].reverse().find((m) => m.recommendations?.length)
       ?.recommendations ?? [];
+  const hasResults = latest.length > 0;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]">
+    // Just the chat until the assistant has found homes; then the needs + matching homes panel opens beside it
+    <div className={hasResults ? "grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]" : "mx-auto w-full max-w-4xl"}>
       <section
         className="card flex h-[calc(100dvh-12rem)] min-h-[28rem] flex-col overflow-hidden shadow-sm"
         aria-label="Chat AI"
@@ -830,7 +832,7 @@ export function BuyerChatPage() {
         </form>
       </section>
 
-      <ResultsPanel recommendations={latest} onOpen={openProperty} />
+      {hasResults && <ResultsPanel recommendations={latest} onOpen={openProperty} />}
     </div>
   );
 }
@@ -1108,7 +1110,7 @@ function PropertyChip({
   );
 }
 
-/** Wireframe 1.3: needs as chips + the matching properties. */
+/** Wireframe 1.3: needs as chips + the matching properties (shown once there are some). */
 function ResultsPanel({
   recommendations,
   onOpen,
@@ -1119,7 +1121,7 @@ function ResultsPanel({
   const criteria = criteriaOf(recommendations);
   return (
     <aside
-      className="card hidden h-[calc(100dvh-12rem)] min-h-[28rem] flex-col overflow-hidden shadow-sm lg:flex"
+      className="card hidden h-[calc(100dvh-12rem)] min-h-[28rem] animate-rise-in flex-col overflow-hidden shadow-sm lg:flex"
       aria-label="Kết quả đề xuất"
     >
       <div className="border-b border-line px-5 py-4">
@@ -1148,19 +1150,13 @@ function ResultsPanel({
         </span>
       </p>
       <div className="flex-1 overflow-y-auto p-4">
-        {recommendations.length === 0 ? (
-          <p className="px-2 py-10 text-center text-sm text-muted">
-            Chưa có căn đề xuất. Hãy kể cho Trợ lý AI về căn bạn mong muốn.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {recommendations.map((r) => (
-              <li key={r.property.id}>
-                <ResultRow rec={r} onOpen={onOpen} />
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="space-y-3">
+          {recommendations.map((r) => (
+            <li key={r.property.id}>
+              <ResultRow rec={r} onOpen={onOpen} />
+            </li>
+          ))}
+        </ul>
       </div>
     </aside>
   );
