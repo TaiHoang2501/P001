@@ -15,7 +15,7 @@ from src.agents import graph as agent_graph
 from src.agents.tools import TOOLS
 from src.config import get_settings
 from src.core.errors import AgentUnavailableError
-from src.db.models import AvailabilitySlot
+from src.db.models import AvailabilitySlot, Property
 from tests.helpers import CUSTOMER_AN, CUSTOMER_BINH, OPERATOR, OWNER_TUAN, auth
 
 AN_ID = 1
@@ -138,6 +138,20 @@ async def test_agent_asks_then_recommends_from_search(client, script):
     state = await script.agent.aget_state({"configurable": {"thread_id": f"{AN_ID}:conv1"}})
     human = [m.content for m in state.values["messages"] if m.type == "human"]
     assert human == ["Tôi muốn tìm căn hộ ở Smart City", "Để ở, 2 phòng ngủ, dưới 4,5 tỷ"]
+
+
+@pytest.mark.asyncio
+async def test_search_returns_viewing_times_without_extra_tool_call(client, script, db):
+    db.add(AvailabilitySlot(property_id=1, start_at=SAT + timedelta(hours=14.5), end_at=SAT + timedelta(hours=16)))
+    db.commit()
+    an = await auth(client, CUSTOMER_AN)
+    criteria = {"keyword": db.get(Property, 1).unit_code, "buyer_windows": [{"start_at": at(14), "end_at": at(17)}]}
+
+    script(_call("search_properties", criteria), AIMessage(content="Căn này trống 14h30, 15h, 15h30."))
+    body = (await _chat(client, an, "Tìm căn này, thứ 7 tôi rảnh 14h-17h")).json()
+    assert body["recommendations"][0]["property"]["id"] == 1
+    proposals = [datetime.fromisoformat(p["start_at"]) for p in body["viewing_times"]["proposals"]]
+    assert proposals == [SAT + timedelta(hours=h) for h in (14.5, 15, 15.5)]
 
 
 @pytest.mark.asyncio

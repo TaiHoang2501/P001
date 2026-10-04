@@ -9,10 +9,11 @@ def get_fallback_llm() -> BaseChatModel | None:
     return get_llm(name) if name else None
 
 
-def get_llm(model: str | None = None) -> BaseChatModel:
+def get_llm(model: str | None = None, max_retries: int | None = None) -> BaseChatModel:
     """Chat model for the agent, from LLM_PROVIDER (openai | google); `model` overrides MODEL_NAME."""
     settings = get_settings()
     model = model or settings.llm_model
+    retries = settings.llm_max_retries if max_retries is None else max_retries
     if settings.llm_provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -21,7 +22,7 @@ def get_llm(model: str | None = None) -> BaseChatModel:
             google_api_key=settings.google_api_key,
             temperature=settings.llm_temperature,
             timeout=settings.llm_timeout_seconds,
-            max_retries=settings.llm_max_retries,
+            max_retries=retries,
         )
 
     from langchain_openai import ChatOpenAI
@@ -31,5 +32,5 @@ def get_llm(model: str | None = None) -> BaseChatModel:
         api_key=settings.openai_api_key,
         temperature=settings.llm_temperature,
         timeout=settings.llm_timeout_seconds,
-        max_retries=settings.llm_max_retries,
+        max_retries=retries,
     )

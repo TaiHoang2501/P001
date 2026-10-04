@@ -39,6 +39,12 @@ class _Window(BaseModel):
     end_at: str = Field(..., description="ISO 8601 with timezone")
 
 
+class _SearchArgs(SearchCriteria):
+    buyer_windows: list[_Window] | None = Field(
+        default=None, description="When the buyer is free, if they said; used for the best match's viewing times"
+    )
+
+
 class _AvailabilityArgs(BaseModel):
     property_id: int
     buyer_windows: list[_Window] = Field(..., min_length=1, description="When the buyer is free")
@@ -69,18 +75,23 @@ def list_projects() -> Result:
     return _result(agent_api.list_projects())
 
 
-@tool(response_format="content_and_artifact", args_schema=SearchCriteria)
-def search_properties(config: RunnableConfig, **criteria: Any) -> Result:
+@tool(response_format="content_and_artifact", args_schema=_SearchArgs)
+def search_properties(config: RunnableConfig, buyer_windows: list[Any] | None = None, **criteria: Any) -> Result:
     """Find AVAILABLE Vinhomes properties of verified sellers matching the buyer's needs, ranked by match score.
 
     Money is in VND (3,5 tỷ = 3500000000). Hard constraints (project_codes, property_types,
     budget_min/budget_max, bedrooms_min, area_min, keyword) remove properties; preferred_* fields
     only affect ranking. Each result explains which preferences matched and which did not.
+    `top_viewing_times` holds the viewing times of the best match (within buyer_windows, or the next
+    3 days 08:00-20:00 when omitted), so there is no need to call check_property_availability for it.
     """
-    envelope = agent_api.search_properties(criteria)
-    # Remember the signed-in buyer's needs for later conversations
+    windows = [w.model_dump() if isinstance(w, BaseModel) else w for w in buyer_windows] if buyer_windows else None
+    envelope = agent_api.search_with_viewing_times(criteria, windows)
     if envelope.get("ok") and (user_id := _user_id(config)) is not None:
+        # Remember the signed-in buyer's needs (and free times) for later conversations
         buyer_memory.remember_criteria(user_id, criteria)
+        if windows:
+            buyer_memory.remember_windows(user_id, windows)
     return _result(envelope)
 
 
