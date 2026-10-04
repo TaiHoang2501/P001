@@ -23,7 +23,10 @@ services:
         value: google
       - key: GOOGLE_API_KEY
         sync: false
+      # The agent books on its own, so it needs the stronger model; the lite one answers when it is overloaded
       - key: MODEL_NAME
+        value: gemini-flash-latest
+      - key: MODEL_FALLBACK_NAME
         value: gemini-flash-lite-latest
       # Public demo with fake data: show OTP codes on screen (no SMS/Zalo provider yet)
       - key: OTP_EXPOSE_CODE

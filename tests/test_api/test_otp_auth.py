@@ -99,7 +99,10 @@ async def test_requests_are_rate_limited(client):
 async def test_operator_cannot_use_otp(client):
     code = await _request(client, OPERATOR)
     r = await _verify(client, OPERATOR, code)
-    assert r.status_code == 403
+    # Neutral answer: does not reveal that this is an operator account
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "INVALID_CREDENTIALS"
+    assert "operator" not in r.json()["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -134,3 +137,55 @@ async def test_code_hidden_in_production_unless_demo_enables_it(client, monkeypa
         assert r.json()["debug_code"] is not None
     finally:
         get_settings.cache_clear()
+
+
+OPERATOR_PHONE, SELLER_PHONE, BUYER_PHONE = "0901234567", "0918765432", "0901111222"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("phone", "role"), [(OPERATOR_PHONE, "CUSTOMER"), (SELLER_PHONE, "CUSTOMER"), (BUYER_PHONE, "OWNER")]
+)
+async def test_phone_of_another_kind_of_account_is_refused_before_sending_a_code(client, db, phone, role):
+    r = await client.post("/api/v1/auth/otp/request", json={"target": phone, "role": role})
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "PHONE_IN_USE"
+    # No code was sent
+    assert db.query(OtpCode).filter(OtpCode.target == phone).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_login_just_sends_a_code_to_a_known_phone(client):
+    # Signing in (no purpose = login), even with the matching role: a code, no "already exists"
+    for phone, role in ((BUYER_PHONE, "CUSTOMER"), (SELLER_PHONE, "OWNER"), (BUYER_PHONE, None)):
+        r = await client.post("/api/v1/auth/otp/request", json={"target": phone, "role": role})
+        assert r.status_code == 202, r.text
+        assert r.json()["debug_code"]
+
+    code = (await client.post("/api/v1/auth/otp/request", json={"target": BUYER_PHONE})).json()["debug_code"]
+    r = await _verify(client, BUYER_PHONE, code)
+    assert r.status_code == 200
+    assert r.json()["user"]["email"] == CUSTOMER_AN
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phone", [BUYER_PHONE, SELLER_PHONE, OPERATOR_PHONE])
+async def test_sign_up_with_a_phone_already_registered_is_refused(client, db, phone):
+    r = await client.post("/api/v1/auth/otp/request", json={"target": phone, "role": "CUSTOMER", "purpose": "signup"})
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "PHONE_IN_USE"
+    assert db.query(OtpCode).filter(OtpCode.target == phone).count() == 0
+
+    # A new number goes through
+    r = await client.post(
+        "/api/v1/auth/otp/request", json={"target": NEW_PHONE, "role": "CUSTOMER", "purpose": "signup"}
+    )
+    assert r.status_code == 202
+
+
+@pytest.mark.asyncio
+async def test_verify_with_another_role_is_refused(client):
+    code = await _request(client, SELLER_PHONE)
+    r = await _verify(client, SELLER_PHONE, code, role="CUSTOMER")
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "PHONE_IN_USE"

@@ -11,6 +11,7 @@ type Mode = "otp" | "password";
 /** Who is signing in: buyers use the buyer area, sellers/operators use BookingBot. Decides the role of new OTP accounts. */
 export type Audience = "buyer" | "seller";
 
+/** Sellers only: phone + OTP. Operators have their own page (/operator/login), not linked from here. */
 export function LoginPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -20,33 +21,75 @@ export function LoginPage() {
 
   return (
     <div className="mx-auto max-w-sm">
-      <h1 className="page-title mb-6">Đăng nhập</h1>
-      <LoginPanel audience="seller" onDone={(u) => navigate(from ?? homePathFor(u), { replace: true })} />
+      <h1 className="page-title">Đăng nhập người bán</h1>
+      <p className="mb-6 mt-1 text-sm text-muted">
+        Dùng số điện thoại, không cần mật khẩu.
+      </p>
+      <LoginPanel
+        audience="seller"
+        onDone={(u) => navigate(from ?? homePathFor(u), { replace: true })}
+      />
     </div>
   );
 }
 
-/** OTP / password tabs, shared by BookingBot and the buyer area. */
+/** Investor / operator console: email + password, on its own page. */
+export function OperatorLoginPage() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const from = (useLocation().state as { from?: string } | null)?.from;
+
+  if (user) return <Navigate to={from ?? homePathFor(user)} replace />;
+
+  return (
+    <div className="mx-auto max-w-sm">
+      <h1 className="page-title">Bảng Chủ đầu tư</h1>
+      <p className="mb-6 mt-1 text-sm text-muted">
+        Khu vực dành cho quản trị viên.
+      </p>
+      <PasswordForm
+        operator
+        onDone={(u) => navigate(from ?? homePathFor(u), { replace: true })}
+      />
+    </div>
+  );
+}
+
+/** Buyer area: OTP / password tabs. Sellers: phone + OTP only. */
 export function LoginPanel({
   audience,
   onDone,
   otpOnly = false,
+  intent = "login",
 }: {
   audience: Audience;
   onDone: (u: User) => void;
   /** Just the phone + OTP form (sign-up prompts inside other flows) */
   otpOnly?: boolean;
+  /** "signup": a new account only, so a phone already on the system is refused */
+  intent?: OtpIntent;
 }) {
   const [mode, setMode] = useState<Mode>("otp");
 
-  if (otpOnly) return <OtpForm audience={audience} onDone={onDone} />;
+  if (otpOnly || audience === "seller")
+    return (
+      <OtpForm
+        key={intent}
+        audience={audience}
+        onDone={onDone}
+        intent={intent}
+      />
+    );
   return (
     <>
-      <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg border border-line bg-white p-1" role="tablist">
+      <div
+        className="mb-3 grid grid-cols-2 gap-1 rounded-lg border border-line bg-white p-1"
+        role="tablist"
+      >
         {(
           [
-            ["otp", audience === "seller" ? "Người bán (SĐT + OTP)" : "Mã OTP"],
-            ["password", audience === "seller" ? "Quản trị viên" : "Mật khẩu"],
+            ["otp", "Mã OTP"],
+            ["password", "Mật khẩu"],
           ] as const
         ).map(([m, label]) => (
           <button
@@ -61,12 +104,22 @@ export function LoginPanel({
           </button>
         ))}
       </div>
-      {mode === "otp" ? <OtpForm audience={audience} onDone={onDone} /> : <PasswordForm audience={audience} onDone={onDone} />}
+      {mode === "otp" ? (
+        <OtpForm audience={audience} onDone={onDone} />
+      ) : (
+        <PasswordForm onDone={onDone} />
+      )}
     </>
   );
 }
 
-function PasswordForm({ audience, onDone }: { audience: Audience; onDone: (u: User) => void }) {
+function PasswordForm({
+  operator = false,
+  onDone,
+}: {
+  operator?: boolean;
+  onDone: (u: User) => void;
+}) {
   const { login } = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -91,9 +144,16 @@ function PasswordForm({ audience, onDone }: { audience: Audience; onDone: (u: Us
       {error !== null && <ErrorBox error={error} />}
       <div>
         <label htmlFor="identifier" className="label">
-          {audience === "seller" ? "Email quản trị" : "Số điện thoại hoặc email"}
+          {operator ? "Email" : "Số điện thoại hoặc email"}
         </label>
-        <input id="identifier" className="input" autoComplete="username" required value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
+        <input
+          id="identifier"
+          className="input"
+          autoComplete="username"
+          required
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+        />
       </div>
       <div>
         <label htmlFor="password" className="label">
@@ -112,22 +172,31 @@ function PasswordForm({ audience, onDone }: { audience: Audience; onDone: (u: Us
       <button type="submit" className="btn-primary w-full" disabled={busy}>
         {busy ? "Đang đăng nhập..." : "Đăng nhập"}
       </button>
-      {audience === "seller" && (
-        <p className="text-center text-xs text-muted">
-          Dành cho Chủ đầu tư/Ban quản trị. Người bán nhà đăng nhập bằng số điện thoại và mã OTP.
-        </p>
-      )}
     </form>
   );
 }
 
 /** Buyer: phone + OTP; Seller: phone/email + OTP (spec §4.17). First use of a phone signs up with the audience's role. */
-function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) => void }) {
+export type OtpIntent = "login" | "signup";
+
+/**
+ * login: a code goes to any phone; a phone with no account yet is then signed up (name asked after the code).
+ * signup: creating a new account; a phone already on the system is refused before any code is sent.
+ */
+function OtpForm({
+  audience,
+  onDone,
+  intent = "login",
+}: {
+  audience: Audience;
+  onDone: (u: User) => void;
+  intent?: OtpIntent;
+}) {
   const { requestOtp, verifyOtp } = useAuth();
   const [target, setTarget] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState<{ debug_code?: string | null } | null>(null);
-  const [needsSignup, setNeedsSignup] = useState(false);
+  const [needsSignup, setNeedsSignup] = useState(intent === "signup");
   const [fullName, setFullName] = useState("");
   const role = audience === "buyer" ? "CUSTOMER" : "OWNER";
   const [error, setError] = useState<unknown>(null);
@@ -139,7 +208,8 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
     try {
       await fn();
     } catch (err) {
-      if (err instanceof ApiError && err.code === "ACCOUNT_NOT_FOUND") setNeedsSignup(true);
+      if (err instanceof ApiError && err.code === "ACCOUNT_NOT_FOUND")
+        setNeedsSignup(true);
       else setError(err);
     } finally {
       setBusy(false);
@@ -149,7 +219,12 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
   const send = (e: FormEvent) => {
     e.preventDefault();
     void run(async () => {
-      setSent(await requestOtp(target.trim()));
+      setSent(
+        await requestOtp(
+          target.trim(),
+          intent === "signup" ? { role, purpose: "signup" } : {},
+        ),
+      );
       setCode("");
     });
   };
@@ -158,7 +233,13 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
     e.preventDefault();
     void run(async () => {
       onDone(
-        await verifyOtp({ target: target.trim(), code: code.trim(), role, full_name: needsSignup ? fullName.trim() : null }),
+        await verifyOtp({
+          target: target.trim(),
+          code: code.trim(),
+          // The role only matters when an account is created; signing in works for the account the phone has
+          role: needsSignup ? role : null,
+          full_name: needsSignup ? fullName.trim() : null,
+        }),
       );
     });
   };
@@ -176,7 +257,7 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
             className="input"
             inputMode="tel"
             autoComplete="tel"
-            placeholder="0901234567"
+            placeholder="09xx xxx xxx"
             pattern="0\d{9,10}"
             title="Số điện thoại Việt Nam, bắt đầu bằng 0 (10-11 số)"
             required
@@ -185,9 +266,17 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
           />
         </div>
         <button type="submit" className="btn-primary w-full" disabled={busy}>
-          {busy ? "Đang gửi mã..." : "Gửi mã đăng nhập"}
+          {busy
+            ? "Đang gửi mã..."
+            : intent === "signup"
+              ? "Gửi mã xác thực"
+              : "Gửi mã đăng nhập"}
         </button>
-        <p className="text-center text-xs text-muted">Lần đầu dùng số điện thoại, bạn sẽ được tạo tài khoản ngay sau khi nhập mã.</p>
+        <p className="text-center text-xs text-muted">
+          {intent === "signup"
+            ? "Dùng số điện thoại chưa đăng ký trên hệ thống."
+            : "Lần đầu dùng số điện thoại, bạn sẽ được tạo tài khoản ngay sau khi nhập mã."}
+        </p>
       </form>
     );
   }
@@ -197,13 +286,18 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
       {error !== null && <ErrorBox error={error} />}
       <p className="text-sm">
         Đã gửi mã tới <strong>{target}</strong>.{" "}
-        <button type="button" className="text-brand-700 hover:underline" onClick={() => setSent(null)}>
+        <button
+          type="button"
+          className="text-brand-700 hover:underline"
+          onClick={() => setSent(null)}
+        >
           Đổi
         </button>
       </p>
       {sent.debug_code && (
         <Notice>
-          Môi trường thử nghiệm (chưa có nhà cung cấp SMS/Zalo): mã của bạn là <strong className="font-mono">{sent.debug_code}</strong>
+          Môi trường thử nghiệm (chưa có nhà cung cấp SMS/Zalo): mã của bạn là{" "}
+          <strong className="font-mono">{sent.debug_code}</strong>
         </Notice>
       )}
       <div>
@@ -224,20 +318,39 @@ function OtpForm({ audience, onDone }: { audience: Audience; onDone: (u: User) =
       </div>
       {needsSignup && (
         <>
-          <Notice>
-            {audience === "buyer" ? "Số điện thoại này chưa có tài khoản" : "Số điện thoại này chưa có tài khoản người bán"} — nhập họ tên để
-            tạo tài khoản mới.
-          </Notice>
+          {intent === "login" && (
+            <Notice>
+              {audience === "buyer"
+                ? "Số điện thoại này chưa có tài khoản"
+                : "Số điện thoại này chưa có tài khoản người bán"}{" "}
+              — nhập họ tên để tạo tài khoản mới.
+            </Notice>
+          )}
           <div>
             <label htmlFor="otp-name" className="label">
               Họ và tên
             </label>
-            <input id="otp-name" className="input" required minLength={2} value={fullName} onChange={(e) => setFullName(e.target.value)} />
+            <input
+              id="otp-name"
+              className="input"
+              required
+              minLength={2}
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
           </div>
         </>
       )}
-      <button type="submit" className="btn-primary w-full" disabled={busy || code.length !== 6}>
-        {busy ? "Đang xác thực..." : needsSignup ? "Tạo tài khoản & đăng nhập" : "Đăng nhập"}
+      <button
+        type="submit"
+        className="btn-primary w-full"
+        disabled={busy || code.length !== 6}
+      >
+        {busy
+          ? "Đang xác thực..."
+          : needsSignup
+            ? "Tạo tài khoản & đăng nhập"
+            : "Đăng nhập"}
       </button>
     </form>
   );

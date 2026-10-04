@@ -1,11 +1,14 @@
 """Agent graph + chat endpoint, driven by a scripted fake model (no OpenAI calls)."""
 
+import json
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.outputs import ChatGenerationChunk
 from langgraph.checkpoint.memory import InMemorySaver
 
 from src.agents import graph as agent_graph
@@ -29,6 +32,22 @@ class ScriptedModel(GenericFakeChatModel):
 
     def bind_tools(self, tools, **kwargs):  # noqa: ARG002
         return self
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        """Streamed like a real model: text word by word, tool calls kept (the base fake drops them)."""
+        message = self._generate(messages, stop=stop, run_manager=run_manager, **kwargs).generations[0].message
+        if message.tool_calls:
+            calls = [
+                {"name": c["name"], "args": json.dumps(c["args"]), "id": c["id"], "index": i}
+                for i, c in enumerate(message.tool_calls)
+            ]
+            yield ChatGenerationChunk(message=AIMessageChunk(content="", id=message.id, tool_call_chunks=calls))
+            return
+        for token in re.split(r"(\s)", message.content):
+            chunk = ChatGenerationChunk(message=AIMessageChunk(content=token, id=message.id))
+            if run_manager:
+                run_manager.on_llm_new_token(token, chunk=chunk)
+            yield chunk
 
 
 def _call(name: str, args: dict, call_id: str = "call-1") -> AIMessage:

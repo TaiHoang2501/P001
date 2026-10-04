@@ -20,6 +20,9 @@ def _url() -> str:
 
 
 def _include_object(obj, name, type_, reflected, compare_to) -> bool:
+    # The agent's conversation memory tables (checkpoints, checkpoint_*) belong to langgraph's own migrations
+    if type_ == "table" and reflected and compare_to is None and name.startswith("checkpoint"):
+        return False
     # The generated tstzrange columns are managed by Postgres; don't let autogenerate fight over them
     return not (type_ == "column" and name == "period" and reflected and compare_to is not None)
 

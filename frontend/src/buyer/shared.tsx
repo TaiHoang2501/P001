@@ -87,3 +87,16 @@ export function BackLink({ to, children }: { to: string; children: ReactNode }) 
     </Link>
   );
 }
+
+/** "← Quay lại …" on an in-chat card: closes this step and goes back to the one before it. */
+export function BackButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-slate-100 hover:text-ink"
+    >
+      ← {children}
+    </button>
+  );
+}

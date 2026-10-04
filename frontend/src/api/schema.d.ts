@@ -780,6 +780,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Stream
+         * @description Server-Sent Events: `token` {text} while the reply is written, `tools` {names} when the agent calls tools, `error` {code, message}, and finally `done` with the same body as the non-streaming endpoint.
+         */
+        post: operations["chat_stream_api_v1_chat_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/guest/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Guest Chat Stream
+         * @description Server-Sent Events: `token` {text} while the reply is written, `tools` {names} when the agent calls tools, `error` {code, message}, and finally `done` with the same body as the non-streaming endpoint.
+         */
+        post: operations["guest_chat_stream_api_v1_chat_guest_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/guest/{conversation_id}/claim": {
         parameters: {
             query?: never;
@@ -1423,6 +1463,14 @@ export interface components {
              * @description Phone (buyer/seller) or email (seller) to send the code to
              */
             target: string;
+            /** Role */
+            role?: ("CUSTOMER" | "OWNER") | null;
+            /**
+             * Purpose
+             * @default login
+             * @enum {string}
+             */
+            purpose: "login" | "signup";
         };
         /** OtpRequestResponse */
         OtpRequestResponse: {
@@ -1433,6 +1481,11 @@ export interface components {
             expires_in: number;
             /** Debug Code */
             debug_code?: string | null;
+            /**
+             * Account Exists
+             * @default false
+             */
+            account_exists: boolean;
         };
         /** OtpVerifyRequest */
         OtpVerifyRequest: {
@@ -1442,12 +1495,8 @@ export interface components {
             code: string;
             /** Full Name */
             full_name?: string | null;
-            /**
-             * Role
-             * @default CUSTOMER
-             * @enum {string}
-             */
-            role: "CUSTOMER" | "OWNER";
+            /** Role */
+            role?: ("CUSTOMER" | "OWNER") | null;
         };
         /**
          * OwnershipChallengeOut
@@ -1665,7 +1714,7 @@ export interface components {
             full_name: string;
             /**
              * Phone
-             * @description Vietnamese phone, e.g. 0901234567
+             * @description Vietnamese phone, e.g. 09xxxxxxxx
              */
             phone: string;
             /** Email */
@@ -1725,7 +1774,7 @@ export interface components {
             area_min?: number | string | null;
             /**
              * Keyword
-             * @description Fuzzy match on description
+             * @description A unit code (e.g. S1.08-2410) or words fuzzy-matched on the description
              */
             keyword?: string | null;
             /** Preferred Bedrooms */
@@ -3426,6 +3475,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ChatResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_stream_api_v1_chat_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    guest_chat_stream_api_v1_chat_guest_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

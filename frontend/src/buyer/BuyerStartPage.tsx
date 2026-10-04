@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Navigate, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/AuthContext";
@@ -12,10 +12,20 @@ import { ArrowRightIcon, SparkleIcon, UserIcon } from "./icons";
 export function BuyerStartPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [phase, setPhase] = useState<IntroPhase>("in");
+
+  // Slogan grows in (2.6s), fades out (0.7s), then the question
+  useEffect(() => {
+    if (phase === "done") return;
+    const t = setTimeout(() => setPhase(phase === "in" ? "out" : "done"), phase === "in" ? INTRO_MS : OUTRO_MS);
+    return () => clearTimeout(t);
+  }, [phase]);
+
   if (user?.role === "CUSTOMER") return <Navigate to="/buyer/chat" replace />;
+  if (phase !== "done") return <Intro leaving={phase === "out"} onSkip={() => setPhase("done")} />;
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-3xl animate-rise-in">
       <section
         className="rounded-[2rem] bg-slate-50 p-6 shadow-xl shadow-slate-900/5 ring-1 ring-line sm:p-11"
         aria-labelledby="start-title"
@@ -32,7 +42,7 @@ export function BuyerStartPage() {
           <Choice
             icon={<SparkleIcon className="size-6" />}
             title="Tôi là người mới"
-            hint="Trò chuyện ngay với AI Agent, chỉ cần đăng ký khi gửi yêu cầu xem nhà"
+            hint="Trò chuyện ngay với Trợ lý AI, chỉ cần đăng ký khi gửi yêu cầu xem nhà"
             onClick={() => {
               startGuest();
               navigate("/buyer/chat");
@@ -46,6 +56,36 @@ export function BuyerStartPage() {
           />
         </div>
       </section>
+    </div>
+  );
+}
+
+type IntroPhase = "in" | "out" | "done";
+const INTRO_MS = 2600;
+const OUTRO_MS = 700;
+
+/** Opening frame: the site's slogan, zooming in gently, then fading into the new/returning question. */
+function Intro({ leaving, onSkip }: { leaving: boolean; onSkip: () => void }) {
+  return (
+    <div className="grid min-h-[60dvh] place-items-center overflow-hidden px-2">
+      <button
+        type="button"
+        onClick={onSkip}
+        aria-label="Bỏ qua phần giới thiệu"
+        className={`${leaving ? "animate-intro-out" : "animate-intro-in"} relative w-full max-w-3xl cursor-pointer overflow-hidden rounded-[2rem] bg-gradient-to-br from-brand-600 via-brand-500 to-sky-400 px-8 py-14 text-center text-white shadow-2xl shadow-brand-600/25 sm:px-14 sm:py-20`}
+      >
+        <span aria-hidden="true" className="absolute -right-16 -top-16 size-64 rounded-full bg-white/10 blur-2xl" />
+        <span aria-hidden="true" className="absolute -bottom-20 -left-10 size-72 rounded-full bg-sky-200/20 blur-3xl" />
+        <span className="relative mx-auto mb-6 grid size-14 place-items-center rounded-2xl bg-white/15 ring-1 ring-white/30">
+          <SparkleIcon className="size-7" />
+        </span>
+        <span className="relative block text-3xl font-bold leading-tight tracking-tight sm:text-5xl sm:leading-tight">
+          <span className="block">Tìm nhà Vinhomes</span>
+          <span className="block">phù hợp với bạn</span>
+          <span className="block text-sky-100">cùng trợ lý AI</span>
+        </span>
+        <span className="relative mt-6 block text-xs text-white/70">Chạm để bỏ qua</span>
+      </button>
     </div>
   );
 }
