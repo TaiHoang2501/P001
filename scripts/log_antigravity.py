@@ -54,6 +54,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -130,9 +131,10 @@ def get_brain_dirs() -> list[Path]:
 # ---------------------------------------------------------------------------
 
 def _normalize(p: str) -> str:
-    """Lower-case + backslash form, no trailing separator."""
+    """Lower-case + backslash form, NFC normalized, no trailing separator."""
     if not p:
         return ""
+    p = unicodedata.normalize("NFC", str(p))
     return p.strip().lower().replace("/", "\\").rstrip("\\")
 
 
@@ -150,7 +152,7 @@ def _unquote_arg(val):
 
 
 def _conv_cwds(transcript: Path) -> set[str]:
-    """All Cwd values that appear in tool calls inside this transcript."""
+    """All Cwd and filesystem paths that appear in tool calls inside this transcript."""
     cwds: set[str] = set()
     try:
         with open(transcript, encoding="utf-8") as f:
@@ -164,12 +166,14 @@ def _conv_cwds(transcript: Path) -> set[str]:
                     continue
                 for tc in (entry.get("tool_calls") or []):
                     args = tc.get("args") or {}
-                    cwd = args.get("Cwd") or args.get("cwd")
-                    cwd = _unquote_arg(cwd)
-                    if isinstance(cwd, str):
-                        n = _normalize(cwd)
-                        if n:
-                            cwds.add(n)
+                    for key in ("Cwd", "cwd", "AbsolutePath", "DirectoryPath", "TargetFile", "SearchPath", "path"):
+                        val = args.get(key)
+                        if val:
+                            val = _unquote_arg(val)
+                            if isinstance(val, str):
+                                n = _normalize(val)
+                                if n:
+                                    cwds.add(n)
     except OSError:
         pass
     return cwds
