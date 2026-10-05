@@ -35,15 +35,8 @@ import { chatStorageKey } from "./guest";
 import { GuestSignup } from "./GuestSignup";
 import { SendIcon } from "./icons";
 import { AiBot } from "./AiBot";
+import { HomeCard, HomeDetail, ResultsList } from "./HomeResults";
 import { PropertyDetailCard, useProperty } from "./PropertyDetailCard";
-import {
-  featureLine,
-  imagesOf,
-  MatchBadge,
-  PropertyImage,
-  specLine,
-  BackButton,
-} from "./shared";
 import { ViewingScheduler } from "./ViewingScheduler";
 
 type PendingViewing = components["schemas"]["PendingViewingRequest"];
@@ -167,6 +160,9 @@ const TOOL_STATUS: Record<string, string> = {
   reschedule_viewing: "Đang đổi giờ xem...",
   create_human_escalation: "Đang chuyển cho nhân viên hỗ trợ...",
 };
+
+// Ways to refine a search, offered under the latest list of homes
+const REFINEMENTS = ["Ưu tiên view hồ", "Tầng cao hơn", "Rẻ hơn một chút"];
 
 const SUGGESTIONS = [
   "Tôi cần căn 2 phòng ngủ ở Ocean Park, dưới 3,5 tỷ",
@@ -628,6 +624,7 @@ export function BuyerChatPage() {
       openProperty(id);
       if (searchParams.get("schedule")) openSchedule({ id, unit_code: "" });
     }
+    if (searchParams.get("home")) closePanel();
     const bookingId = Number(searchParams.get("booking"));
     if (bookingId) openStatus(bookingId);
     if (searchParams.get("bookings")) openBookings();
@@ -682,91 +679,99 @@ export function BuyerChatPage() {
     [...conversation.messages].reverse().find((m) => m.recommendations?.length)
       ?.recommendations ?? [];
   const hasResults = latest.length > 0;
-  // Just the chat at first; the details panel opens on its left, the matching homes on its right
-  const columns = panel
-    ? hasResults
-      ? "grid gap-5 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_380px]"
-      : "mx-auto grid max-w-7xl gap-5 lg:grid-cols-2"
-    : hasResults
-      ? "mx-auto grid max-w-6xl gap-5 lg:grid-cols-[minmax(0,1fr)_400px]"
-      : "mx-auto w-full max-w-4xl";
+  const needs = criteriaOf(latest);
+  const project = needs.find((n) => n.label === "Dự án")?.value;
+  // Just the chat at first; the right-hand panel opens once there are homes (or a home is opened)
+  const showRight = hasResults || panel !== null;
+  const topHome = latest[0]?.property;
+
+  function addNeed() {
+    closePanel();
+    inputRef.current?.focus();
+  }
+
+  const right = panel ? (
+    panel.kind === "property" ? (
+      <HomeDetail
+        key={panel.propertyId}
+        propertyId={panel.propertyId}
+        rec={latest.find((r) => r.property.id === panel.propertyId)}
+        project={project}
+        onBack={closePanel}
+        onBook={openSchedule}
+      />
+    ) : (
+      <div className="h-full space-y-3 overflow-y-auto px-5 py-5 md:px-7">
+        <button
+          type="button"
+          onClick={() =>
+            panel.reschedule ? closePanel() : setPanel({ kind: "property", propertyId: panel.propertyId })
+          }
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 hover:underline"
+        >
+          ← {panel.reschedule ? "Đóng" : "Chi tiết căn"}
+        </button>
+        <ViewingScheduler
+          key={`${panel.propertyId}-${panel.reschedule?.id ?? "new"}`}
+          propertyId={panel.propertyId}
+          reschedule={panel.reschedule}
+          onBooked={(b) => onScheduled(b, !!panel.reschedule)}
+        />
+      </div>
+    )
+  ) : hasResults ? (
+    <ResultsList
+      recommendations={latest}
+      needs={needs}
+      onOpen={openProperty}
+      onRemoveNeed={busy ? undefined : (n) => submit(`Bỏ tiêu chí ${n.label.toLowerCase()} (${n.value}) và tìm lại giúp tôi`)}
+      onAddNeed={addNeed}
+    />
+  ) : null;
 
   return (
-    <div className={columns}>
-      {panel && (
-        // Phones/tablets: full screen over the chat; desktop: its own scrolling column
-        <aside
-          className="fixed inset-0 z-30 animate-rise-in overflow-y-auto bg-canvas p-4 lg:static lg:z-auto lg:h-[calc(100dvh-12rem)] lg:min-h-[28rem] lg:bg-transparent lg:p-0"
-          aria-label={panel.kind === "property" ? "Chi tiết căn" : "Chọn lịch xem nhà"}
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            {panel.kind === "schedule" && !panel.reschedule ? (
-              <BackButton onClick={() => setPanel({ kind: "property", propertyId: panel.propertyId })}>Chi tiết căn</BackButton>
-            ) : (
-              <span />
-            )}
-            <button
-              type="button"
-              onClick={closePanel}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-slate-100 hover:text-ink"
-            >
-              Đóng <span aria-hidden="true">✕</span>
-            </button>
-          </div>
-          {panel.kind === "property" ? (
-            <PropertyDetailCard key={panel.propertyId} propertyId={panel.propertyId} onBook={openSchedule} />
-          ) : (
-            <ViewingScheduler
-              key={`${panel.propertyId}-${panel.reschedule?.id ?? "new"}`}
-              propertyId={panel.propertyId}
-              reschedule={panel.reschedule}
-              onBooked={(b) => onScheduled(b, !!panel.reschedule)}
-            />
-          )}
-        </aside>
-      )}
+    <div
+      className={
+        showRight
+          ? "grid gap-5 lg:grid-cols-[minmax(22rem,34rem)_minmax(0,1fr)]"
+          : "mx-auto w-full max-w-3xl"
+      }
+    >
       <section
-        className="card flex h-[calc(100dvh-12rem)] min-h-[28rem] flex-col overflow-hidden shadow-sm"
+        className="flex h-[calc(100dvh-7rem)] min-h-[30rem] flex-col overflow-hidden rounded-[28px] bg-sand"
         aria-label="Chat AI"
       >
-        <header className="flex items-center gap-3 border-b border-line px-5 py-4">
-          <AiBot className="size-11" animated thinking={send.isPending} />
+        <header className="flex items-center gap-3 px-5 pb-3 pt-5">
+          <AiBot className="size-12" animated thinking={send.isPending} />
           <div className="min-w-0 flex-1">
-            <h1 className="font-semibold">Trợ lý AI</h1>
-            <p className="text-xs text-muted">
-              Trợ lý tìm nhà Vinhomes
-              {userId === null && " · Bạn đang trò chuyện với tư cách khách"}
+            <h1 className="font-display text-lg font-bold leading-tight">BookingBot</h1>
+            <p className="truncate text-xs text-muted">
+              {userId === null ? "Bạn đang dùng với tư cách khách" : "Trợ lý tìm nhà Vinhomes của bạn"}
             </p>
           </div>
           {confirmRestart ? (
             <div className="flex items-center gap-2 text-sm" role="group" aria-label="Xác nhận cuộc trò chuyện mới">
               <span className="hidden text-muted sm:inline">Xóa cuộc trò chuyện này?</span>
-              <button type="button" className="btn-primary btn-sm" onClick={restart}>
+              <button type="button" className="rounded-full bg-brand-600 px-3 py-1 font-semibold text-canvas" onClick={restart}>
                 Bắt đầu mới
               </button>
-              <button type="button" className="btn-secondary btn-sm" onClick={() => setConfirmRestart(false)}>
+              <button type="button" className="rounded-full px-3 py-1 font-semibold hover:bg-paper" onClick={() => setConfirmRestart(false)}>
                 Hủy
               </button>
             </div>
           ) : (
             <button
               type="button"
-              className="btn btn-sm border border-line bg-white text-ink hover:border-brand-500 hover:text-brand-700 disabled:opacity-40"
+              className="rounded-full px-3 py-1.5 text-sm font-semibold text-brand-700 hover:bg-paper disabled:opacity-40"
               disabled={!started || busy}
               onClick={() => setConfirmRestart(true)}
-              title="Cuộc trò chuyện mới"
             >
-              <span aria-hidden="true" className="text-base leading-none">＋</span>
-              <span className="hidden sm:inline">Cuộc trò chuyện mới</span>
-              <span className="sr-only sm:hidden">Cuộc trò chuyện mới</span>
+              + Cuộc mới
             </button>
           )}
         </header>
 
-        <div
-          className="flex-1 space-y-5 overflow-y-auto bg-slate-50/60 p-5"
-          aria-live="polite"
-        >
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-3" aria-live="polite">
           {conversation.messages.map((m, i) => (
             <MessageView
               key={m.id ?? i}
@@ -774,10 +779,7 @@ export function BuyerChatPage() {
               message={m}
               onPickTime={
                 i === conversation.messages.length - 1 && !busy
-                  ? (iso) =>
-                      submit(
-                        `Tôi chọn xem lúc ${timeOf(iso)} ngày ${dateOf(iso)}`,
-                      )
+                  ? (iso) => submit(`Tôi chọn xem lúc ${timeOf(iso)} ngày ${dateOf(iso)}`)
                   : undefined
               }
               onReply={busy ? undefined : submit}
@@ -788,22 +790,41 @@ export function BuyerChatPage() {
               onReschedule={openReschedule}
               onBookingChanged={(b) => markKnown([b])}
               onBack={() => goBack(i)}
+              followUps={
+                // Under the latest list of homes: open the best one, or refine the search
+                m.recommendations?.length && m.recommendations === latest && topHome ? (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-full bg-brand-600 px-4 py-1.5 font-display text-sm font-bold text-canvas hover:bg-brand-700"
+                      onClick={() => openProperty(topHome.id, topHome.unit_code)}
+                    >
+                      Xem {topHome.unit_code}
+                    </button>
+                    {REFINEMENTS.map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        disabled={busy}
+                        className="rounded-full border border-ink/15 px-3.5 py-1.5 text-[13px] font-semibold hover:bg-paper disabled:opacity-50"
+                        onClick={() => submit(r)}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                ) : undefined
+              }
               signup={
                 i === signupAt ? (
                   <div className="max-w-md">
-                    <GuestSignup
-                      onDone={(u) => onSignedUp(u, m.pendingViewing)}
-                    />
+                    <GuestSignup onDone={(u) => onSignedUp(u, m.pendingViewing)} />
                   </div>
                 ) : undefined
               }
             />
           ))}
-          {sendPending.isPending && (
-            <p className="pl-12 text-sm text-muted">
-              Đang gửi yêu cầu xem nhà...
-            </p>
-          )}
+          {sendPending.isPending && <p className="pl-12 text-sm text-muted">Đang gửi yêu cầu xem nhà...</p>}
           {live &&
             (live.text ? (
               <div className="flex items-start gap-3">
@@ -817,7 +838,7 @@ export function BuyerChatPage() {
             ) : (
               <div className="flex items-center gap-3">
                 <AgentAvatar thinking />
-                <p className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-line">
+                <p className="flex items-center gap-1 rounded-3xl rounded-tl-md bg-paper px-4 py-3">
                   <Dot delay="0ms" />
                   <Dot delay="150ms" />
                   <Dot delay="300ms" />
@@ -833,34 +854,32 @@ export function BuyerChatPage() {
         </div>
 
         {!started && (
-          <div className="flex flex-wrap gap-2 border-t border-line px-5 py-3">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                className="rounded-full border border-line bg-white px-3 py-1.5 text-left text-xs text-muted hover:border-brand-500 hover:text-brand-700"
-                onClick={() => submit(s)}
-              >
-                {s}
-              </button>
-            ))}
+          <div className="px-5 pb-1">
+            <p className="mb-2 text-xs text-muted">Thử một câu mẫu</p>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="rounded-full border border-ink/15 bg-paper/60 px-3.5 py-2 text-left text-[13px] font-semibold hover:bg-paper"
+                  onClick={() => submit(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        <form
-          onSubmit={onSubmit}
-          className="flex items-center gap-2 border-t border-line bg-white p-3"
-        >
+        <form onSubmit={onSubmit} className="flex items-center gap-3 p-4">
           <label htmlFor="chat-input" className="sr-only">
             Tin nhắn
           </label>
           <input
             id="chat-input"
             ref={inputRef}
-            className="input rounded-xl py-2.5"
-            placeholder={
-              started ? "Nhập thêm yêu cầu..." : "Nhập nhu cầu của bạn..."
-            }
+            className="min-w-0 flex-1 rounded-full border border-ink/10 bg-paper px-5 py-3 text-[15px] outline-none placeholder:text-muted focus:border-brand-500"
+            placeholder={started ? "Thêm yêu cầu, ví dụ: tầng cao, view hồ..." : "Mô tả căn bạn đang tìm..."}
             maxLength={5000}
             autoFocus
             autoComplete="off"
@@ -869,7 +888,7 @@ export function BuyerChatPage() {
           />
           <button
             type="submit"
-            className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
+            className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-600 text-canvas hover:bg-brand-700 disabled:opacity-40"
             aria-label="Gửi"
             disabled={!input.trim() || busy}
           >
@@ -878,13 +897,17 @@ export function BuyerChatPage() {
         </form>
       </section>
 
-      {hasResults && (
-        <ResultsPanel
-          recommendations={latest}
-          onOpen={openProperty}
-          // With the details panel open there is room for the list only on wide screens
-          className={panel ? "xl:flex" : "lg:flex"}
-        />
+      {right && (
+        // Desktop: the panel beside the chat. Phones/tablets: home details / booking open full screen;
+        // the list of homes is shown inside the chat instead.
+        <section
+          className={`animate-rise-in overflow-hidden bg-paper lg:static lg:block lg:h-[calc(100dvh-7rem)] lg:min-h-[30rem] lg:rounded-[28px] ${
+            panel ? "fixed inset-0 z-30" : "hidden"
+          }`}
+          aria-label={panel ? (panel.kind === "property" ? "Chi tiết căn" : "Chọn lịch xem nhà") : "Kết quả đề xuất"}
+        >
+          {right}
+        </section>
       )}
     </div>
   );
@@ -917,7 +940,7 @@ function StreamingText({
     if (onCaughtUp && shown >= text.length) onCaughtUp();
   }, [onCaughtUp, shown, text.length]);
   return (
-    <p className="w-fit max-w-[90%] whitespace-pre-line rounded-2xl rounded-tl-sm bg-white px-4 py-2.5 text-sm shadow-sm ring-1 ring-line">
+    <p className="w-fit max-w-[92%] whitespace-pre-line rounded-3xl rounded-tl-md bg-paper px-4 py-3 text-[15px] leading-relaxed">
       <RichText text={text.slice(0, shown)} />
       <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-brand-500" aria-hidden="true" />
     </p>
@@ -949,6 +972,7 @@ function MessageView({
   onReschedule,
   onBookingChanged,
   onBack,
+  followUps,
   signup,
 }: {
   anchor: string;
@@ -962,6 +986,7 @@ function MessageView({
   onReschedule: (b: Booking) => void;
   onBookingChanged: (b: Booking) => void;
   onBack: () => void;
+  followUps?: ReactNode;
   signup?: ReactNode;
 }) {
   const times = m.viewingTimes;
@@ -1020,7 +1045,7 @@ function MessageView({
   if (m.role === "user") {
     return (
       <div id={anchor} className="flex scroll-mt-4 justify-end">
-        <p className="max-w-[80%] whitespace-pre-line rounded-2xl rounded-tr-sm bg-brand-100 px-4 py-2.5 text-sm text-ink">
+        <p className="max-w-[85%] whitespace-pre-line rounded-3xl rounded-tr-md bg-blush px-4 py-2.5 text-[15px] text-ink">
           {m.text}
         </p>
       </div>
@@ -1033,10 +1058,8 @@ function MessageView({
       <div className="min-w-0 flex-1 space-y-3">
         {m.text && (
           <p
-            className={`w-fit max-w-[90%] whitespace-pre-line rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm ${
-              m.role === "error"
-                ? "border border-red-200 bg-red-50 text-red-800"
-                : "bg-white shadow-sm ring-1 ring-line"
+            className={`w-fit max-w-[92%] whitespace-pre-line rounded-3xl rounded-tl-md px-4 py-3 text-[15px] leading-relaxed ${
+              m.role === "error" ? "border border-red-200 bg-red-50 text-red-800" : "bg-paper"
             }`}
           >
             <RichText text={m.text} />
@@ -1044,11 +1067,11 @@ function MessageView({
         )}
 
         {criteria.length > 0 && (
-          <dl className="grid max-w-lg grid-cols-2 gap-2 sm:grid-cols-3">
+          <dl className="grid max-w-lg grid-cols-2 gap-2 sm:grid-cols-3 lg:hidden">
             {criteria.map((c) => (
               <div
                 key={c.label}
-                className="rounded-xl border border-line bg-white px-3 py-2"
+                className="rounded-xl bg-leaf px-3 py-2"
               >
                 <dt className="text-[11px] text-muted">{c.label}</dt>
                 <dd className="truncate text-sm font-medium">{c.value}</dd>
@@ -1062,7 +1085,7 @@ function MessageView({
           <ul className="space-y-2 lg:hidden">
             {m.recommendations.map((r) => (
               <li key={r.property.id}>
-                <ResultRow rec={r} onOpen={onOpenProperty} />
+                <HomeCard rec={r} onOpen={onOpenProperty} />
               </li>
             ))}
           </ul>
@@ -1076,7 +1099,7 @@ function MessageView({
                 type="button"
                 disabled={!onPickTime}
                 onClick={() => onPickTime?.(o.start_at)}
-                className="rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 hover:border-brand-500 disabled:opacity-50"
+                className="rounded-full border border-ink/15 bg-paper px-3.5 py-1.5 text-[13px] font-semibold hover:border-brand-500 hover:text-brand-700 disabled:opacity-50"
               >
                 {formatTimeRange(o.start_at, o.end_at)}
               </button>
@@ -1135,6 +1158,7 @@ function MessageView({
           </div>
         )}
 
+        {followUps}
         {signup}
       </div>
     </div>
@@ -1160,99 +1184,5 @@ function PropertyChip({
       Xem căn {code ?? `#${propertyId}`}
       {property.data && ` · ${formatVnd(property.data.price_vnd)}`}
     </button>
-  );
-}
-
-/** Wireframe 1.3: needs as chips + the matching properties (shown once there are some). */
-function ResultsPanel({
-  recommendations,
-  onOpen,
-  className,
-}: {
-  recommendations: Recommendation[];
-  onOpen: (id: number, code?: string) => void;
-  /** Breakpoint from which it shows (hidden below) */
-  className: string;
-}) {
-  const criteria = criteriaOf(recommendations);
-  return (
-    <aside
-      className={`card hidden h-[calc(100dvh-12rem)] min-h-[28rem] animate-rise-in flex-col overflow-hidden shadow-sm ${className}`}
-      aria-label="Kết quả đề xuất"
-    >
-      <div className="border-b border-line px-5 py-4">
-        <h2 className="text-sm font-semibold">Nhu cầu của bạn</h2>
-        {criteria.length > 0 ? (
-          <ul className="mt-2 flex flex-wrap gap-1.5">
-            {criteria.map((c) => (
-              <li
-                key={c.label}
-                className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-ink"
-                title={c.label}
-              >
-                {c.value}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-1 text-xs text-muted">
-            Trợ lý sẽ tóm tắt tiêu chí sau khi hiểu nhu cầu của bạn.
-          </p>
-        )}
-      </div>
-      <p className="border-b border-line px-5 py-2.5 text-sm font-medium text-brand-600">
-        <span className="border-b-2 border-brand-600 pb-2.5">
-          Căn phù hợp ({recommendations.length})
-        </span>
-      </p>
-      <div className="flex-1 overflow-y-auto p-4">
-        <ul className="space-y-3">
-          {recommendations.map((r) => (
-            <li key={r.property.id}>
-              <ResultRow rec={r} onOpen={onOpen} />
-            </li>
-          ))}
-        </ul>
-      </div>
-    </aside>
-  );
-}
-
-function ResultRow({
-  rec,
-  onOpen,
-}: {
-  rec: Recommendation;
-  onOpen: (id: number, code?: string) => void;
-}) {
-  const p = rec.property;
-  const scored = rec.matched.length + rec.unmatched.length > 0;
-  return (
-    <article className="flex gap-3 rounded-xl border border-line bg-white p-2.5">
-      <PropertyImage
-        src={imagesOf(p)[0]?.url}
-        alt={`Căn ${p.unit_code}`}
-        className="size-20 shrink-0 rounded-lg sm:h-24 sm:w-28"
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="truncate text-sm font-semibold">{p.unit_code}</h3>
-          {scored && <MatchBadge score={rec.match_score} />}
-        </div>
-        <p className="truncate text-xs text-muted">{p.project_name}</p>
-        <p className="truncate text-xs text-muted">{specLine(p)}</p>
-        <p className="truncate text-xs text-muted">{featureLine(p)}</p>
-        <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-1">
-          <p className="font-semibold">{formatVnd(p.price_vnd)}</p>
-          <button
-            type="button"
-            onClick={() => onOpen(p.id, p.unit_code)}
-            className="btn btn-sm border border-brand-600 text-brand-600 hover:bg-brand-50"
-          >
-            Xem chi tiết
-          </button>
-        </div>
-      </div>
-    </article>
   );
 }

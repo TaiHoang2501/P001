@@ -1,75 +1,60 @@
-import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/AuthContext";
 import { NotificationBell } from "../components/NotificationBell";
 import { endGuest } from "./guest";
-import { BuildingIcon } from "./icons";
 
-// Buyers land in the AI chat; the only other place is their viewings (a card in that chat)
-const NAV = [{ to: "/buyer/chat?bookings=1", label: "Lịch xem của tôi" }];
-
-/** Buyer area shell (wireframe 1.x): blue theme, its own header, no seller/operator navigation. */
+/** Buyer area shell ("Organic" design): BookingBot brand, "Tìm nhà" = the AI chat, plus the buyer's viewings. */
 export function BuyerLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const buyer = user?.role === "CUSTOMER" ? user : null;
-  // The chat page can open the home details beside it: give it more room
-  const width = useLocation().pathname === "/buyer/chat" ? "max-w-[96rem]" : "max-w-6xl";
+  const onChat = location.pathname === "/buyer/chat";
+  const onBookings = onChat && new URLSearchParams(location.search).has("bookings");
 
-  const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${isActive ? "text-brand-600" : "text-muted hover:text-ink"}`;
+  const pill = (active: boolean) =>
+    `whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition ${
+      active ? "bg-sand text-ink" : "text-ink/80 hover:bg-sand/60 hover:text-ink"
+    }`;
 
   return (
-    <div className="theme-buyer flex min-h-dvh flex-col bg-canvas text-ink">
-      <header className="sticky top-0 z-20 border-b border-line bg-white/90 backdrop-blur">
-        <div className={`mx-auto flex h-16 ${width} items-center gap-4 px-4`}>
+    <div className="theme-organic flex min-h-dvh flex-col bg-canvas text-ink">
+      <header className="sticky top-0 z-20 bg-canvas/95 backdrop-blur">
+        <div className="mx-auto flex h-[4.5rem] w-full max-w-[96rem] items-center gap-3 px-4 md:gap-6 md:px-6">
           {/* Back to the start: choose to view homes or to sell one */}
-          <Link
-            to="/"
-            className="flex items-center gap-2 font-bold text-ink"
-          >
-            <span className="grid size-8 place-items-center rounded-lg bg-brand-600 text-white">
-              <BuildingIcon className="size-5" />
+          <Link to="/" className="flex items-center gap-2.5" title="Chọn vai trò">
+            <span className="grid size-10 place-items-center rounded-full bg-brand-600 font-display text-lg font-bold text-canvas">
+              B
             </span>
-            Vinhomes
+            <span className="leading-tight">
+              <span className="block font-display text-lg font-bold">BookingBot</span>
+              <span className="hidden text-xs text-muted sm:block">dành cho căn Vinhomes</span>
+            </span>
           </Link>
 
-          <nav
-            className="hidden flex-1 items-center gap-1 sm:flex"
-            aria-label="Người mua"
-          >
-            {NAV.map((i) => (
-              <NavLink
-                key={i.to}
-                to={i.to}
-                className={
-                  i.to.includes("?")
-                    ? linkClass({ isActive: false })
-                    : linkClass
-                }
-              >
-                {i.label}
-              </NavLink>
-            ))}
+          <nav className="flex items-center gap-1" aria-label="Người mua">
+            {/* "Tìm nhà" always goes back to the conversation with the assistant */}
+            <Link to="/buyer/chat?home=1" className={pill(onChat && !onBookings)} aria-current={onChat && !onBookings ? "page" : undefined}>
+              Tìm nhà
+            </Link>
+            <Link to="/buyer/chat?bookings=1" className={`${pill(onBookings)} hidden sm:inline-block`}>
+              Lịch xem của tôi
+            </Link>
           </nav>
 
-          <div className="ml-auto flex items-center gap-2">
-            <Link
-              to="/"
-              className="hidden text-xs text-muted hover:text-ink md:inline"
-            >
-              Đổi vai trò
+          <div className="ml-auto flex items-center gap-2 md:gap-3">
+            <Link to="/login" className="hidden text-sm text-muted hover:text-ink md:inline">
+              Chủ căn?
             </Link>
             {buyer ? (
               <>
-                {/* Booking updates + what the AI agent found while the buyer was away */}
+                {/* Booking updates + what the assistant found while the buyer was away */}
                 <NotificationBell />
-                <span className="hidden max-w-40 truncate text-sm font-medium md:inline">
-                  {buyer.full_name}
-                </span>
+                <span className="hidden max-w-40 truncate text-sm font-medium lg:inline">{buyer.full_name}</span>
                 <button
                   type="button"
-                  className="btn-secondary btn-sm"
+                  className="rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold hover:bg-sand"
                   onClick={() => {
                     logout();
                     endGuest();
@@ -80,48 +65,17 @@ export function BuyerLayout() {
                 </button>
               </>
             ) : (
-              <Link
-                to="/buyer/login"
-                className="btn btn-sm border border-brand-600 bg-white text-brand-600 hover:bg-brand-50"
-              >
+              <Link to="/buyer/login" className="rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold hover:bg-sand">
                 Đăng nhập
               </Link>
             )}
           </div>
         </div>
-
-        <nav
-          className="flex gap-1 overflow-x-auto border-t border-line px-2 sm:hidden"
-          aria-label="Người mua"
-        >
-          {NAV.map((i) => (
-            <NavLink
-              key={i.to}
-              to={i.to}
-              className={
-                i.to.includes("?") ? linkClass({ isActive: false }) : linkClass
-              }
-            >
-              {i.label}
-            </NavLink>
-          ))}
-          <Link
-            to="/"
-            className="whitespace-nowrap rounded-lg px-3 py-2 text-sm text-muted"
-          >
-            Đổi vai trò
-          </Link>
-        </nav>
       </header>
 
-      <main className={`mx-auto w-full ${width} flex-1 px-4 py-6 md:py-8`}>
+      <main className="mx-auto w-full max-w-[96rem] flex-1 px-4 pb-6 pt-2 md:px-6">
         <Outlet />
       </main>
-
-      <footer className="border-t border-line py-4 text-center text-xs text-muted">
-        Chỉ căn Vinhomes đã xác thực · Kết nối trực tiếp chủ căn · Không thanh
-        toán/đặt cọc trực tuyến
-      </footer>
     </div>
   );
 }
