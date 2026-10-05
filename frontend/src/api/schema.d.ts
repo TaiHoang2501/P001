@@ -361,6 +361,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/owner/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Overview
+         * @description Dashboard numbers: viewing requests and AI suggestions per listing, and how long the seller has to answer.
+         */
+        get: operations["my_overview_api_v1_owner_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/owner/properties": {
         parameters: {
             query?: never;
@@ -1473,6 +1493,45 @@ export interface components {
             role?: ("CUSTOMER" | "OWNER") | null;
         };
         /**
+         * OwnerOverview
+         * @description The seller's dashboard numbers.
+         */
+        OwnerOverview: {
+            /**
+             * Response Hours
+             * @description A request left unanswered this long goes to the investor's staff
+             */
+            response_hours: number;
+            /** Properties */
+            properties: components["schemas"]["OwnerPropertyStats"][];
+        };
+        /** OwnerPropertyStats */
+        OwnerPropertyStats: {
+            /** Property Id */
+            property_id: number;
+            /**
+             * Viewing Requests
+             * @description All viewing requests ever made for this home
+             */
+            viewing_requests: number;
+            /**
+             * Pending Requests
+             * @description Requests waiting for the seller's answer (new request or new time) whose viewing time is still ahead
+             */
+            pending_requests: number;
+            /**
+             * Ai Suggestions
+             * @description Times the AI assistant showed this home to signed-in buyers
+             */
+            ai_suggestions: number;
+            /**
+             * Open Slots Week
+             * @description Viewing slots the seller opened for the next 7 days
+             * @default 0
+             */
+            open_slots_week: number;
+        };
+        /**
          * OwnershipChallengeOut
          * @description Result of a claim: an OTP was sent to the phone on record (or the red book is already the caller's).
          */
@@ -1742,7 +1801,15 @@ export interface components {
             budget_min?: number | null;
             /** Budget Max */
             budget_max?: number | null;
-            /** Bedrooms Min */
+            /**
+             * Bedrooms
+             * @description Exactly this many bedrooms: '2 phòng ngủ' / '2PN' -> 2 (0 = studio)
+             */
+            bedrooms?: number | null;
+            /**
+             * Bedrooms Min
+             * @description At least this many bedrooms, only for 'từ 2 PN trở lên' / 'ít nhất 2 PN'
+             */
             bedrooms_min?: number | null;
             /** Area Min */
             area_min?: number | string | null;
@@ -2629,6 +2696,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_overview_api_v1_owner_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerOverview"];
                 };
             };
         };

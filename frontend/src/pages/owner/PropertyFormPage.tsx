@@ -7,7 +7,7 @@ import type { Direction, Furnishing, LegalStatus, Property, PropertyCreate, Prop
 import { MediaManager } from "../../components/MediaManager";
 import { ErrorBox, Notice, PageHeader, Spinner } from "../../components/ui";
 import { DIRECTION, FURNISHING, LEGAL, PROPERTY_TYPE, VIEW } from "../../lib/format";
-import { usableRedBooks, useRedBooks } from "./OwnershipVerifyPage";
+import { usableRedBooks, useRedBooks } from "./ownerData";
 
 interface FormState {
   verification_id: string;

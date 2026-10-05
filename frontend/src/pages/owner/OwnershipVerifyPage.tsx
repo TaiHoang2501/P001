@@ -1,66 +1,26 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
 import { api, ApiError, call } from "../../api/client";
 import type { OwnershipChallenge, OwnershipVerification } from "../../api/types";
-import { ErrorBox, Notice, PageHeader, Spinner } from "../../components/ui";
-import { formatDateTime } from "../../lib/format";
-
-/** Red books the seller has verified; each one can back one listing. */
-export function useRedBooks() {
-  return useQuery({ queryKey: ["owner-ownership"], queryFn: () => call(api.GET("/api/v1/owner/ownership")) });
-}
-
-/** Unused verified red books, i.e. homes the seller may list now. */
-export function usableRedBooks(books: OwnershipVerification[] | undefined): OwnershipVerification[] {
-  return (books ?? []).filter((b) => b.status === "VERIFIED" && b.property_id == null);
-}
+import { ErrorBox, Notice } from "../../components/ui";
+import { RedBookList } from "./RedBooks";
 
 /**
  * Proving ownership before selling: the seller types the holder name + red book code exactly as in the
  * investor's records, then the OTP sent to the owner's phone on record.
  */
 export function OwnershipVerifyPage() {
-  const books = useRedBooks();
-
   return (
-    <div className="mx-auto max-w-3xl">
-      <PageHeader
-        title="Xác thực sổ đỏ"
-        subtitle="Bạn chỉ đăng bán được căn có sổ đỏ đã xác thực. Mỗi sổ đỏ dùng cho một tin đăng."
-      />
-      <div className="grid gap-6 md:grid-cols-[1fr_1fr]">
-        <VerifyForm />
-        <section className="space-y-3" aria-labelledby="books-title">
-          <h2 id="books-title" className="font-semibold">
-            Sổ đỏ đã xác thực
-          </h2>
-          {books.isPending && <Spinner />}
-          {books.isError && <ErrorBox error={books.error} onRetry={() => books.refetch()} />}
-          {books.data?.length === 0 && <p className="text-sm text-muted">Chưa có sổ đỏ nào.</p>}
-          <ul className="space-y-2">
-            {books.data?.map((b) => (
-              <li key={b.id} className="card p-4 text-sm">
-                <p className="font-medium">{b.red_book_holder_name}</p>
-                <p className="font-mono text-xs text-muted">{b.red_book_code}</p>
-                {b.verified_at && <p className="mt-1 text-xs text-muted">Xác thực lúc {formatDateTime(b.verified_at)}</p>}
-                <div className="mt-2">
-                  {b.property_id == null ? (
-                    <Link to={`/owner/properties/new?verification=${b.id}`} className="btn-primary btn-sm">
-                      Đăng bán căn này
-                    </Link>
-                  ) : (
-                    <Link to={`/owner/properties/${b.property_id}/edit`} className="text-brand-700 hover:underline">
-                      Đã dùng cho tin #{b.property_id}
-                    </Link>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
+    <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
+      <VerifyForm />
+      <section aria-labelledby="books-title">
+        <h2 id="books-title" className="mb-4 font-display text-2xl font-bold">
+          Sổ đỏ đã xác thực
+        </h2>
+        <RedBookList />
+      </section>
     </div>
   );
 }
@@ -114,22 +74,22 @@ function VerifyForm() {
 
   if (done) {
     return (
-      <div className="card h-fit space-y-4 p-5">
+      <div className="h-fit space-y-4 rounded-[28px] bg-sand p-6">
         <Notice tone="success">
           Đã xác thực sổ đỏ <strong className="font-mono">{done.red_book_code}</strong> của {done.red_book_holder_name}. Hồ sơ của bạn
           được gửi tới Chủ đầu tư để duyệt; bạn có thể soạn tin đăng ngay trong lúc chờ.
         </Notice>
         <div className="flex flex-wrap gap-2">
           {done.property_id == null ? (
-            <Link to={`/owner/properties/new?verification=${done.id}`} className="btn-primary">
+            <Link to={`/owner/properties/new?verification=${done.id}`} className="btn-primary rounded-full px-5">
               Đăng bán căn này
             </Link>
           ) : (
-            <Link to={`/owner/properties/${done.property_id}/edit`} className="btn-primary">
+            <Link to={`/owner/properties/${done.property_id}/edit`} className="btn-primary rounded-full px-5">
               Xem tin đăng
             </Link>
           )}
-          <button type="button" className="btn-secondary" onClick={reset}>
+          <button type="button" className="btn-secondary rounded-full px-5" onClick={reset}>
             Xác thực sổ khác
           </button>
         </div>
@@ -142,13 +102,13 @@ function VerifyForm() {
     const locked = confirm.error instanceof ApiError && confirm.error.details.status === "FAILED";
     return (
       <form
-        className="card h-fit space-y-4 p-5"
+        className="h-fit space-y-4 rounded-[28px] bg-sand p-6"
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
           confirm.mutate();
         }}
       >
-        <h2 className="font-semibold">Bước 2 · Nhập mã OTP</h2>
+        <h2 className="font-display text-2xl font-bold">Nhập mã OTP</h2>
         <p className="text-sm">
           Đã gửi mã tới số điện thoại của chủ sở hữu trên sổ: <strong className="font-mono">{challenge.masked_phone}</strong>.
         </p>
@@ -173,7 +133,7 @@ function VerifyForm() {
           </label>
           <input
             id="rb-otp"
-            className="input font-mono tracking-widest"
+            className="input rounded-full bg-paper px-4 py-2.5 font-mono tracking-widest"
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="\d{6}"
@@ -186,13 +146,13 @@ function VerifyForm() {
           />
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="submit" className="btn-primary" disabled={otp.length !== 6 || confirm.isPending || locked}>
+          <button type="submit" className="btn-primary rounded-full px-5" disabled={otp.length !== 6 || confirm.isPending || locked}>
             {confirm.isPending ? "Đang xác thực..." : "Xác thực"}
           </button>
-          <button type="button" className="btn-secondary" disabled={claim.isPending || locked} onClick={() => claim.mutate()}>
+          <button type="button" className="btn-secondary rounded-full px-5" disabled={claim.isPending || locked} onClick={() => claim.mutate()}>
             Gửi lại mã
           </button>
-          <button type="button" className="btn-secondary" onClick={reset}>
+          <button type="button" className="btn-secondary rounded-full px-5" onClick={reset}>
             Nhập lại thông tin sổ
           </button>
         </div>
@@ -203,13 +163,16 @@ function VerifyForm() {
   const conflict = claim.error instanceof ApiError && claim.error.code === "STATE_CONFLICT" ? claim.error.details.reason : undefined;
   return (
     <form
-      className="card h-fit space-y-4 p-5"
+      className="h-fit space-y-4 rounded-[28px] bg-sand p-6"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         claim.mutate();
       }}
     >
-      <h2 className="font-semibold">Bước 1 · Thông tin trên sổ đỏ</h2>
+      <div>
+        <h2 className="font-display text-2xl font-bold">Xác thực sổ đỏ mới</h2>
+        <p className="mt-1 text-sm text-muted">Đối chiếu với dữ liệu của Chủ đầu tư. Mỗi sổ đỏ dùng cho một tin đăng.</p>
+      </div>
       {claim.isError &&
         (conflict === "CLAIMED" ? (
           <Notice tone="warning">Sổ đỏ này đã được xác thực bởi một tài khoản khác. Nếu bạn là chủ sở hữu, hãy liên hệ Chủ đầu tư.</Notice>
@@ -224,7 +187,7 @@ function VerifyForm() {
         </label>
         <input
           id="rb-holder"
-          className="input"
+          className="input rounded-full bg-paper px-4 py-2.5"
           required
           minLength={2}
           maxLength={255}
@@ -240,7 +203,7 @@ function VerifyForm() {
         </label>
         <input
           id="rb-code"
-          className="input font-mono uppercase"
+          className="input rounded-full bg-paper px-4 py-2.5 font-mono uppercase"
           required
           minLength={3}
           maxLength={100}
