@@ -190,9 +190,24 @@ def reschedule_declined(db: Session, booking: Booking, reason: str) -> None:
 
 def listing_reviewed(db: Session, prop: Property, *, approved: bool, reason: str | None = None) -> None:
     if approved:
-        notify(db, prop.owner_id, "LISTING_APPROVED", "Tin đăng đã được duyệt", f"{_label(prop)} đã lên hệ thống.")
+        notify(
+            db,
+            prop.owner_id,
+            "LISTING_APPROVED",
+            "Tin đăng đã được duyệt",
+            f"{_label(prop)} đã lên hệ thống.",
+            # Opening the notification goes to this listing
+            payload={"property_id": prop.id},
+        )
     else:
-        notify(db, prop.owner_id, "LISTING_REJECTED", "Tin đăng bị từ chối", f"{_label(prop)}: {reason}")
+        notify(
+            db,
+            prop.owner_id,
+            "LISTING_REJECTED",
+            "Tin đăng bị từ chối",
+            f"{_label(prop)}: {reason}",
+            payload={"property_id": prop.id},
+        )
 
 
 def seller_reviewed(db: Session, user_id: int, *, verified: bool, reason: str | None = None) -> None:

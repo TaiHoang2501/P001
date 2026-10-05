@@ -175,6 +175,23 @@ class Recommendation(BaseModel):
     unmatched: list[CriterionMatch]
 
 
+class OwnerPropertyStats(BaseModel):
+    property_id: int
+    viewing_requests: int = Field(description="All viewing requests ever made for this home")
+    pending_requests: int = Field(
+        description="Requests waiting for the seller's answer (new request or new time) whose viewing time is still ahead"
+    )
+    ai_suggestions: int = Field(description="Times the AI assistant showed this home to signed-in buyers")
+    open_slots_week: int = Field(default=0, description="Viewing slots the seller opened for the next 7 days")
+
+
+class OwnerOverview(BaseModel):
+    """The seller's dashboard numbers."""
+
+    response_hours: int = Field(description="A request left unanswered this long goes to the investor's staff")
+    properties: list[OwnerPropertyStats]
+
+
 class SearchResult(BaseModel):
     total_candidates: int = Field(..., description="Properties passing hard constraints")
     results: list[Recommendation]

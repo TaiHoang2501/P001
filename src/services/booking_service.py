@@ -123,7 +123,8 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
         buyer_ref=f"Buyer #{booking.customer_id}",
         buyer_budget_min_vnd=profile.budget_min_vnd if profile else None,
         buyer_budget_max_vnd=profile.budget_max_vnd if profile else None,
-        customer_name=booking.customer.full_name if show_contact else None,
+        # The seller always sees who asks to view (product decision); the phone stays hidden until level 3
+        customer_name=booking.customer.full_name,
         customer_phone=booking.customer.phone if show_contact else None,
         start_at=booking.start_at,
         end_at=booking.end_at,

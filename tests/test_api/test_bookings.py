@@ -26,11 +26,11 @@ async def test_happy_path_request_approve(client, db):
     booking = r.json()
     assert booking["status"] == "REQUESTED"
 
-    # Privacy level 1 (AC-03): the owner sees a buyer reference, never the name or phone
+    # Privacy level 1 (AC-03): the owner sees a buyer reference and name, never the phone
     r = await client.get("/api/v1/owner/bookings", params={"status": "REQUESTED"}, headers=tuan)
     listed = next(b for b in r.json() if b["id"] == booking["id"])
     assert listed["buyer_ref"] == f"Buyer #{booking['customer_id']}"
-    assert listed["customer_name"] is None
+    assert listed["customer_name"]
     assert listed["customer_phone"] is None
 
     r = await client.post(f"/api/v1/owner/bookings/{booking['id']}/approve", headers=tuan)

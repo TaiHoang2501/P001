@@ -1,6 +1,6 @@
 """Property listings: owner CRUD, operator moderation, customer search + recommendation."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import Select, func, or_, select
@@ -11,7 +11,9 @@ from src.core.actor import Actor
 from src.core.errors import BusinessRuleViolationError, NotFoundError, StateConflictError
 from src.db.models import (
     ACTIVE_BOOKING_STATUSES,
+    AvailabilitySlot,
     Booking,
+    BookingStatus,
     Building,
     MediaKind,
     Project,
@@ -28,6 +30,8 @@ from src.models.property import (
     CriterionMatch,
     MediaCreate,
     MediaOut,
+    OwnerOverview,
+    OwnerPropertyStats,
     PropertyCreate,
     PropertyOut,
     PropertyUpdate,
@@ -52,6 +56,9 @@ _MAX_CANDIDATES = 500
 
 
 def media_url(s3_key: str) -> str:
+    # A path or full URL (the demo photos shipped with the web app, see seed.ensure_photos) is used as is
+    if s3_key.startswith(("/", "http://", "https://")):
+        return s3_key
     return get_settings().media_base_url + s3_key
 
 
@@ -154,6 +161,64 @@ def get_property(db: Session, property_id: int, actor: Actor | None = None) -> P
 def list_owned(db: Session, actor: Actor) -> list[PropertyOut]:
     stmt = _base_query().where(Property.owner_id == actor.id).order_by(Property.created_at.desc())
     return [to_out(p, include_private=True) for p in db.scalars(stmt)]
+
+
+def owner_overview(db: Session, actor: Actor) -> OwnerOverview:
+    """Per-listing numbers for the seller's dashboard: viewing requests (all / waiting for them) and AI exposure."""
+    # Imported here: the db models module also defines `Recommendation`, a name this module uses for the schema
+    from src.db.models import Recommendation as Suggested
+
+    ids = list(db.scalars(select(Property.id).where(Property.owner_id == actor.id)))
+    waiting = (BookingStatus.REQUESTED, BookingStatus.RESCHEDULE_REQUESTED)
+    requests = dict(
+        db.execute(
+            select(Booking.property_id, func.count()).where(Booking.property_id.in_(ids)).group_by(Booking.property_id)
+        ).all()
+    )
+    pending = dict(
+        db.execute(
+            select(Booking.property_id, func.count())
+            .where(
+                Booking.property_id.in_(ids),
+                Booking.status.in_(waiting),
+                # Still answerable: the (proposed) viewing time has not passed yet
+                func.coalesce(Booking.proposed_start_at, Booking.start_at) > datetime.now(UTC),
+            )
+            .group_by(Booking.property_id)
+        ).all()
+    )
+    shown = dict(
+        db.execute(
+            select(Suggested.property_id, func.count())
+            .where(Suggested.property_id.in_(ids))
+            .group_by(Suggested.property_id)
+        ).all()
+    )
+    now = datetime.now(UTC)
+    slots = dict(
+        db.execute(
+            select(AvailabilitySlot.property_id, func.count())
+            .where(
+                AvailabilitySlot.property_id.in_(ids),
+                AvailabilitySlot.start_at > now,
+                AvailabilitySlot.start_at <= now + timedelta(days=7),
+            )
+            .group_by(AvailabilitySlot.property_id)
+        ).all()
+    )
+    return OwnerOverview(
+        response_hours=get_settings().seller_response_hours,
+        properties=[
+            OwnerPropertyStats(
+                property_id=i,
+                viewing_requests=requests.get(i, 0),
+                pending_requests=pending.get(i, 0),
+                ai_suggestions=shown.get(i, 0),
+                open_slots_week=slots.get(i, 0),
+            )
+            for i in ids
+        ],
+    )
 
 
 def list_by_status(db: Session, status: PropertyStatus) -> list[PropertyOut]:

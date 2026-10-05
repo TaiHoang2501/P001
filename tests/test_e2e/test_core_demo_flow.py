@@ -166,8 +166,9 @@ async def test_core_demo_flow(client, db, monkeypatch):
     # ---- Seller confirms (HITL) ----
     [seen] = (await client.get("/api/v1/owner/bookings", headers=seller)).json()
     assert "VIEWING_REQUESTED" in await _events(client, seller)
-    # AC-03: privacy level 1, no buyer name/phone
-    assert (seen["buyer_ref"], seen["customer_name"], seen["customer_phone"]) == (f"Buyer #{buyer_id}", None, None)
+    # AC-03: privacy level 1, the buyer's name but never their phone
+    assert seen["buyer_ref"] == f"Buyer #{buyer_id}"
+    assert seen["customer_name"] and seen["customer_phone"] is None
 
     r = await client.post(f"/api/v1/owner/bookings/{booking['id']}/approve", headers=seller)
     assert (r.json()["status"], r.json()["hold_status"]) == ("CONFIRMED", "ACTIVE")

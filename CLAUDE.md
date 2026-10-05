@@ -32,8 +32,8 @@
 4. **Owner Approval (HITL)** — Booking bắt đầu ở `REQUESTED` và gửi thẳng tới Seller. Chỉ chuyển sang `CONFIRMED` khi chính **Seller/Owner** xác nhận (AC-05). Agent không được tự confirm. Operator **không** duyệt từng booking; Operator chỉ can thiệp khi có exception (§3.9).
 5. **Deal ID** — Mỗi quan hệ `Buyer + Seller + Property` có đúng một Deal (mã dạng `VH-2026-00128`). Deal phải được tạo khi Buyer yêu cầu xem (AC-02, AC-09). Deal đã đóng → reject mọi action.
 6. **Privacy by Design (Progressive Disclosure)** — Seller không tự động nhận SĐT/email Buyer khi Buyer chưa xác nhận tiếp tục giao dịch (AC-03):
-   - Level 1 — Anonymous Matching: Seller chỉ thấy Buyer ID, budget range, property preference, viewing preference.
-   - Level 2 — Viewing: hai bên xác nhận lịch.
+   - Level 1 — Matching: Seller thấy Buyer ID, **họ tên** người mua (quyết định sản phẩm), budget range, property preference, viewing preference; **SĐT/email luôn ẩn**.
+   - Level 2 — Viewing: hai bên xác nhận lịch; SĐT/email vẫn ẩn.
    - Level 3 — Continue Transaction: chia sẻ thông tin cần thiết theo policy khi cả hai muốn tiếp tục.
    - Level 4 — Transaction: Chủ đầu tư hỗ trợ quy trình.
    - AI không tự thu thập PII từ bên ngoài, không tự chia sẻ PII, không truy cập PII ngoài quyền.

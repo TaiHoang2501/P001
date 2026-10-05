@@ -7,7 +7,7 @@ from src.core.errors import NotFoundError
 from src.db.models import BookingStatus, Property
 from src.models.booking import BookingOut, BookingRejectRequest, SlotCreate, SlotOut
 from src.models.ownership import OwnershipChallengeOut, OwnershipClaim, OwnershipOtpConfirm, OwnershipVerificationOut
-from src.models.property import MediaCreate, PropertyCreate, PropertyOut, PropertyUpdate
+from src.models.property import MediaCreate, OwnerOverview, PropertyCreate, PropertyOut, PropertyUpdate
 from src.models.seller import SellerProfileOut, SellerVerificationSubmit
 from src.services import availability_service, booking_service, ownership_service, property_service, seller_service
 
@@ -49,6 +49,12 @@ def confirm_red_book(
 
 
 # ---------- Listings ----------
+
+
+@router.get("/overview", response_model=OwnerOverview)
+def my_overview(actor: OwnerActor, db: DbSession) -> OwnerOverview:
+    """Dashboard numbers: viewing requests and AI suggestions per listing, and how long the seller has to answer."""
+    return property_service.owner_overview(db, actor)
 
 
 @router.get("/properties", response_model=list[PropertyOut])
