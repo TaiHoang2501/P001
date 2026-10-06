@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { api, call, errorMessage, streamChat } from "../api/client";
 import type { components } from "../api/schema";
@@ -28,9 +28,6 @@ import {
   formatVnd,
   timeOf,
 } from "../lib/format";
-import { ENDED } from "./bookingStatus";
-import { BookingsListCard } from "./BookingsListCard";
-import { BookingStatusCard } from "./BookingStatusCard";
 import { chatStorageKey } from "./guest";
 import { GuestSignup } from "./GuestSignup";
 import { BuildingIcon, PlusIcon, SendIcon, SparkleIcon, UserIcon } from "./icons";
@@ -49,9 +46,7 @@ type Card =
       propertyId: number;
       reschedule?: Booking;
       done?: boolean;
-    }
-  | { kind: "status"; bookingId: number }
-  | { kind: "bookings" };
+    };
 
 // A home's details or its viewing-time picker: shown in a column left of the chat, not inside it,
 // so the whole card fits without scrolling the conversation
@@ -79,71 +74,12 @@ interface Message {
 interface Conversation {
   id: string;
   messages: Message[];
-  // Last seen state of each viewing ("status|start|proposed"), so a change is told once
-  known?: Record<string, string>;
   // Agent notifications already posted, and when this chat started (older ones are not replayed)
   seenNotes?: number[];
   since?: string;
 }
 
 const AGENT_EVENTS = new Set(["AGENT_FOLLOWUP", "AGENT_NEW_MATCH"]);
-
-function signature(b: Booking): string {
-  return `${b.status}|${b.start_at}|${b.proposed_start_at ?? ""}`;
-}
-
-/** What the agent says when a viewing changed without the buyer doing it (null: nothing worth saying). */
-function statusNews(
-  previous: string,
-  b: Booking,
-): Pick<Message, "text" | "replies"> | null {
-  const [was, wasStart] = previous.split("|") as [Booking["status"], string];
-  const home = `**${b.property_label}**`;
-  const when = formatTimeRange(b.start_at, b.end_at);
-  const other = [
-    `Tìm giờ xem khác cho căn ${b.property_label}`,
-    "Tìm căn tương tự",
-  ];
-  switch (b.status) {
-    case "CONFIRMED":
-      if (was === "RESCHEDULE_REQUESTED")
-        return b.start_at !== wasStart
-          ? { text: `Chủ căn đã đồng ý đổi lịch xem ${home} sang ${when}.` }
-          : {
-              text: `Chủ căn chưa nhận giờ mới cho ${home}; lịch cũ ${when} vẫn giữ nguyên.`,
-            };
-      if (was === "CONFIRMED")
-        return b.start_at !== wasStart
-          ? { text: `Lịch xem ${home} đã chuyển sang ${when}.` }
-          : null;
-      return {
-        text:
-          `Tin vui: chủ căn đã xác nhận lịch xem ${home} lúc ${when}.` +
-          (b.hold_status === "ACTIVE"
-            ? " Căn được giữ riêng cho bạn trong khung giờ này."
-            : "") +
-          " Mã QR vào cửa đã sẵn sàng trong thẻ theo dõi: đưa cho bảo vệ hoặc lễ tân khi tới xem. Mình sẽ nhắc bạn trước buổi xem.",
-      };
-    case "REJECTED":
-      return {
-        text:
-          `Chủ căn chưa nhận lịch xem ${home} (${when})${b.rejection_reason ? `: ${b.rejection_reason}` : ""}. ` +
-          "Bạn muốn mình tìm giờ khác hay căn tương tự?",
-        replies: other,
-      };
-    case "CANCELLED":
-      return {
-        text: `Lịch xem ${home} (${when}) đã bị hủy. Mình có thể tìm giờ hoặc căn khác cho bạn.`,
-        replies: other,
-      };
-    case "COMPLETED":
-      return {
-        text: `Buổi xem ${home} đã hoàn tất. Bạn thấy căn thế nào? Muốn xem thêm căn khác cứ nhắn mình nhé.`,
-      };
-    default:
-      return null;
-  }
-}
 
 // What the assistant is doing while it works, by the tool it called
 const TOOL_STATUS: Record<string, string> = {
@@ -198,11 +134,15 @@ function fresh(name: string): Conversation {
 function loadConversation(userId: number | null, name: string): Conversation {
   try {
     const raw = sessionStorage.getItem(chatStorageKey(userId));
-    if (raw)
+    if (raw) {
+      const saved = JSON.parse(raw) as Conversation;
       return {
         since: new Date().toISOString(),
-        ...(JSON.parse(raw) as Conversation),
+        ...saved,
+        // Viewing status cards moved to the "Hoạt động" page
+        messages: saved.messages.filter((m) => !m.card || m.card.kind === "property" || m.card.kind === "schedule"),
       };
+    }
   } catch {
     // Storage blocked or corrupted: start over
   }
@@ -272,6 +212,7 @@ function criteriaOf(
 export function BuyerChatPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const userId = user?.role === "CUSTOMER" ? user.id : null;
   const name = userId !== null ? user!.full_name : "bạn";
   const [conversation, setConversation] = useState<Conversation>(() =>
@@ -300,57 +241,6 @@ export function BuyerChatPage() {
       ...c,
       messages: [...c.messages, { id: newId(), ...message }],
     }));
-
-  // The buyer's own changes are already in the chat: remember them so they are not told again as news
-  const markKnown = (bookings: Booking[]) =>
-    setConversation((c) => ({
-      ...c,
-      known: {
-        ...(c.known ?? {}),
-        ...Object.fromEntries(
-          bookings.map((b) => [String(b.id), signature(b)]),
-        ),
-      },
-    }));
-
-  // Seller answers, reschedules, cancellations: the agent tells the buyer here, without a reload
-  const myBookings = useQuery({
-    queryKey: ["my-bookings"],
-    queryFn: () => call(api.GET("/api/v1/bookings")),
-    enabled: userId !== null,
-    refetchInterval: 30_000,
-  });
-  useEffect(() => {
-    const bookings = myBookings.data;
-    if (!bookings) return;
-    setConversation((c) => {
-      const known = { ...(c.known ?? {}) };
-      const news: Message[] = [];
-      for (const b of bookings) {
-        const previous = known[String(b.id)];
-        const now = signature(b);
-        if (previous === now) continue;
-        const was = previous?.split("|")[0] as Booking["status"] | undefined;
-        // An ended viewing does not come back (a late, stale answer would only confuse)
-        if (was && (ENDED.has(was) || was === "COMPLETED")) continue;
-        known[String(b.id)] = now;
-        // First look (new chat / new viewing): remember silently
-        const said = c.known && previous ? statusNews(previous, b) : null;
-        if (said)
-          news.push({
-            id: newId(),
-            role: "assistant",
-            trackBookingId: b.id,
-            ...said,
-          });
-      }
-      return {
-        ...c,
-        known,
-        messages: news.length ? [...c.messages, ...news] : c.messages,
-      };
-    });
-  }, [myBookings.data]);
 
   // Agent follow-ups and new matching homes (sent while the buyer was away) arrive as agent messages
   const notes = useQuery({
@@ -444,10 +334,7 @@ export function BuyerChatPage() {
         needsAccount: res.needs_account,
         pendingViewing: res.pending_viewing,
       });
-      if (res.bookings?.length) {
-        markKnown(res.bookings);
-        queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
-      }
+      if (res.bookings?.length) queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
   }
 
   useEffect(
@@ -469,13 +356,12 @@ export function BuyerChatPage() {
         }),
       ),
     onSuccess: (booking) => {
-      markKnown([booking]);
       queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
       append({
         role: "assistant",
         text:
           `Đã gửi yêu cầu xem nhà tới chủ căn — mã Deal ${booking.deal_code}. ` +
-          "Lịch chỉ có hiệu lực khi chủ căn xác nhận; bạn theo dõi trạng thái ngay bên dưới.",
+          "Lịch chỉ có hiệu lực khi chủ căn xác nhận; bạn theo dõi trạng thái trong mục Hoạt động.",
         bookings: [booking],
       });
     },
@@ -513,36 +399,14 @@ export function BuyerChatPage() {
     setPanel({ kind: "schedule", propertyId: p.id });
   }
 
-  function openReschedule(b: Booking) {
-    setViewing({ id: b.property_id });
-    setPanel({ kind: "schedule", propertyId: b.property_id, reschedule: b });
-  }
-
   function closePanel() {
     setPanel(null);
     setViewing(null);
   }
 
-  /** One card per viewing / one list: opening it again moves it to the bottom. */
-  function openOnce(card: Card, same: (c: Card) => boolean) {
-    setConversation((c) => ({
-      ...c,
-      messages: [
-        ...c.messages.filter((m) => !(m.card && same(m.card))),
-        { id: newId(), role: "assistant", text: "", card },
-      ],
-    }));
-  }
-
+  /** A viewing's status, reschedule and QR pass: on the "Hoạt động" page, which a new chat does not clear. */
   function openStatus(bookingId: number) {
-    openOnce(
-      { kind: "status", bookingId },
-      (c) => c.kind === "status" && c.bookingId === bookingId,
-    );
-  }
-
-  function openBookings() {
-    openOnce({ kind: "bookings" }, (c) => c.kind === "bookings");
+    navigate(`/buyer/activity?booking=${bookingId}`);
   }
 
   /** "← Quay lại": close this card and show the step before it. */
@@ -572,7 +436,6 @@ export function BuyerChatPage() {
 
   function onScheduled(booking: Booking, rescheduled: boolean) {
     setPanel(null);
-    markKnown([booking]);
     setConversation((c) => ({
       ...c,
       messages: c.messages.map((m) =>
@@ -591,19 +454,19 @@ export function BuyerChatPage() {
             text:
               booking.status === "REQUESTED"
                 ? `Đã đổi yêu cầu xem ${booking.property_label} sang ${formatTimeRange(booking.start_at, booking.end_at)}. ` +
-                  "Chủ căn đã được báo và vẫn cần xác nhận giờ mới; mình sẽ báo bạn ngay khi có phản hồi."
+                  "Chủ căn đã được báo và vẫn cần xác nhận giờ mới; bạn theo dõi trong mục Hoạt động."
                 : `Đã gửi đề nghị đổi lịch xem ${booking.property_label}` +
                   (booking.proposed_start_at && booking.proposed_end_at
                     ? ` sang ${formatTimeRange(booking.proposed_start_at, booking.proposed_end_at)}`
                     : "") +
-                  ". Lịch cũ vẫn giữ cho tới khi chủ căn đồng ý; mình sẽ báo bạn ngay khi có phản hồi.",
+                  ". Lịch cũ vẫn giữ cho tới khi chủ căn đồng ý; bạn theo dõi trong mục Hoạt động.",
             trackBookingId: booking.id,
           }
         : {
             role: "assistant",
             text:
               `Đã gửi yêu cầu xem nhà tới chủ căn — mã Deal ${booking.deal_code}. ` +
-              "Lịch chỉ có hiệu lực khi chủ căn xác nhận; mình sẽ báo bạn ngay trong khung chat này.",
+              "Lịch chỉ có hiệu lực khi chủ căn xác nhận; bạn theo dõi trạng thái trong mục Hoạt động (có cả khi bắt đầu cuộc trò chuyện mới).",
             bookings: [booking],
           },
     );
@@ -626,8 +489,14 @@ export function BuyerChatPage() {
     }
     if (searchParams.get("home")) closePanel();
     const bookingId = Number(searchParams.get("booking"));
-    if (bookingId) openStatus(bookingId);
-    if (searchParams.get("bookings")) openBookings();
+    if (bookingId) {
+      openStatus(bookingId);
+      return;
+    }
+    if (searchParams.get("bookings")) {
+      navigate("/buyer/activity");
+      return;
+    }
     setSearchParams({}, { replace: true });
   }, [searchParams]);
 
@@ -807,8 +676,6 @@ export function BuyerChatPage() {
               onBook={openSchedule}
               onScheduled={onScheduled}
               onTrack={openStatus}
-              onReschedule={openReschedule}
-              onBookingChanged={(b) => markKnown([b])}
               onBack={() => goBack(i)}
               followUps={
                 // Under the latest list of homes: open the best one, or refine the search
@@ -1000,8 +867,6 @@ function MessageView({
   onBook,
   onScheduled,
   onTrack,
-  onReschedule,
-  onBookingChanged,
   onBack,
   followUps,
   signup,
@@ -1014,8 +879,6 @@ function MessageView({
   onBook: (p: Property) => void;
   onScheduled: (b: Booking, rescheduled: boolean) => void;
   onTrack: (bookingId: number) => void;
-  onReschedule: (b: Booking) => void;
-  onBookingChanged: (b: Booking) => void;
   onBack: () => void;
   followUps?: ReactNode;
   signup?: ReactNode;
@@ -1056,18 +919,6 @@ function MessageView({
                 onBack={onBack}
               />
             ))}
-          {card.kind === "status" && (
-            <BookingStatusCard
-              bookingId={card.bookingId}
-              onBack={onBack}
-              onReschedule={onReschedule}
-              onViewProperty={(id) => onOpenProperty(id)}
-              onChanged={onBookingChanged}
-            />
-          )}
-          {card.kind === "bookings" && (
-            <BookingsListCard onBack={onBack} onOpenStatus={onTrack} />
-          )}
         </div>
       </div>
     );
@@ -1154,7 +1005,7 @@ function MessageView({
               className="font-medium text-brand-700 hover:underline"
               onClick={() => onTrack(b.id)}
             >
-              Theo dõi trạng thái
+              Theo dõi trong Hoạt động →
             </button>
           </div>
         ))}
@@ -1172,7 +1023,7 @@ function MessageView({
                 className="rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 hover:border-brand-500"
                 onClick={() => onTrack(m.trackBookingId!)}
               >
-                Theo dõi trạng thái
+                Xem trong Hoạt động →
               </button>
             )}
             {m.replies?.map((r) => (

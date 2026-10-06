@@ -184,6 +184,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bookings/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Activity
+         * @description Important events of the buyer's viewings: requests, the owner's answers, time changes, cancellations.
+         */
+        get: operations["my_activity_api_v1_bookings_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/bookings/{booking_id}": {
         parameters: {
             query?: never;
@@ -1091,6 +1111,52 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActivityOut
+         * @description One important event in a buyer's viewing history (kept server-side, so a new chat does not lose it).
+         */
+        ActivityOut: {
+            /** Id */
+            id: number;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED";
+            /**
+             * By
+             * @enum {string}
+             */
+            by: "BUYER" | "OWNER" | "BOOKINGBOT";
+            /** Booking Id */
+            booking_id: number;
+            /** Property Id */
+            property_id: number;
+            /** Property Label */
+            property_label: string;
+            /** Deal Code */
+            deal_code: string;
+            /** Start At */
+            start_at?: string | null;
+            /** Reason */
+            reason?: string | null;
+            booking_status: components["schemas"]["BookingStatus"];
+            /**
+             * Booking Start At
+             * Format: date-time
+             */
+            booking_start_at: string;
+            /**
+             * Booking End At
+             * Format: date-time
+             */
+            booking_end_at: string;
+        };
         /**
          * ActorType
          * @enum {string}
@@ -2417,6 +2483,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_activity_api_v1_bookings_activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityOut"][];
                 };
             };
         };

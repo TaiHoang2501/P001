@@ -160,3 +160,39 @@ async def test_owner_slot_management(client):
     await _request(client, an, first)
     assert (await client.delete(f"/api/v1/owner/slots/{first['id']}", headers=tuan)).status_code == 409
     assert (await client.delete(f"/api/v1/owner/slots/{slots[1]['id']}", headers=tuan)).status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_activity_history_keeps_every_important_event(client):
+    an = await auth(client, CUSTOMER_AN)
+    binh = await auth(client, CUSTOMER_BINH)
+    tuan = await auth(client, OWNER_TUAN)
+    slot = await first_free_slot(client, TUAN_PROPERTY)
+    booking = (await _request(client, an, slot)).json()
+    bid = booking["id"]
+
+    await client.post(f"/api/v1/owner/bookings/{bid}/approve", headers=tuan)
+    other = await first_free_slot(client, TUAN_PROPERTY)
+    r = await client.post(f"/api/v1/bookings/{bid}/reschedule", json={"start_at": other["start_at"]}, headers=an)
+    assert r.json()["status"] == "RESCHEDULE_REQUESTED", r.text
+    await client.post(f"/api/v1/owner/bookings/{bid}/reject", json={"reason": "Hôm đó tôi bận"}, headers=tuan)
+    await client.post(f"/api/v1/bookings/{bid}/cancel", headers=an)
+
+    r = await client.get("/api/v1/bookings/activity", headers=an)
+    assert r.status_code == 200, r.text
+    events = [e for e in r.json() if e["booking_id"] == bid]
+    # Newest first, who did what
+    assert [(e["kind"], e["by"]) for e in events] == [
+        ("CANCELLED", "BUYER"),
+        ("RESCHEDULE_DECLINED", "OWNER"),
+        ("RESCHEDULE_REQUESTED", "BUYER"),
+        ("CONFIRMED", "OWNER"),
+        ("REQUESTED", "BUYER"),
+    ]
+    assert events[1]["reason"] == "Hôm đó tôi bận"
+    assert events[2]["start_at"][:16] == other["start_at"][:16]  # the new time asked for
+    assert all(e["booking_status"] == "CANCELLED" and e["deal_code"] == booking["deal_code"] for e in events)
+
+    # Another buyer sees none of it; sellers have their own pages
+    assert all(e["booking_id"] != bid for e in (await client.get("/api/v1/bookings/activity", headers=binh)).json())
+    assert (await client.get("/api/v1/bookings/activity", headers=tuan)).status_code == 403

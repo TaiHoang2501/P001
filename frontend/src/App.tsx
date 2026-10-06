@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useParams } from "react-router";
 import type { Role } from "./api/types";
 import { RequireRole } from "./auth/RequireRole";
 import { BuyerChatPage } from "./buyer/BuyerChatPage";
+import { ActivityPage } from "./buyer/ActivityPage";
 import { BuyerHomePage } from "./buyer/BuyerHomePage";
 import { BuyerLayout } from "./buyer/BuyerLayout";
 import { BuyerLoginPage } from "./buyer/BuyerLoginPage";
@@ -43,15 +44,10 @@ function ToChat({ schedule = false }: { schedule?: boolean }) {
   );
 }
 
-/** /buyer/bookings[/:id]: the buyer's viewings and their status also open as cards in the agent chat. */
-function BookingsToChat() {
+/** /buyer/bookings[/:id] (older links): the buyer's viewings now live on the "Hoạt động" page. */
+function BookingsToActivity() {
   const id = useParams().id;
-  return (
-    <Navigate
-      to={id ? `/buyer/chat?booking=${id}` : "/buyer/chat?bookings=1"}
-      replace
-    />
-  );
+  return <Navigate to={id ? `/buyer/activity?booking=${id}` : "/buyer/activity"} replace />;
 }
 
 /** Old buyer links (/properties/:id) now live in the buyer area. */
@@ -76,8 +72,9 @@ export function App() {
         {/* A home's details and its viewing-time picker live inside the agent chat */}
         <Route path="properties/:id" element={<ToChat />} />
         <Route path="properties/:id/schedule" element={<ToChat schedule />} />
-        <Route path="bookings" element={buyer(<BookingsToChat />)} />
-        <Route path="bookings/:id" element={buyer(<BookingsToChat />)} />
+        <Route path="activity" element={buyer(<ActivityPage />)} />
+        <Route path="bookings" element={buyer(<BookingsToActivity />)} />
+        <Route path="bookings/:id" element={buyer(<BookingsToActivity />)} />
         <Route path="*" element={<EmptyState title="Không tìm thấy trang" />} />
       </Route>
       <Route path="chat" element={<Navigate to="/buyer/chat" replace />} />

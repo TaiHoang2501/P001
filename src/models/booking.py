@@ -107,6 +107,40 @@ class BookingOut(BaseModel):
     created_at: datetime
 
 
+ActivityKind = Literal[
+    "REQUESTED",
+    "TIME_CHANGED",
+    "RESCHEDULE_REQUESTED",
+    "CONFIRMED",
+    "REJECTED",
+    "RESCHEDULE_APPROVED",
+    "RESCHEDULE_DECLINED",
+    "CANCELLED",
+    "COMPLETED",
+]
+
+
+class ActivityOut(BaseModel):
+    """One important event in a buyer's viewing history (kept server-side, so a new chat does not lose it)."""
+
+    id: int
+    at: datetime
+    kind: ActivityKind
+    # Who did it: the buyer themselves, the home's owner, or BookingBot (operator / system)
+    by: Literal["BUYER", "OWNER", "BOOKINGBOT"]
+    booking_id: int
+    property_id: int
+    property_label: str
+    deal_code: str
+    # The viewing time this event is about (the new time for a time change); None when not recorded
+    start_at: datetime | None = None
+    reason: str | None = None
+    # Where the viewing stands now
+    booking_status: BookingStatus
+    booking_start_at: datetime
+    booking_end_at: datetime
+
+
 class RescheduleRequest(BaseModel):
     start_at: datetime = Field(..., description="New start time, e.g. from POST /properties/{id}/viewing-times")
 

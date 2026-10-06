@@ -30,11 +30,11 @@ export function BrandMark({ className = "size-10" }: { className?: string }) {
 export const BRAND_GRADIENT_TEXT = "bg-gradient-to-r from-[#1463ff] to-[#6b3df5] bg-clip-text text-transparent";
 
 /** Logo + "BookingBot" + "Trợ lý AI Vinhomes". `large` on the start page, compact in page headers. */
-export function BrandLogo({ large = false }: { large?: boolean }) {
+export function BrandLogo({ large = false, compact = false }: { large?: boolean; compact?: boolean }) {
   return (
     <span className={`flex items-center ${large ? "gap-3.5" : "gap-2.5"}`}>
       <BrandMark className={large ? "size-14" : "size-10"} />
-      <span className="leading-none">
+      <span className={`leading-none ${compact ? "hidden sm:block" : ""}`}>
         <span className={`block font-display font-bold tracking-tight ${large ? "text-[1.9rem]" : "text-[1.35rem]"}`}>
           Booking<span className={BRAND_GRADIENT_TEXT}>Bot</span>
         </span>

@@ -20,7 +20,7 @@ export function notificationTarget(n: Note, role: Role): string | null {
       if (n.event_type.startsWith("SELLER_")) return "/owner/verify";
       return null;
     case "CUSTOMER":
-      if (booking) return `/buyer/chat?booking=${booking}`;
+      if (booking) return `/buyer/activity?booking=${booking}`;
       if (payload.property_id) return `/buyer/chat?property=${payload.property_id}`;
       return "/buyer/chat";
     case "INVESTOR_OPERATOR":
@@ -76,12 +76,17 @@ export function NotificationBell() {
     <div className="relative" ref={boxRef}>
       <button
         type="button"
-        className="btn-secondary btn-sm relative"
+        className="btn-secondary btn-sm relative whitespace-nowrap"
         aria-expanded={open}
         aria-label={`Thông báo${count ? ` (${count} chưa đọc)` : ""}`}
         onClick={() => setOpen((v) => !v)}
       >
-        Thông báo
+        {/* Phones: just the bell, so the header fits */}
+        <svg viewBox="0 0 24 24" className="size-4 sm:hidden" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M6 9a6 6 0 1 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9Z" strokeLinejoin="round" />
+          <path d="M10 19a2 2 0 0 0 4 0" strokeLinecap="round" />
+        </svg>
+        <span className="hidden sm:inline">Thông báo</span>
         {count > 0 && (
           <span className="grid min-w-5 place-items-center rounded-full bg-brand-600 px-1 text-[11px] leading-5 text-white">
             {count > 99 ? "99+" : count}

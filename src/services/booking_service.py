@@ -28,6 +28,7 @@ from src.core.errors import (
 )
 from src.db.models import (
     ACTIVE_BOOKING_STATUSES,
+    AuditLog,
     AvailabilitySlot,
     Booking,
     BookingStatus,
@@ -38,7 +39,7 @@ from src.db.models import (
     PropertyStatus,
     UserRole,
 )
-from src.models.booking import BookingCreate, BookingOut, RescheduleRequest
+from src.models.booking import ActivityOut, BookingCreate, BookingOut, RescheduleRequest
 from src.services import audit, deal_service, hold_service, notification_service, seller_service
 from src.services.availability_service import TimeConflictError, is_exclusion_violation, list_slots
 
@@ -148,7 +149,7 @@ def _audit_transition(db: Session, actor: Actor, action: str, booking: Booking, 
         "booking",
         booking.id,
         before={"status": before},
-        after={"status": booking.status, **extra},
+        after={"status": booking.status, "start_at": booking.start_at.isoformat(), **extra},
     )
 
 
@@ -435,3 +436,76 @@ def list_for(db: Session, actor: Actor, status: BookingStatus | None = None) -> 
         for p in db.scalars(select(BuyerProfile).where(BuyerProfile.user_id.in_({b.customer_id for b in bookings})))
     }
     return [to_out(b, actor, profiles.get(b.customer_id)) for b in bookings]
+
+
+# ---------- Activity history (buyer) ----------
+
+_ACTIVITY_KIND = {
+    "booking.request": "REQUESTED",
+    "booking.request_time_change": "TIME_CHANGED",
+    "booking.reschedule_request": "RESCHEDULE_REQUESTED",
+    "booking.approve": "CONFIRMED",
+    "booking.reject": "REJECTED",
+    "booking.reschedule_approve": "RESCHEDULE_APPROVED",
+    "booking.reschedule_decline": "RESCHEDULE_DECLINED",
+    "booking.cancel": "CANCELLED",
+    "booking.complete": "COMPLETED",
+}
+
+
+def activity_for(db: Session, actor: Actor, limit: int = 200) -> list[ActivityOut]:
+    """The buyer's viewing history, newest first, from the audit log of their bookings."""
+    bookings = {
+        b.id: b
+        for b in db.scalars(
+            select(Booking)
+            .where(Booking.customer_id == actor.id)
+            .options(
+                joinedload(Booking.property, innerjoin=True)
+                .joinedload(Property.building, innerjoin=True)
+                .joinedload(Building.project, innerjoin=True),
+                joinedload(Booking.deal),
+            )
+        ).unique()
+    }
+    if not bookings:
+        return []
+    rows = db.scalars(
+        select(AuditLog)
+        .where(
+            AuditLog.target_type == "booking",
+            AuditLog.target_id.in_(bookings),
+            AuditLog.action.in_(_ACTIVITY_KIND),
+        )
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(limit)
+    )
+    out: list[ActivityOut] = []
+    for row in rows:
+        b = bookings[row.target_id]
+        after = row.after or {}
+        if row.actor_id == actor.id:
+            by = "BUYER"
+        elif row.actor_id is not None and row.actor_id == b.property.owner_id:
+            by = "OWNER"
+        else:
+            by = "BOOKINGBOT"
+        when = after.get("proposed_start_at") or after.get("start_at")
+        out.append(
+            ActivityOut(
+                id=row.id,
+                at=row.created_at,
+                kind=_ACTIVITY_KIND[row.action],
+                by=by,
+                booking_id=b.id,
+                property_id=b.property_id,
+                property_label=to_out(b, actor).property_label,
+                deal_code=b.deal.code,
+                start_at=datetime.fromisoformat(when) if when else None,
+                reason=after.get("reason"),
+                booking_status=b.status,
+                booking_start_at=b.start_at,
+                booking_end_at=b.end_at,
+            )
+        )
+    return out

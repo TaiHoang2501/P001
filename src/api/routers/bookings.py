@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from src.core.deps import AnyActor, CustomerActor, DbSession
-from src.models.booking import BookingCreate, BookingOut, PassCheckOut, RescheduleRequest, ViewingPassOut
+from src.models.booking import ActivityOut, BookingCreate, BookingOut, PassCheckOut, RescheduleRequest, ViewingPassOut
 from src.services import booking_service, pass_service
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -19,6 +19,12 @@ def request_viewing(data: BookingCreate, actor: CustomerActor, db: DbSession) ->
 @router.get("", response_model=list[BookingOut])
 def my_bookings(actor: CustomerActor, db: DbSession) -> list[BookingOut]:
     return booking_service.list_for(db, actor)
+
+
+@router.get("/activity", response_model=list[ActivityOut])
+def my_activity(actor: CustomerActor, db: DbSession) -> list[ActivityOut]:
+    """Important events of the buyer's viewings: requests, the owner's answers, time changes, cancellations."""
+    return booking_service.activity_for(db, actor)
 
 
 @router.get("/{booking_id}", response_model=BookingOut)
