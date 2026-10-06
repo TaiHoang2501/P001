@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Navigate, useNavigate } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, Navigate, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/AuthContext";
 import { startGuest } from "./guest";
-import { ArrowRightIcon, SparkleIcon, UserIcon } from "./icons";
+import { AiBot } from "./AiBot";
+import { ArrowLeftIcon, ArrowRightIcon, CalendarIcon, CheckCircleIcon, SparkleIcon, UserIcon } from "./icons";
 
 /**
  * Asked before the chat: new buyers talk to the agent right away and sign up only when they send a
@@ -25,37 +26,104 @@ export function BuyerStartPage() {
   if (phase !== "done") return <Intro leaving={phase === "out"} onSkip={() => setPhase("done")} />;
 
   return (
-    <div className="mx-auto max-w-3xl animate-rise-in">
-      <section
-        className="rounded-[2rem] bg-slate-50 p-6 shadow-xl shadow-slate-900/5 ring-1 ring-line sm:p-11"
-        aria-labelledby="start-title"
-      >
-        <span className="grid size-14 place-items-center rounded-2xl bg-brand-600 text-white">
-          <UserIcon className="size-7" />
-        </span>
-        <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-brand-600">Trước khi trò chuyện</p>
-        <h1 id="start-title" className="mt-2 text-3xl font-bold tracking-tight sm:text-5xl sm:leading-tight">
+    <div className="mx-auto max-w-5xl animate-rise-in py-4">
+      <Link to="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-ink">
+        <ArrowLeftIcon className="size-4" />
+        Đổi vai trò
+      </Link>
+
+      <div className="mx-auto mt-4 max-w-3xl text-center">
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-600">Trước khi trò chuyện</p>
+        <h1 id="start-title" className="mt-3 font-display text-3xl font-bold leading-tight tracking-tight sm:text-5xl">
           Bạn là người mới hay đã có tài khoản?
         </h1>
+      </div>
 
-        <div className="mt-7 space-y-3.5">
-          <Choice
-            icon={<SparkleIcon className="size-6" />}
-            title="Tôi là người mới"
-            hint="Trò chuyện ngay với Trợ lý AI, chỉ cần đăng ký khi gửi yêu cầu xem nhà"
-            onClick={() => {
-              startGuest();
-              navigate("/buyer/chat");
-            }}
-          />
-          <Choice
-            icon={<UserIcon className="size-6" />}
-            title="Tôi đã có tài khoản"
-            hint="Đăng nhập để tiếp tục và xem lại lịch đã đặt"
-            onClick={() => navigate("/buyer/login", { state: { from: "/buyer/chat" } })}
-          />
-        </div>
-      </section>
+      <div className="mt-9 grid gap-5 md:grid-cols-[1.15fr_1fr]" aria-labelledby="start-title">
+        {/* New buyers: straight into the chat as a guest */}
+        <button
+          type="button"
+          onClick={() => {
+            startGuest();
+            navigate("/buyer/chat");
+          }}
+          className="group relative flex flex-col overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#1463ff] via-[#2f6bff] to-[#5b3df5] p-7 text-left text-white shadow-xl shadow-brand-600/20 transition duration-300 hover:-translate-y-1 hover:shadow-2xl sm:p-9"
+        >
+          <span aria-hidden="true" className="absolute -right-16 -top-16 size-56 rounded-full bg-white/10" />
+          <span aria-hidden="true" className="absolute -bottom-24 -left-12 size-64 rounded-full bg-white/10" />
+          <span className="relative flex items-start justify-between gap-4">
+            <span>
+              <span className="inline-block rounded-full bg-white/20 px-3 py-1 text-xs font-bold">
+                Không cần đăng ký để bắt đầu
+              </span>
+              <span className="mt-3 block font-display text-3xl font-bold">Tôi là người mới</span>
+              <span className="mt-1 block text-white/85">Trò chuyện ngay với Trợ lý AI.</span>
+            </span>
+            <AiBot className="size-20 shrink-0 shadow-xl ring-4 ring-white/20 transition group-hover:scale-105" animated />
+          </span>
+
+          <ol className="relative mt-7 space-y-3">
+            {[
+              ["Kể nhu cầu", "Ngân sách, số phòng ngủ, dự án bạn thích..."],
+              ["Xem căn phù hợp", "Trợ lý gợi ý căn đã xác thực, kèm lý do."],
+              ["Đặt lịch xem", "Chỉ lúc này mới cần số điện thoại để nhận mã OTP."],
+            ].map(([t, d], i) => (
+              <li key={t} className="flex gap-3">
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-white text-sm font-bold text-brand-700">
+                  {i + 1}
+                </span>
+                <span>
+                  <span className="block font-semibold">{t}</span>
+                  <span className="block text-sm text-white/80">{d}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+
+          <span className="relative mt-8 inline-flex items-center gap-2 self-start rounded-full bg-white px-6 py-3 font-bold text-brand-700 shadow-sm">
+            Trò chuyện ngay
+            <ArrowRightIcon className="size-5 transition-transform group-hover:translate-x-1" />
+          </span>
+        </button>
+
+        {/* Returning buyers: sign in to see earlier viewings */}
+        <button
+          type="button"
+          onClick={() => navigate("/buyer/login", { state: { from: "/buyer/chat" } })}
+          className="group flex flex-col rounded-[2rem] bg-white p-7 text-left shadow-xl shadow-slate-900/5 ring-1 ring-line transition duration-300 hover:-translate-y-1 hover:shadow-2xl hover:ring-brand-300 sm:p-9"
+        >
+          <span className="grid size-14 place-items-center rounded-2xl bg-brand-50 text-brand-600">
+            <UserIcon className="size-7" />
+          </span>
+          <span className="mt-5 block font-display text-3xl font-bold">Tôi đã có tài khoản</span>
+          <span className="mt-1 block text-muted">Đăng nhập bằng số điện thoại và mã OTP.</span>
+
+          <span className="mt-7 block space-y-3">
+            {[
+              [CalendarIcon, "Xem lại các lịch xem đã đặt"],
+              [CheckCircleIcon, "Mã QR vào cửa cho lịch đã xác nhận"],
+              [SparkleIcon, "Nhận thông báo khi chủ căn trả lời"],
+            ].map(([Icon, t]) => {
+              const I = Icon as typeof CalendarIcon;
+              return (
+                <span key={t as string} className="flex items-center gap-3 text-sm">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-slate-100 text-ink">
+                    <I className="size-4" />
+                  </span>
+                  {t as string}
+                </span>
+              );
+            })}
+          </span>
+
+          <span className="mt-auto pt-8">
+            <span className="inline-flex items-center gap-2 rounded-full border border-ink/15 px-6 py-3 font-bold transition group-hover:border-brand-600 group-hover:bg-brand-600 group-hover:text-white">
+              Đăng nhập
+              <ArrowRightIcon className="size-5 transition-transform group-hover:translate-x-1" />
+            </span>
+          </span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -87,22 +155,5 @@ function Intro({ leaving, onSkip }: { leaving: boolean; onSkip: () => void }) {
         <span className="relative mt-6 block text-xs text-white/70">Chạm để bỏ qua</span>
       </button>
     </div>
-  );
-}
-
-function Choice({ icon, title, hint, onClick }: { icon: ReactNode; title: string; hint: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex w-full items-center gap-5 rounded-2xl border border-line bg-white px-6 py-5 text-left transition hover:border-brand-500 hover:shadow-md hover:shadow-brand-600/5"
-    >
-      <span className="shrink-0 text-ink group-hover:text-brand-600">{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-lg font-semibold">{title}</span>
-        <span className="mt-0.5 block text-sm text-muted">{hint}</span>
-      </span>
-      <ArrowRightIcon className="size-5 shrink-0 transition-transform group-hover:translate-x-1 group-hover:text-brand-600" />
-    </button>
   );
 }

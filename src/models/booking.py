@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -118,3 +119,27 @@ class RescheduleRequest(BaseModel):
 
 class BookingRejectRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=1000)
+
+
+class ViewingPassOut(BaseModel):
+    """The buyer's entry pass: the QR links to /pass/{token}."""
+
+    token: str
+    valid_from: datetime = Field(description="The guard can let the buyer in from this time...")
+    valid_until: datetime = Field(description="...until this time")
+
+
+class PassCheckOut(BaseModel):
+    """What the guard / reception sees after scanning a pass (no phone numbers)."""
+
+    result: Literal["valid", "too_early", "expired", "cancelled", "invalid"]
+    message: str
+    deal_code: str | None = None
+    unit_code: str | None = None
+    building: str | None = None
+    project: str | None = None
+    floor: int | None = None
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    buyer_name: str | None = None
+    seller_name: str | None = None

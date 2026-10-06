@@ -585,8 +585,8 @@ def seed(db: Session, *, reset: bool = False) -> None:
 
     pw = hash_password(SEED_PASSWORD)
     for uid, role, name, phone, email, status in USERS:
-        # Sellers sign in with phone + OTP only, so they get no password
-        password_hash = None if role == UserRole.OWNER else pw
+        # Buyers and sellers sign in with phone + OTP only; only operators have a password
+        password_hash = pw if role == UserRole.INVESTOR_OPERATOR else None
         db.add(
             User(
                 id=uid, role=role, full_name=name, phone=phone, email=email, status=status, password_hash=password_hash
@@ -636,7 +636,7 @@ def seed(db: Session, *, reset: bool = False) -> None:
         f"Seeded {len(USERS)} users, {len(red_books)} red books, {len(projects)} projects, "
         f"{len(buildings)} buildings, {len(props) + listings} properties."
     )
-    print(f"Buyer/operator seed accounts use password: {SEED_PASSWORD}; sellers sign in with phone + OTP")
+    print(f"Operator seed accounts use password: {SEED_PASSWORD}; buyers and sellers sign in with phone + OTP")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/AuthContext";
+import { BrandLogo } from "../components/Brand";
 import { NotificationBell } from "../components/NotificationBell";
 import { endGuest } from "./guest";
 
@@ -23,14 +24,8 @@ export function BuyerLayout() {
       <header className="sticky top-0 z-20 bg-canvas/95 backdrop-blur">
         <div className="mx-auto flex h-[4.5rem] w-full max-w-[96rem] items-center gap-3 px-4 md:gap-6 md:px-6">
           {/* Back to the start: choose to view homes or to sell one */}
-          <Link to="/" className="flex items-center gap-2.5" title="Chọn vai trò">
-            <span className="grid size-10 place-items-center rounded-full bg-brand-600 font-display text-lg font-bold text-canvas">
-              B
-            </span>
-            <span className="leading-tight">
-              <span className="block font-display text-lg font-bold">BookingBot</span>
-              <span className="hidden text-xs text-muted sm:block">dành cho căn Vinhomes</span>
-            </span>
+          <Link to="/" title="Chọn vai trò">
+            <BrandLogo />
           </Link>
 
           <nav className="flex items-center gap-1" aria-label="Người mua">
@@ -44,9 +39,6 @@ export function BuyerLayout() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2 md:gap-3">
-            <Link to="/login" className="hidden text-sm text-muted hover:text-ink md:inline">
-              Chủ căn?
-            </Link>
             {buyer ? (
               <>
                 {/* Booking updates + what the assistant found while the buyer was away */}
@@ -54,7 +46,7 @@ export function BuyerLayout() {
                 <span className="hidden max-w-40 truncate text-sm font-medium lg:inline">{buyer.full_name}</span>
                 <button
                   type="button"
-                  className="rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold hover:bg-sand"
+                  className="whitespace-nowrap rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold hover:bg-sand"
                   onClick={() => {
                     logout();
                     endGuest();
@@ -65,7 +57,7 @@ export function BuyerLayout() {
                 </button>
               </>
             ) : (
-              <Link to="/buyer/login" className="rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold hover:bg-sand">
+              <Link to="/buyer/login" className="whitespace-nowrap rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold hover:bg-sand">
                 Đăng nhập
               </Link>
             )}

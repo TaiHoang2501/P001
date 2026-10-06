@@ -150,16 +150,16 @@ Giao diện Web sẽ chạy tại: <http://localhost:5173> *(mặc định tự 
 ## 5. Tài khoản & Dữ liệu Demo kiểm thử
 
 ### Phân quyền các cổng Web
-- **Khu Người mua (`/buyer/*`):** Người mới chat trực tiếp với AI; khi đặt lịch chỉ cần nhập SĐT nhận OTP. Người cũ đăng nhập tại `/login` bằng SĐT + OTP để quản lý lịch.
+- **Khu Người mua (`/buyer/*`):** Người mới chat trực tiếp với AI; khi đặt lịch chỉ cần nhập SĐT nhận OTP. Người cũ đăng nhập tại `/buyer/login` chỉ bằng SĐT + OTP (không có email/mật khẩu) để quản lý lịch.
 - **Cổng Chủ nhà (`/owner/*`):** Chỉ đăng nhập bằng SĐT + OTP tại `/login` (lần đầu tự tạo tài khoản). Xác thực quyền sở hữu tại `/owner/verify`.
 - **Cổng Chủ đầu tư (`/operator/login`):** Đăng nhập bằng Email + Mật khẩu quản trị (tách biệt hoàn toàn, không hiển thị trên trang người bán).
 
 ### Danh sách tài khoản demo
-Mật khẩu mặc định cho các tài khoản dùng email: `Password123!`
+Chỉ tài khoản Chủ đầu tư có mật khẩu (mặc định `Password123!`); người mua và chủ căn đăng nhập bằng SĐT + OTP.
 
 | Vai trò | Thông tin đăng nhập | Chức năng kiểm thử nổi bật |
 |---|---|---|
-| **Người mua (Buyer)** | `an.nguyen@gmail.com` hoặc SĐT OTP | Chat tương tác tìm nhà, đặt lịch trực tiếp trên rich card, dời lịch hẹn. |
+| **Người mua (Buyer)** | SĐT: `0901111222` (An), `0902222333` (Bình) | Chat tương tác tìm nhà, đặt lịch trực tiếp trên rich card, dời lịch hẹn. |
 | **Chủ căn hộ (Owner)** | SĐT: `0918765432` (Tuấn)<br>SĐT: `0912345678` (Lan) | Đăng tin, duyệt/từ chối lịch xem nhà, quản lý khung giờ rảnh. |
 | **Chủ đầu tư (Operator)** | `operator@vinhomes.vn` | Duyệt chủ nhà, duyệt hồ sơ Sổ đỏ, giám sát các buổi xem và xử lý hàng đợi ngoại lệ. |
 

@@ -33,7 +33,7 @@ import { BookingsListCard } from "./BookingsListCard";
 import { BookingStatusCard } from "./BookingStatusCard";
 import { chatStorageKey } from "./guest";
 import { GuestSignup } from "./GuestSignup";
-import { SendIcon } from "./icons";
+import { BuildingIcon, PlusIcon, SendIcon, SparkleIcon, UserIcon } from "./icons";
 import { AiBot } from "./AiBot";
 import { HomeCard, HomeDetail, ResultsList } from "./HomeResults";
 import { PropertyDetailCard, useProperty } from "./PropertyDetailCard";
@@ -122,7 +122,7 @@ function statusNews(
           (b.hold_status === "ACTIVE"
             ? " Căn được giữ riêng cho bạn trong khung giờ này."
             : "") +
-          " Mình sẽ nhắc bạn trước buổi xem.",
+          " Mã QR vào cửa đã sẵn sàng trong thẻ theo dõi: đưa cho bảo vệ hoặc lễ tân khi tới xem. Mình sẽ nhắc bạn trước buổi xem.",
       };
     case "REJECTED":
       return {
@@ -165,9 +165,9 @@ const TOOL_STATUS: Record<string, string> = {
 const REFINEMENTS = ["Ưu tiên view hồ", "Tầng cao hơn", "Rẻ hơn một chút"];
 
 const SUGGESTIONS = [
-  "Tôi cần căn 2 phòng ngủ ở Ocean Park, dưới 3,5 tỷ",
-  "Gia đình 4 người, thích view hồ, hướng Đông Nam",
-  "Tìm căn studio để cho thuê",
+  { icon: BuildingIcon, title: "Theo dự án & ngân sách", text: "Tôi cần căn 2 phòng ngủ ở Ocean Park, dưới 3,5 tỷ" },
+  { icon: UserIcon, title: "Cho gia đình", text: "Gia đình 4 người, thích view hồ, hướng Đông Nam" },
+  { icon: SparkleIcon, title: "Để đầu tư", text: "Tìm căn studio để cho thuê" },
 ];
 
 function newId(): string {
@@ -738,40 +738,60 @@ export function BuyerChatPage() {
       }
     >
       <section
-        className="flex h-[calc(100dvh-7rem)] min-h-[30rem] flex-col overflow-hidden rounded-[28px] bg-sand"
+        className="flex h-[calc(100dvh-7rem)] min-h-[30rem] flex-col overflow-hidden rounded-[28px] bg-gradient-to-b from-[#f2f6fe] to-[#eaf0fb] shadow-xl shadow-slate-900/5 ring-1 ring-line"
         aria-label="Chat AI"
       >
-        <header className="flex items-center gap-3 px-5 pb-3 pt-5">
-          <AiBot className="size-12" animated thinking={send.isPending} />
+        <header className="flex items-center gap-3 border-b border-line/70 bg-white/80 px-5 py-3.5 backdrop-blur">
+          <span className="relative">
+            <AiBot className="size-12" animated thinking={send.isPending} />
+            <span
+              className="absolute bottom-0 right-0 size-3.5 rounded-full bg-emerald-500 ring-[3px] ring-white"
+              aria-hidden="true"
+            />
+          </span>
           <div className="min-w-0 flex-1">
-            <h1 className="font-display text-lg font-bold leading-tight">BookingBot</h1>
+            <h1 className="flex items-center gap-2 whitespace-nowrap font-display text-base font-bold leading-tight sm:text-lg">
+              Trợ lý BookingBot
+              {userId === null && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 font-sans text-[11px] font-semibold text-amber-800">
+                  Khách
+                </span>
+              )}
+            </h1>
             <p className="truncate text-xs text-muted">
-              {userId === null ? "Bạn đang dùng với tư cách khách" : "Trợ lý tìm nhà Vinhomes của bạn"}
+              {busy ? (
+                <span className="font-medium text-brand-700">Đang tìm và trả lời…</span>
+              ) : (
+                <>
+                  <span className="text-emerald-600">●</span> Sẵn sàng · chỉ gợi ý căn Vinhomes đã xác thực
+                </>
+              )}
             </p>
           </div>
           {confirmRestart ? (
             <div className="flex items-center gap-2 text-sm" role="group" aria-label="Xác nhận cuộc trò chuyện mới">
               <span className="hidden text-muted sm:inline">Xóa cuộc trò chuyện này?</span>
-              <button type="button" className="rounded-full bg-brand-600 px-3 py-1 font-semibold text-canvas" onClick={restart}>
+              <button type="button" className="rounded-full bg-brand-600 px-3 py-1.5 font-semibold text-white" onClick={restart}>
                 Bắt đầu mới
               </button>
-              <button type="button" className="rounded-full px-3 py-1 font-semibold hover:bg-paper" onClick={() => setConfirmRestart(false)}>
+              <button type="button" className="rounded-full px-3 py-1.5 font-semibold hover:bg-sand" onClick={() => setConfirmRestart(false)}>
                 Hủy
               </button>
             </div>
           ) : (
             <button
               type="button"
-              className="rounded-full px-3 py-1.5 text-sm font-semibold text-brand-700 hover:bg-paper disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-2.5 py-2 text-sm sm:px-3.5 font-semibold text-ink shadow-sm transition hover:border-brand-500 hover:text-brand-700 disabled:opacity-40"
               disabled={!started || busy}
               onClick={() => setConfirmRestart(true)}
             >
-              + Cuộc mới
+              <PlusIcon className="size-4" />
+              <span className="sr-only sm:not-sr-only">Cuộc mới</span>
             </button>
           )}
         </header>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-3" aria-live="polite">
+        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5" aria-live="polite">
           {conversation.messages.map((m, i) => (
             <MessageView
               key={m.id ?? i}
@@ -806,7 +826,7 @@ export function BuyerChatPage() {
                         key={r}
                         type="button"
                         disabled={busy}
-                        className="rounded-full border border-ink/15 px-3.5 py-1.5 text-[13px] font-semibold hover:bg-paper disabled:opacity-50"
+                        className="rounded-full border border-line bg-white px-3.5 py-1.5 text-[13px] font-semibold shadow-sm hover:border-brand-500 hover:text-brand-700 disabled:opacity-50"
                         onClick={() => submit(r)}
                       >
                         {r}
@@ -838,7 +858,7 @@ export function BuyerChatPage() {
             ) : (
               <div className="flex items-center gap-3">
                 <AgentAvatar thinking />
-                <p className="flex items-center gap-1 rounded-3xl rounded-tl-md bg-paper px-4 py-3">
+                <p className="flex items-center gap-1 rounded-3xl rounded-tl-md bg-white shadow-sm ring-1 ring-line px-4 py-3.5">
                   <Dot delay="0ms" />
                   <Dot delay="150ms" />
                   <Dot delay="300ms" />
@@ -854,46 +874,57 @@ export function BuyerChatPage() {
         </div>
 
         {!started && (
-          <div className="px-5 pb-1">
-            <p className="mb-2 text-xs text-muted">Thử một câu mẫu</p>
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTIONS.map((s) => (
+          <div className="px-5 pb-2">
+            <p className="mb-2.5 text-xs font-bold uppercase tracking-[0.14em] text-muted">Gợi ý để bắt đầu</p>
+            <div className="grid gap-2.5 sm:grid-cols-3">
+              {SUGGESTIONS.map(({ icon: Icon, title, text }) => (
                 <button
-                  key={s}
+                  key={text}
                   type="button"
-                  className="rounded-full border border-ink/15 bg-paper/60 px-3.5 py-2 text-left text-[13px] font-semibold hover:bg-paper"
-                  onClick={() => submit(s)}
+                  className="group flex flex-col items-start rounded-2xl bg-white p-3.5 text-left shadow-sm ring-1 ring-line transition hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-300"
+                  onClick={() => submit(text)}
                 >
-                  {s}
+                  <span className="flex items-center gap-2 text-xs font-bold text-brand-700">
+                    <span className="grid size-7 place-items-center rounded-lg bg-brand-50">
+                      <Icon className="size-4" />
+                    </span>
+                    {title}
+                  </span>
+                  <span className="mt-2 block text-[13px] leading-snug text-ink/80 group-hover:text-ink">{text}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="flex items-center gap-3 p-4">
-          <label htmlFor="chat-input" className="sr-only">
-            Tin nhắn
-          </label>
-          <input
-            id="chat-input"
-            ref={inputRef}
-            className="min-w-0 flex-1 rounded-full border border-ink/10 bg-paper px-5 py-3 text-[15px] outline-none placeholder:text-muted focus:border-brand-500"
-            placeholder={started ? "Thêm yêu cầu, ví dụ: tầng cao, view hồ..." : "Mô tả căn bạn đang tìm..."}
-            maxLength={5000}
-            autoFocus
-            autoComplete="off"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-          />
-          <button
-            type="submit"
-            className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-600 text-canvas hover:bg-brand-700 disabled:opacity-40"
-            aria-label="Gửi"
-            disabled={!input.trim() || busy}
-          >
-            <SendIcon className="size-5" />
-          </button>
+        <form onSubmit={onSubmit} className="px-4 pb-3 pt-2">
+          <div className="flex items-center gap-2 rounded-[22px] bg-white p-1.5 pl-5 shadow-lg shadow-slate-900/5 ring-1 ring-line transition focus-within:ring-2 focus-within:ring-brand-500">
+            <label htmlFor="chat-input" className="sr-only">
+              Tin nhắn
+            </label>
+            <input
+              id="chat-input"
+              ref={inputRef}
+              className="min-w-0 flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-muted"
+              placeholder={started ? "Thêm yêu cầu, ví dụ: tầng cao, view hồ..." : "Mô tả căn bạn đang tìm..."}
+              maxLength={5000}
+              autoFocus
+              autoComplete="off"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#1463ff] to-[#5b3df5] text-white shadow-md shadow-brand-600/25 transition hover:brightness-110 disabled:opacity-40 disabled:shadow-none"
+              aria-label="Gửi"
+              disabled={!input.trim() || busy}
+            >
+              <SendIcon className="size-5" />
+            </button>
+          </div>
+          <p className="mt-2 text-center text-[11px] text-muted">
+            Trợ lý chỉ gợi ý căn có trong hệ thống · Số điện thoại của bạn luôn được ẩn với chủ căn
+          </p>
         </form>
       </section>
 
@@ -901,7 +932,7 @@ export function BuyerChatPage() {
         // Desktop: the panel beside the chat. Phones/tablets: home details / booking open full screen;
         // the list of homes is shown inside the chat instead.
         <section
-          className={`animate-rise-in overflow-hidden bg-paper lg:static lg:block lg:h-[calc(100dvh-7rem)] lg:min-h-[30rem] lg:rounded-[28px] ${
+          className={`animate-rise-in overflow-hidden bg-paper lg:static lg:block lg:h-[calc(100dvh-7rem)] lg:min-h-[30rem] lg:rounded-[28px] lg:shadow-xl lg:shadow-slate-900/5 lg:ring-1 lg:ring-line ${
             panel ? "fixed inset-0 z-30" : "hidden"
           }`}
           aria-label={panel ? (panel.kind === "property" ? "Chi tiết căn" : "Chọn lịch xem nhà") : "Kết quả đề xuất"}
@@ -940,7 +971,7 @@ function StreamingText({
     if (onCaughtUp && shown >= text.length) onCaughtUp();
   }, [onCaughtUp, shown, text.length]);
   return (
-    <p className="w-fit max-w-[92%] whitespace-pre-line rounded-3xl rounded-tl-md bg-paper px-4 py-3 text-[15px] leading-relaxed">
+    <p className="w-fit max-w-[92%] whitespace-pre-line rounded-3xl rounded-tl-md bg-white shadow-sm ring-1 ring-line px-4 py-3 text-[15px] leading-relaxed">
       <RichText text={text.slice(0, shown)} />
       <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-brand-500" aria-hidden="true" />
     </p>
@@ -1045,7 +1076,7 @@ function MessageView({
   if (m.role === "user") {
     return (
       <div id={anchor} className="flex scroll-mt-4 justify-end">
-        <p className="max-w-[85%] whitespace-pre-line rounded-3xl rounded-tr-md bg-blush px-4 py-2.5 text-[15px] text-ink">
+        <p className="max-w-[85%] whitespace-pre-line rounded-3xl rounded-tr-md bg-gradient-to-br from-[#1463ff] to-[#5b3df5] text-white shadow-md shadow-brand-600/20 px-4 py-2.5 text-[15px]">
           {m.text}
         </p>
       </div>
@@ -1059,7 +1090,7 @@ function MessageView({
         {m.text && (
           <p
             className={`w-fit max-w-[92%] whitespace-pre-line rounded-3xl rounded-tl-md px-4 py-3 text-[15px] leading-relaxed ${
-              m.role === "error" ? "border border-red-200 bg-red-50 text-red-800" : "bg-paper"
+              m.role === "error" ? "border border-red-200 bg-red-50 text-red-800" : "bg-white shadow-sm ring-1 ring-line"
             }`}
           >
             <RichText text={m.text} />
@@ -1099,7 +1130,7 @@ function MessageView({
                 type="button"
                 disabled={!onPickTime}
                 onClick={() => onPickTime?.(o.start_at)}
-                className="rounded-full border border-ink/15 bg-paper px-3.5 py-1.5 text-[13px] font-semibold hover:border-brand-500 hover:text-brand-700 disabled:opacity-50"
+                className="rounded-full border border-line bg-white px-3.5 py-1.5 text-[13px] font-semibold shadow-sm hover:border-brand-500 hover:text-brand-700 disabled:opacity-50"
               >
                 {formatTimeRange(o.start_at, o.end_at)}
               </button>

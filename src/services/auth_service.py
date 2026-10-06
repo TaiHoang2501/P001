@@ -5,18 +5,16 @@ from src.config import get_settings
 from src.core.actor import Actor
 from src.core.errors import (
     AccountNotFoundError,
-    AlreadyExistsError,
     InvalidCredentialsError,
     PhoneInUseError,
 )
-from src.core.security import create_access_token, hash_password, verify_password
+from src.core.security import create_access_token, verify_password
 from src.db.models import BuyerProfile, SellerProfile, User, UserRole, UserStatus
 from src.models.auth import (
     LoginRequest,
     OtpRequest,
     OtpRequestResponse,
     OtpVerifyRequest,
-    RegisterRequest,
     TokenResponse,
     UserOut,
     is_phone,
@@ -24,33 +22,15 @@ from src.models.auth import (
 from src.services import audit, otp_service
 
 
-def register(db: Session, data: RegisterRequest) -> TokenResponse:
-    conditions = [User.phone == data.phone]
-    if data.email:
-        conditions.append(User.email == data.email.lower())
-    if db.scalar(select(User.id).where(or_(*conditions))) is not None:
-        raise AlreadyExistsError("Phone or email is already registered")
-
-    user = _create_user(
-        db,
-        role=UserRole(data.role),
-        full_name=data.full_name,
-        phone=data.phone,
-        email=data.email.lower() if data.email else None,
-        password_hash=hash_password(data.password),
-    )
-    db.commit()
-    return _token_for(user)
-
-
 def login(db: Session, data: LoginRequest) -> TokenResponse:
     identifier = data.identifier.strip().lower()
     user = db.scalar(select(User).where(or_(User.phone == identifier, User.email == identifier)))
-    # Same error for unknown user, OTP-only account (every seller) and wrong password: don't reveal which accounts exist
+    # Only operators sign in with a password; buyers and sellers use phone + OTP. Same error for an unknown user,
+    # a buyer / seller account and a wrong password: the answer never reveals which accounts exist
     if (
         user is None
         or user.password_hash is None
-        or user.role == UserRole.OWNER
+        or user.role != UserRole.INVESTOR_OPERATOR
         or not verify_password(data.password, user.password_hash)
     ):
         raise InvalidCredentialsError("Wrong phone/email or password")

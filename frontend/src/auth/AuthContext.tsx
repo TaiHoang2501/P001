@@ -5,7 +5,6 @@ import { api, call, setAuthToken, setUnauthorizedHandler } from "../api/client";
 import type { components } from "../api/schema";
 import type { TokenResponse, User } from "../api/types";
 
-type RegisterInput = components["schemas"]["RegisterRequest"];
 type OtpVerifyInput = components["schemas"]["OtpVerifyRequest"];
 type OtpRequestResult = components["schemas"]["OtpRequestResponse"];
 type OtpRequestOptions = { role?: "CUSTOMER" | "OWNER"; purpose?: "login" | "signup" };
@@ -16,7 +15,6 @@ interface AuthState {
   /** Login sends a code to any account; `purpose: "signup"` refuses a phone that already has one (PHONE_IN_USE) */
   requestOtp: (target: string, opts?: OtpRequestOptions) => Promise<OtpRequestResult>;
   verifyOtp: (input: OtpVerifyInput) => Promise<User>;
-  register: (input: RegisterInput) => Promise<User>;
   logout: () => void;
 }
 
@@ -93,18 +91,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [apply],
   );
 
-  const register = useCallback(
-    async (input: RegisterInput) => {
-      const res = await call(api.POST("/api/v1/auth/register", { body: input }));
-      apply(res);
-      return res.user;
-    },
-    [apply],
-  );
-
   const value = useMemo(
-    () => ({ user: session?.user ?? null, login, requestOtp, verifyOtp, register, logout }),
-    [session, login, requestOtp, verifyOtp, register, logout],
+    () => ({ user: session?.user ?? null, login, requestOtp, verifyOtp, logout }),
+    [session, login, requestOtp, verifyOtp, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -12,6 +12,7 @@ import { RequireBuyer, RequireBuyerOrGuest } from "./buyer/shared";
 import { Layout } from "./components/Layout";
 import { EmptyState } from "./components/ui";
 import { LoginPage, OperatorLoginPage } from "./pages/LoginPage";
+import { PassCheckPage } from "./pages/PassCheckPage";
 import { BookingsMonitorPage } from "./pages/operator/BookingsMonitorPage";
 import { EscalationsPage } from "./pages/operator/EscalationsPage";
 import { ModerationPage } from "./pages/operator/ModerationPage";
@@ -63,6 +64,8 @@ export function App() {
     <Routes>
       {/* Entry: "view homes" -> buyer area, "sell a home" -> BookingBot */}
       <Route index element={<RoleSelectPage />} />
+      {/* Scanned at the building's gate from the buyer's QR (public) */}
+      <Route path="pass/:token" element={<PassCheckPage />} />
 
       {/* Buyer area: AI agent chat + viewing requests (wireframe 1.1-1.6) */}
       <Route path="buyer" element={<BuyerLayout />}>

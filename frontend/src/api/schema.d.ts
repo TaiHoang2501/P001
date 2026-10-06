@@ -4,23 +4,6 @@
  */
 
 export interface paths {
-    "/api/v1/auth/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Register */
-        post: operations["register_api_v1_auth_register_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -32,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Login
-         * @description Password login: operators (spec §4.17) and seeded demo accounts.
+         * @description Password login: investor / operator accounts only. Buyers and sellers sign in with phone + OTP.
          */
         post: operations["login_api_v1_auth_login_post"];
         delete?: never;
@@ -249,6 +232,46 @@ export interface paths {
          * @description Ask the owner to move a confirmed viewing; it stays at the old time until the owner confirms.
          */
         post: operations["reschedule_booking_api_v1_bookings__booking_id__reschedule_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bookings/{booking_id}/pass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Viewing Pass
+         * @description The entry QR for a viewing the seller has confirmed (shown to the building's guard or reception).
+         */
+        get: operations["viewing_pass_api_v1_bookings__booking_id__pass_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/passes/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check Pass
+         * @description Scanned at the building: valid now or not, which home, who meets whom. No phone numbers.
+         */
+        get: operations["check_pass_api_v1_passes__token__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1587,6 +1610,37 @@ export interface components {
          */
         OwnershipVerificationStatus: "UNVERIFIED" | "OTP_SENT" | "VERIFIED" | "FAILED";
         /**
+         * PassCheckOut
+         * @description What the guard / reception sees after scanning a pass (no phone numbers).
+         */
+        PassCheckOut: {
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "valid" | "too_early" | "expired" | "cancelled" | "invalid";
+            /** Message */
+            message: string;
+            /** Deal Code */
+            deal_code?: string | null;
+            /** Unit Code */
+            unit_code?: string | null;
+            /** Building */
+            building?: string | null;
+            /** Project */
+            project?: string | null;
+            /** Floor */
+            floor?: number | null;
+            /** Start At */
+            start_at?: string | null;
+            /** End At */
+            end_at?: string | null;
+            /** Buyer Name */
+            buyer_name?: string | null;
+            /** Seller Name */
+            seller_name?: string | null;
+        };
+        /**
          * PendingViewingRequest
          * @description A viewing request the agent tried to send for a guest; the client sends it once the guest has an account.
          */
@@ -1740,26 +1794,6 @@ export interface components {
             matched: components["schemas"]["CriterionMatch"][];
             /** Unmatched */
             unmatched: components["schemas"]["CriterionMatch"][];
-        };
-        /** RegisterRequest */
-        RegisterRequest: {
-            /** Full Name */
-            full_name: string;
-            /**
-             * Phone
-             * @description Vietnamese phone, e.g. 09xxxxxxxx
-             */
-            phone: string;
-            /** Email */
-            email?: string | null;
-            /** Password */
-            password: string;
-            /**
-             * Role
-             * @default CUSTOMER
-             * @constant
-             */
-            role: "CUSTOMER";
         };
         /** RejectRequest */
         RejectRequest: {
@@ -2015,6 +2049,26 @@ export interface components {
          * @enum {string}
          */
         ViewType: "LAKE" | "RIVER" | "PARK" | "POOL" | "CITY" | "INTERNAL";
+        /**
+         * ViewingPassOut
+         * @description The buyer's entry pass: the QR links to /pass/{token}.
+         */
+        ViewingPassOut: {
+            /** Token */
+            token: string;
+            /**
+             * Valid From
+             * Format: date-time
+             * @description The guard can let the buyer in from this time...
+             */
+            valid_from: string;
+            /**
+             * Valid Until
+             * Format: date-time
+             * @description ...until this time
+             */
+            valid_until: string;
+        };
         /** ViewingTimesOut */
         ViewingTimesOut: {
             /** Property Id */
@@ -2045,39 +2099,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    register_api_v1_auth_register_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TokenResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     login_api_v1_auth_login_post: {
         parameters: {
             query?: never;
@@ -2484,6 +2505,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BookingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    viewing_pass_api_v1_bookings__booking_id__pass_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewingPassOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_pass_api_v1_passes__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PassCheckOut"];
                 };
             };
             /** @description Validation Error */

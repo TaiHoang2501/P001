@@ -3,48 +3,39 @@ from sqlalchemy import text
 
 from src.core.security import hash_password
 from src.db.seed import SEED_PASSWORD
-from tests.helpers import CUSTOMER_AN, OWNER_TUAN, SELLER_PHONES, auth
+from tests.helpers import BUYER_PHONES, CUSTOMER_AN, OPERATOR, OWNER_TUAN, SELLER_PHONES, auth
 
 
 @pytest.mark.asyncio
-async def test_register_then_login_by_phone(client):
+async def test_password_sign_up_is_gone(client):
     r = await client.post(
         "/api/v1/auth/register",
         json={"full_name": "Khách Mới", "phone": "0909999888", "password": "secret-pass", "role": "CUSTOMER"},
     )
-    assert r.status_code == 201, r.text
-    assert r.json()["user"]["role"] == "CUSTOMER"
-
-    r = await client.post("/api/v1/auth/login", json={"identifier": "0909999888", "password": "secret-pass"})
-    assert r.status_code == 200
+    assert r.status_code in (404, 405)
 
 
 @pytest.mark.asyncio
-async def test_register_duplicate_phone_rejected(client):
-    r = await client.post(
-        "/api/v1/auth/register",
-        json={"full_name": "Trùng", "phone": "0901111222", "password": "secret-pass"},
+async def test_buyers_cannot_log_in_with_password(client, db):
+    # Even with a password on the account, password login is for operators only
+    db.execute(
+        text("UPDATE users SET password_hash = :h WHERE email = :e"),
+        {"h": hash_password(SEED_PASSWORD), "e": CUSTOMER_AN},
     )
-    assert r.status_code == 409
-    assert r.json()["error"]["code"] == "ALREADY_EXISTS"
+    db.commit()
+    for identifier in (CUSTOMER_AN, BUYER_PHONES[CUSTOMER_AN]):
+        r = await client.post("/api/v1/auth/login", json={"identifier": identifier, "password": SEED_PASSWORD})
+        assert r.status_code == 401
+        assert r.json()["error"]["code"] == "INVALID_CREDENTIALS"
+    headers = await auth(client, CUSTOMER_AN)  # phone + OTP
+    assert (await client.get("/api/v1/auth/me", headers=headers)).json()["role"] == "CUSTOMER"
 
 
 @pytest.mark.asyncio
-async def test_cannot_self_register_as_operator(client):
-    r = await client.post(
-        "/api/v1/auth/register",
-        json={"full_name": "Hacker", "phone": "0909000111", "password": "secret-pass", "role": "INVESTOR_OPERATOR"},
-    )
-    assert r.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_sellers_cannot_sign_up_with_password(client):
-    r = await client.post(
-        "/api/v1/auth/register",
-        json={"full_name": "Chủ Căn", "phone": "0909000222", "password": "secret-pass", "role": "OWNER"},
-    )
-    assert r.status_code == 422
+async def test_operator_logs_in_with_password(client):
+    r = await client.post("/api/v1/auth/login", json={"identifier": OPERATOR, "password": SEED_PASSWORD})
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["role"] == "INVESTOR_OPERATOR"
 
 
 @pytest.mark.asyncio
@@ -75,7 +66,7 @@ async def test_sellers_sign_in_with_phone_not_email(client):
 
 @pytest.mark.asyncio
 async def test_wrong_password(client):
-    r = await client.post("/api/v1/auth/login", json={"identifier": CUSTOMER_AN, "password": "nope"})
+    r = await client.post("/api/v1/auth/login", json={"identifier": OPERATOR, "password": "nope"})
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "INVALID_CREDENTIALS"
 
