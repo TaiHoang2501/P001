@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 
 import { api, call } from "../api/client";
-import type { CriterionMatch, Media, Property, Recommendation } from "../api/types";
+import type { CriterionMatch, Property, Recommendation } from "../api/types";
+import { PhotoViewer } from "../components/PhotoViewer";
 import { ErrorBox, Spinner } from "../components/ui";
 import {
   DIRECTION,
@@ -373,125 +373,5 @@ export function HomeDetail({
         </button>
       </div>
     </div>
-  );
-}
-
-/**
- * Full-screen photo viewer: previous / next buttons (and ← → keys), a counter, thumbnails; Esc or a click
- * outside the photo closes it. Rendered at the page root so it covers the whole window.
- */
-function PhotoViewer({
-  images,
-  start,
-  title,
-  onClose,
-}: {
-  images: Media[];
-  start: number;
-  title: string;
-  onClose: () => void;
-}) {
-  const [index, setIndex] = useState(start);
-  const count = images.length;
-  const go = (step: number) => setIndex((i) => (i + step + count) % count);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowRight") go(1);
-      else if (e.key === "ArrowLeft") go(-1);
-    };
-    document.addEventListener("keydown", onKey);
-    // The page behind must not scroll while the photos are open
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = overflow;
-    };
-  }, []);
-
-  const arrow =
-    "absolute top-1/2 grid size-12 -translate-y-1/2 place-items-center rounded-full bg-white/15 text-3xl text-white backdrop-blur transition hover:bg-white/30 md:size-14";
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/90 animate-rise-in"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Ảnh căn ${title}`}
-      onClick={onClose}
-    >
-      <div className="flex items-center justify-between px-5 py-4 text-white" onClick={(e) => e.stopPropagation()}>
-        <p className="font-semibold">
-          Căn {title} <span className="ml-2 text-sm text-white/70">{index + 1} / {count}</span>
-        </p>
-        <button
-          type="button"
-          onClick={onClose}
-          className="grid size-10 place-items-center rounded-full text-2xl hover:bg-white/15"
-          aria-label="Đóng"
-          autoFocus
-        >
-          ✕
-        </button>
-      </div>
-
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-16 md:px-24">
-        <img
-          key={images[index].url}
-          src={images[index].url}
-          alt={`Ảnh ${index + 1} của căn ${title}`}
-          className="max-h-full max-w-full animate-rise-in rounded-xl object-contain shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        />
-        {count > 1 && (
-          <>
-            <button
-              type="button"
-              className={`${arrow} left-3 md:left-6`}
-              aria-label="Ảnh trước"
-              onClick={(e) => {
-                e.stopPropagation();
-                go(-1);
-              }}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              className={`${arrow} right-3 md:right-6`}
-              aria-label="Ảnh sau"
-              onClick={(e) => {
-                e.stopPropagation();
-                go(1);
-              }}
-            >
-              ›
-            </button>
-          </>
-        )}
-      </div>
-
-      {count > 1 && (
-        <div className="flex justify-center gap-2 overflow-x-auto px-5 py-4" onClick={(e) => e.stopPropagation()}>
-          {images.map((m, i) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setIndex(i)}
-              aria-label={`Ảnh ${i + 1}`}
-              aria-current={i === index}
-              className={`h-14 w-20 shrink-0 overflow-hidden rounded-lg ring-2 transition ${
-                i === index ? "opacity-100 ring-white" : "opacity-50 ring-transparent hover:opacity-80"
-              }`}
-            >
-              <img src={m.url} alt="" className="h-full w-full object-cover" />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>,
-    document.body,
   );
 }

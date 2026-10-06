@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { Link } from "react-router";
 
 import type { OwnershipVerification, Property } from "../../api/types";
 import { Spinner } from "../../components/ui";
 import { formatArea, formatDateTime, formatVnd, PROPERTY_STATUS } from "../../lib/format";
 import { imagesOf, PropertyImage } from "../../buyer/shared";
+import { PhotoViewer, PropertyPhotoInfo } from "../../components/PhotoViewer";
 import { useOwnerProperties, useRedBooks } from "./ownerData";
 
 /**
@@ -90,11 +92,38 @@ function BookFacts({ book: b }: { book: OwnershipVerification }) {
 
 /** A red book behind a listing: the home's photo, what it is and how the listing stands. */
 function ListedBook({ book: b, listing: p }: { book: OwnershipVerification; listing?: Property }) {
-  const cover = p ? imagesOf(p)[0]?.url : undefined;
+  const images = p ? imagesOf(p) : [];
+  const [viewer, setViewer] = useState<number | null>(null);
   return (
     <li className="flex flex-col overflow-hidden rounded-[28px] bg-paper">
       <div className="relative">
-        <PropertyImage src={cover} alt={p ? `Ảnh căn ${p.unit_code}` : ""} className="aspect-[16/9] w-full" />
+        <button
+          type="button"
+          className="group block w-full overflow-hidden disabled:cursor-default"
+          disabled={images.length === 0}
+          onClick={() => setViewer(0)}
+          aria-label={p ? `Xem ${images.length} ảnh căn ${p.unit_code}` : "Ảnh căn"}
+        >
+          <PropertyImage
+            src={images[0]?.url}
+            alt={p ? `Ảnh căn ${p.unit_code}` : ""}
+            className="aspect-[16/9] w-full transition duration-300 group-hover:scale-105"
+          />
+        </button>
+        {images.length > 0 && (
+          <span className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold text-white">
+            ⤢ {images.length} ảnh
+          </span>
+        )}
+        {p && viewer !== null && (
+          <PhotoViewer
+            images={images}
+            start={viewer}
+            title={p.unit_code}
+            info={<PropertyPhotoInfo property={p} />}
+            onClose={() => setViewer(null)}
+          />
+        )}
         {p && (
           <span className="absolute left-3 top-3 rounded-full bg-leaf px-3 py-1 text-xs font-semibold text-leaf-ink shadow-sm">
             Đã đăng · {PROPERTY_STATUS[p.status].toLowerCase()}

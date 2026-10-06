@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { api, call } from "../../api/client";
@@ -6,6 +7,7 @@ import type { Property } from "../../api/types";
 import { ErrorBox, Notice, Spinner } from "../../components/ui";
 import { formatArea, formatVnd, PROPERTY_STATUS } from "../../lib/format";
 import { imagesOf, PropertyImage } from "../../buyer/shared";
+import { PhotoViewer, PropertyPhotoInfo } from "../../components/PhotoViewer";
 import { usableRedBooks, useOwnerOverview, useOwnerProperties, useRedBooks } from "./ownerData";
 import { RedBookList } from "./RedBooks";
 
@@ -155,6 +157,7 @@ function ListingCard({
   onSold: () => void;
 }) {
   const images = imagesOf(p);
+  const [viewer, setViewer] = useState<number | null>(null);
   return (
     <li
       ref={(el) => {
@@ -162,14 +165,33 @@ function ListingCard({
       }}
       className={`flex flex-col gap-5 rounded-[28px] bg-paper p-4 sm:flex-row ${highlighted ? "ring-2 ring-brand-500" : ""}`}
     >
-      <div className="relative shrink-0">
-        <PropertyImage src={images[0]?.url} alt={`Ảnh căn ${p.unit_code}`} className="h-44 w-full rounded-3xl sm:h-40 sm:w-48" />
+      <button
+        type="button"
+        className="group relative block shrink-0 overflow-hidden rounded-3xl disabled:cursor-default"
+        disabled={images.length === 0}
+        onClick={() => setViewer(0)}
+        aria-label={`Xem ${images.length} ảnh căn ${p.unit_code}`}
+      >
+        <PropertyImage
+          src={images[0]?.url}
+          alt={`Ảnh căn ${p.unit_code}`}
+          className="h-44 w-full rounded-3xl transition duration-300 group-hover:scale-105 sm:h-40 sm:w-48"
+        />
         {images.length > 0 && (
-          <span className="absolute bottom-2 left-2 rounded-full bg-black/50 px-2 py-0.5 text-[11px] font-semibold text-white">
-            {images.length} ảnh
+          <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white">
+            ⤢ {images.length} ảnh
           </span>
         )}
-      </div>
+      </button>
+      {viewer !== null && (
+        <PhotoViewer
+          images={images}
+          start={viewer}
+          title={p.unit_code}
+          info={<PropertyPhotoInfo property={p} />}
+          onClose={() => setViewer(null)}
+        />
+      )}
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
