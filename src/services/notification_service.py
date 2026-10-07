@@ -115,6 +115,31 @@ def viewing_rejected(db: Session, booking: Booking, reason: str) -> None:
     )
 
 
+def viewing_superseded(db: Session, booking: Booking, alternatives: list[datetime]) -> None:
+    """The owner confirmed another buyer at an overlapping time: this request can no longer happen.
+
+    Sent as the assistant's message, so it shows in the buyer's chat with other times to pick from.
+    """
+    label = _label(booking.property)
+    others = ", ".join(_when(t) for t in alternatives)
+    notify(
+        db,
+        booking.customer_id,
+        "VIEWING_SUPERSEDED",
+        "Giờ xem bạn chọn không còn trống",
+        f"Chủ căn {label} đã nhận một lịch xem khác lúc {_when(booking.start_at)}, nên yêu cầu của bạn vào giờ "
+        "đó không thực hiện được. "
+        + (
+            f"Giờ còn trống: {others}. Bạn muốn mình đặt lại giờ nào?"
+            if others
+            else "Bạn muốn mình tìm giờ khác hoặc căn tương tự không?"
+        ),
+        booking=booking,
+        # The chat offers "find another time for <unit>" from these
+        payload={"property_id": booking.property_id, "unit_code": booking.property.unit_code},
+    )
+
+
 def viewing_cancelled(db: Session, booking: Booking, actor: Actor, *, hold_released: bool) -> None:
     label, when = _label(booking.property), _when(booking.start_at)
     if actor.id != booking.customer_id:
@@ -204,8 +229,8 @@ def listing_reviewed(db: Session, prop: Property, *, approved: bool, reason: str
             db,
             prop.owner_id,
             "LISTING_REJECTED",
-            "Tin đăng bị từ chối",
-            f"{_label(prop)}: {reason}",
+            "Tin đăng chưa được duyệt",
+            f"{_label(prop)}. Lý do: {reason}. Sửa lại trong tab “Căn đang yêu cầu duyệt” rồi gửi duyệt lại.",
             payload={"property_id": prop.id},
         )
 

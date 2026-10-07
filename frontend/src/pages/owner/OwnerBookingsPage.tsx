@@ -56,6 +56,23 @@ function duration(ms: number): string {
 }
 
 /** "S1.08-2410" from "Vinhomes Ocean Park 1 · The Sapphire 1 - S1.08 · S1.08-2410" */
+/** The time an answer would take: the new time asked for, or the viewing's own time. */
+function askedWindow(b: Booking): [number, number] {
+  return b.status === "RESCHEDULE_REQUESTED" && b.proposed_start_at && b.proposed_end_at
+    ? [Date.parse(b.proposed_start_at), Date.parse(b.proposed_end_at)]
+    : [Date.parse(b.start_at), Date.parse(b.end_at)];
+}
+
+/** Other unanswered requests (on any of the seller's homes) that confirming `b` would close. */
+function overlapping(b: Booking, pending: Booking[]): Booking[] {
+  const [start, end] = askedWindow(b);
+  return pending.filter((o) => {
+    if (o.id === b.id) return false;
+    const [s, e] = askedWindow(o);
+    return s < end && e > start;
+  });
+}
+
 function unitOf(b: Booking): string {
   return b.property_label.split(" · ").at(-1) ?? b.property_label;
 }
@@ -218,6 +235,7 @@ export function OwnerBookingsPage() {
               booking={selected}
               responseHours={responseHours}
               now={now}
+              clashes={overlapping(selected, lists.pending)}
             />
           ) : (
             <div className="grid h-full min-h-72 place-items-center p-8 text-center text-muted">
@@ -342,10 +360,13 @@ function RequestDetail({
   booking: b,
   responseHours,
   now,
+  clashes,
 }: {
   booking: Booking;
   responseHours?: number;
   now: number;
+  /** Other requests at an overlapping time: confirming this one closes them */
+  clashes: Booking[];
 }) {
   const queryClient = useQueryClient();
   const [rejecting, setRejecting] = useState(false);
@@ -550,6 +571,14 @@ function RequestDetail({
         <div className="flex flex-wrap items-center gap-3 border-t border-line bg-sand/60 px-6 py-4 md:px-8">
           {answerable && (
             <>
+              {clashes.length > 0 && (
+                <p className="basis-full rounded-2xl bg-amber-50 px-4 py-2.5 text-sm text-amber-900 ring-1 ring-amber-200">
+                  <strong>Trùng giờ với {clashes.length} yêu cầu khác</strong> (
+                  {clashes.map((c) => `${buyerName(c)} · ${unitOf(c)}`).join("; ")}). Xác nhận người này sẽ tự
+                  đóng {clashes.length > 1 ? "các yêu cầu đó" : "yêu cầu đó"}, và Trợ lý AI sẽ báo người mua chọn giờ
+                  khác.
+                </p>
+              )}
               <button
                 type="button"
                 className="rounded-full bg-brand-600 px-6 py-3 font-display text-base font-bold text-canvas shadow-sm hover:bg-brand-700 disabled:opacity-50"

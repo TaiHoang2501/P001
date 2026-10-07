@@ -8,6 +8,19 @@ import { imagesOf, PropertyImage } from "../../buyer/shared";
 import { PhotoViewer, PropertyPhotoInfo } from "../../components/PhotoViewer";
 import { useOwnerProperties, useRedBooks } from "./ownerData";
 
+/** Listing status colours: green on sale, amber waiting for the investor, red sent back, grey off sale. */
+const BADGE: Record<Property["status"], string> = {
+  AVAILABLE: "bg-leaf text-leaf-ink",
+  PENDING_REVIEW: "bg-amber-100 text-amber-900 ring-1 ring-amber-300",
+  DRAFT: "bg-amber-100 text-amber-900 ring-1 ring-amber-300",
+  REJECTED: "bg-red-100 text-red-800 ring-1 ring-red-300",
+  WITHDRAWN: "bg-sand text-muted",
+  SOLD: "bg-sand text-muted",
+};
+
+/** 1 for a listing not approved yet (shown after the ones on sale), else 0. */
+const waiting = (p?: Property) => (p && ["PENDING_REVIEW", "REJECTED", "DRAFT"].includes(p.status) ? 1 : 0);
+
 /**
  * The seller's verified red books as cards, in two groups: homes already listed (with their photo, price and
  * listing status) and red books not listed yet (a way to list them now).
@@ -38,9 +51,12 @@ export function RedBookList() {
         <section>
           <GroupTitle title="Đã đăng bán" count={listed.length} hint="Sổ đỏ đã gắn với tin đăng" />
           <ul className="grid gap-4 sm:grid-cols-2">
-            {listed.map((b) => (
-              <ListedBook key={b.id} book={b} listing={byId.get(b.property_id!)} />
-            ))}
+            {/* On sale first; listings still waiting for the investor (or sent back) at the end */}
+            {[...listed]
+              .sort((a, b) => waiting(byId.get(a.property_id!)) - waiting(byId.get(b.property_id!)))
+              .map((b) => (
+                <ListedBook key={b.id} book={b} listing={byId.get(b.property_id!)} />
+              ))}
           </ul>
         </section>
       )}
@@ -125,7 +141,7 @@ function ListedBook({ book: b, listing: p }: { book: OwnershipVerification; list
           />
         )}
         {p && (
-          <span className="absolute left-3 top-3 rounded-full bg-leaf px-3 py-1 text-xs font-semibold text-leaf-ink shadow-sm">
+          <span className={`absolute left-3 top-3 rounded-full px-3 py-1 text-xs font-semibold shadow-sm ${BADGE[p.status]}`}>
             Đã đăng · {PROPERTY_STATUS[p.status].toLowerCase()}
           </span>
         )}
@@ -183,6 +199,12 @@ function UnlistedBook({ book: b }: { book: OwnershipVerification }) {
           {b.red_book_holder_name}
           {b.verified_at && ` · xác thực ${formatDateTime(b.verified_at)}`}
         </p>
+        {b.unit && (
+          <p className="truncate text-sm">
+            Căn <strong>{b.unit.unit_code}</strong> · {b.unit.building_name} · {formatArea(b.unit.area_m2)} ·{" "}
+            {b.unit.bedrooms === 0 ? "Studio" : `${b.unit.bedrooms} PN`} · Tầng {b.unit.floor}
+          </p>
+        )}
         <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-leaf-ink">
           <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
             <path d="M5 12.5l4.5 4.5L19 7.5" strokeLinecap="round" strokeLinejoin="round" />

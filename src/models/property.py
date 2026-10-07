@@ -36,10 +36,12 @@ class PropertyBase(BaseModel):
 class PropertyCreate(PropertyBase):
     # A red book the seller verified (red book + OTP) and no other listing uses yet
     verification_id: int
+    # Keys of photos uploaded with POST /owner/media, in display order (the first is the cover)
+    photos: list[str] = Field(default_factory=list, max_length=10)
 
 
 class PropertyUpdate(BaseModel):
-    """Partial update; only allowed while the listing is DRAFT or REJECTED."""
+    """Partial update; allowed while the listing is a draft, waiting for review, rejected or withdrawn."""
 
     unit_code: str | None = Field(default=None, min_length=1, max_length=50)
     property_type: PropertyType | None = None
@@ -65,6 +67,14 @@ class MediaCreate(BaseModel):
     is_public: bool = True
 
 
+class MediaUploadOut(BaseModel):
+    """An uploaded photo: attach it to a listing with `key` (PropertyCreate.photos or MediaCreate.s3_key)."""
+
+    key: str
+    url: str
+    content_type: str
+
+
 class MediaOut(BaseModel):
     id: int
     kind: MediaKind
@@ -85,6 +95,10 @@ class PropertyOut(PropertyBase):
     building_name: str
     city: str
     rejection_reason: str | None = None
+    # Ownership proven by a red book the seller verified (red book + OTP against the investor's records)
+    verified_red_book: bool = False
+    # Its code, for the seller and the investor (not shown to buyers)
+    red_book_code: str | None = None
     created_at: datetime
     # Buyers only get public media; the owner and operators also see private documents
     media: list[MediaOut] = Field(default_factory=list)

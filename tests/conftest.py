@@ -36,7 +36,7 @@ from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 from alembic import command  # noqa: E402
-from src.db.seed import seed  # noqa: E402
+from src.db.seed import ensure_red_book_units, seed  # noqa: E402
 from src.db.session import get_engine, get_sessionmaker  # noqa: E402
 from src.main import app  # noqa: E402
 
@@ -72,6 +72,8 @@ def seeded_db(_migrated_database):
     """Fresh demo data for every test (users 1-3 customers, 4-6 owners, 7-8 operators)."""
     with get_sessionmaker()() as db:
         seed(db, reset=True)
+        # Like a deployed demo database: every listing backed by a verified red book with the home's facts
+        ensure_red_book_units(db)
     yield
 
 

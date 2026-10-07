@@ -4,7 +4,8 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, call } from "../../api/client";
 import type { Direction, Furnishing, LegalStatus, Property, PropertyCreate, PropertyType, ViewType } from "../../api/types";
-import { MediaManager } from "../../components/MediaManager";
+import { imagesOf } from "../../buyer/shared";
+import { PhotoPicker, type Photo } from "../../components/PhotoPicker";
 import { ErrorBox, Notice, PageHeader, Spinner } from "../../components/ui";
 import { DIRECTION, FURNISHING, LEGAL, PROPERTY_TYPE, VIEW } from "../../lib/format";
 import { usableRedBooks, useRedBooks } from "./ownerData";
@@ -82,17 +83,32 @@ function toPayload(f: FormState): PropertyCreate {
     furnishing: f.furnishing,
     legal_status: f.legal_status,
     description: f.description.trim(),
+    photos: [],
   };
 }
 
-/** Create (/owner/properties/new) or edit (/owner/properties/:id/edit) a listing. */
-export function PropertyFormPage() {
+// Statuses in which the seller may still change the listing (a listing waiting for review included)
+const EDITABLE = ["DRAFT", "PENDING_REVIEW", "REJECTED", "WITHDRAWN"];
+// Saving these sends the listing (back) to the investor for review
+const SEND_ON_SAVE = ["DRAFT", "REJECTED"];
+
+/** Create (/owner/properties/new, "Đăng tin bán") or edit (/owner/properties/:id/edit) a listing. */
+export function PropertyFormPage({
+  propertyId,
+  onClose,
+}: {
+  /** Inline editor (inside the listing's card on "Căn đang yêu cầu duyệt") instead of the page from the URL */
+  propertyId?: number;
+  onClose?: () => void;
+} = {}) {
   const params = useParams();
-  const editingId = params.id ? Number(params.id) : null;
+  const inline = propertyId !== undefined;
+  const editingId = propertyId ?? (params.id ? Number(params.id) : null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState<FormState>(() => ({ ...EMPTY, verification_id: searchParams.get("verification") ?? "" }));
+  const [photos, setPhotos] = useState<Photo[]>([]);
   const redBooks = useRedBooks();
   const usable = usableRedBooks(redBooks.data);
 
@@ -104,8 +120,34 @@ export function PropertyFormPage() {
   });
 
   useEffect(() => {
-    if (existing.data) setForm(fromProperty(existing.data));
+    if (!existing.data) return;
+    setForm(fromProperty(existing.data));
+    setPhotos(
+      imagesOf(existing.data)
+        .filter((m) => m.kind === "IMAGE")
+        .map((m) => ({ key: m.url, url: m.url, mediaId: m.id })),
+    );
   }, [existing.data]);
+
+  // The home on the chosen red book (investor's data): fills the facts the seller cannot change
+  const book = editingId === null ? usable.find((b) => String(b.id) === form.verification_id) : undefined;
+  const unit = book?.unit ?? null;
+  useEffect(() => {
+    if (!unit) return;
+    setForm((f) => ({
+      ...f,
+      projectCode: unit.project_code,
+      building_id: String(unit.building_id),
+      unit_code: unit.unit_code,
+      property_type: unit.property_type,
+      bedrooms: String(unit.bedrooms),
+      bathrooms: String(unit.bathrooms),
+      area_m2: String(unit.area_m2),
+      floor: String(unit.floor),
+      direction: unit.direction,
+      legal_status: "PINK_BOOK",
+    }));
+  }, [unit]);
 
   // Drop a preselected red book (?verification=) that is not usable, e.g. already backing a listing
   useEffect(() => {
@@ -115,16 +157,44 @@ export function PropertyFormPage() {
   }, [redBooks.data, usable, form.verification_id]);
 
   const save = useMutation({
-    mutationFn: (payload: PropertyCreate) => {
-      if (editingId === null) return call(api.POST("/api/v1/owner/properties", { body: payload }));
-      const { building_id: _building, verification_id: _redBook, ...changes } = payload;
-      return call(api.PATCH("/api/v1/owner/properties/{property_id}", { params: { path: { property_id: editingId } }, body: changes }));
+    mutationFn: async (payload: PropertyCreate): Promise<Property> => {
+      // "Đăng tin bán": the listing, its photos and the request for review in one step
+      if (editingId === null)
+        return call(
+          api.POST("/api/v1/owner/properties", { body: { ...payload, photos: photos.map((p) => p.key) } }),
+        );
+      const path = { params: { path: { property_id: editingId } } };
+      const { building_id: _building, verification_id: _redBook, photos: _p, ...changes } = payload;
+      let saved = await call(api.PATCH("/api/v1/owner/properties/{property_id}", { ...path, body: changes }));
+      // Photos: drop the removed ones, attach the new uploads
+      const kept = new Set(photos.map((p) => p.mediaId).filter(Boolean));
+      for (const m of imagesOf(existing.data!).filter((m) => m.kind === "IMAGE" && !kept.has(m.id)))
+        saved = await call(
+          api.DELETE("/api/v1/owner/properties/{property_id}/media/{media_id}", {
+            params: { path: { property_id: editingId, media_id: m.id } },
+          }),
+        );
+      for (const [i, p] of photos.entries())
+        if (!p.mediaId)
+          saved = await call(
+            api.POST("/api/v1/owner/properties/{property_id}/media", {
+              ...path,
+              body: { kind: "IMAGE", s3_key: p.key, content_type: "image/jpeg", sort_order: i, is_public: true },
+            }),
+          );
+      if (SEND_ON_SAVE.includes(saved.status))
+        saved = await call(api.POST("/api/v1/owner/properties/{property_id}/submit", path));
+      return saved;
     },
     onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ["owner-properties"] });
       queryClient.invalidateQueries({ queryKey: ["property", editingId] });
-      // A new draft continues on its edit page so the owner can add photos and the ownership document
-      navigate(editingId === null ? `/owner/properties/${saved.id}/edit` : "/owner");
+      // The red book now backs a listing
+      queryClient.invalidateQueries({ queryKey: ["owner-ownership"] });
+      // Listings waiting for review (or rejected) are on the "Căn đang yêu cầu duyệt" tab
+      queryClient.invalidateQueries({ queryKey: ["owner-overview"] });
+      if (inline) onClose?.();
+      else navigate(saved.status === "WITHDRAWN" ? `/owner?property=${saved.id}` : `/owner?tab=review&property=${saved.id}`);
     },
   });
 
@@ -132,7 +202,24 @@ export function PropertyFormPage() {
   if (existing.isError) return <ErrorBox error={existing.error} />;
   // A new listing must be backed by a verified red book the seller has not used yet
   const needsRedBook = editingId === null && redBooks.isSuccess && usable.length === 0;
-  const locked = needsRedBook || (existing.data !== undefined && !["DRAFT", "REJECTED", "WITHDRAWN"].includes(existing.data.status));
+  const status = existing.data?.status;
+  const locked = needsRedBook || (status !== undefined && !EDITABLE.includes(status));
+  const needsPhoto = editingId === null && photos.length === 0;
+  // Facts from the red book are shown, not typed (an older red book without them falls back to the inputs)
+  const fromBook = editingId === null ? unit !== null : existing.data?.verified_red_book === true;
+  const project = projects.data?.find((p) => p.code === form.projectCode);
+  const facts: [string, string][] = [
+    ["Dự án", unit?.project_name ?? existing.data?.project_name ?? project?.name ?? ""],
+    ["Tòa", unit?.building_name ?? existing.data?.building_name ?? ""],
+    ["Mã căn", form.unit_code],
+    ["Loại hình", PROPERTY_TYPE[form.property_type]],
+    ["Diện tích", `${form.area_m2.replace(".", ",")} m²`],
+    ["Phòng ngủ", form.bedrooms === "0" ? "Studio" : `${form.bedrooms} PN`],
+    ["Phòng tắm", `${form.bathrooms} WC`],
+    ["Tầng", form.floor],
+    ["Hướng", DIRECTION[form.direction]],
+    ["Pháp lý", LEGAL[form.legal_status]],
+  ];
 
   const buildings = projects.data?.find((p) => p.code === form.projectCode)?.buildings ?? [];
   const set =
@@ -146,14 +233,27 @@ export function PropertyFormPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <Link to="/owner" className="text-sm text-muted hover:text-ink">
-        ← Căn của tôi
-      </Link>
-      <PageHeader
-        title={editingId === null ? "Đăng căn mới" : "Sửa tin đăng"}
-        subtitle="Tin được lưu dưới dạng bản nháp. Thêm ảnh rồi bấm “Gửi duyệt” để Chủ đầu tư kiểm duyệt."
-      />
+    <div className={inline ? "" : "mx-auto max-w-3xl"}>
+      {!inline && (
+        <>
+        <Link to="/owner" className="text-sm text-muted hover:text-ink">
+          ← Căn của tôi
+        </Link>
+        <PageHeader
+          title={editingId === null ? "Đăng căn mới" : "Sửa tin đăng"}
+          subtitle={
+            editingId === null
+              ? "Điền thông tin, thêm ảnh rồi bấm “Đăng tin bán”: tin được gửi Chủ đầu tư duyệt. Trong lúc chờ duyệt bạn vẫn sửa được."
+              : status === "PENDING_REVIEW"
+                ? "Tin đang chờ Chủ đầu tư duyệt. Sửa chỗ nhập sai rồi bấm “Lưu thay đổi”; tin vẫn ở hàng chờ duyệt."
+                : "Sửa thông tin và ảnh của căn."
+          }
+        />
+        </>
+      )}
+      {!inline && status === "REJECTED" && existing.data?.rejection_reason && (
+        <Notice tone="warning">Chủ đầu tư chưa duyệt tin: {existing.data.rejection_reason}. Sửa lại rồi gửi duyệt lại.</Notice>
+      )}
       {needsRedBook && (
         <Notice tone="warning">
           Bạn cần xác thực sổ đỏ của căn trước khi đăng bán.{" "}
@@ -162,9 +262,9 @@ export function PropertyFormPage() {
           </Link>
         </Notice>
       )}
-      {locked && !needsRedBook && <Notice tone="warning">Tin đã gửi duyệt hoặc đang bán nên không thể sửa.</Notice>}
+      {locked && !needsRedBook && <Notice tone="warning">Tin đang bán hoặc đã bán nên không thể sửa.</Notice>}
 
-      <form onSubmit={onSubmit} className="card mt-4 space-y-5 p-5">
+      <form onSubmit={onSubmit} className={inline ? "space-y-5" : "card mt-4 space-y-5 p-5"}>
         {save.isError && <ErrorBox error={save.error} />}
 
         <fieldset disabled={locked} className="space-y-5">
@@ -175,11 +275,39 @@ export function PropertyFormPage() {
                 {usable.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.red_book_code} · {b.red_book_holder_name}
+                    {b.unit ? ` · căn ${b.unit.unit_code} (${String(b.unit.area_m2).replace(".", ",")} m²)` : ""}
                   </option>
                 ))}
               </select>
             </Field>
           )}
+          {fromBook ? (
+            <section className="rounded-2xl bg-leaf/60 p-4" aria-label="Thông tin căn theo sổ đỏ">
+              <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-leaf-ink">
+                ✓ Thông tin căn theo sổ đỏ{book ? ` ${book.red_book_code}` : existing.data?.red_book_code ? ` ${existing.data.red_book_code}` : ""}
+                <span className="font-normal text-muted">· dữ liệu của Chủ đầu tư, không cần nhập và không sửa được</span>
+              </p>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-5">
+                {facts.map(([label, value]) => (
+                  <div key={label} className="min-w-0">
+                    <dt className="text-xs text-muted">{label}</dt>
+                    <dd className="font-semibold leading-snug">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ) : (
+            editingId === null &&
+            !book && (
+              <p className="rounded-2xl bg-paper px-4 py-3 text-sm text-muted">
+                Chọn sổ đỏ ở trên: thông tin căn (dự án, tòa, diện tích, số phòng, hướng…) sẽ được điền theo dữ liệu
+                của Chủ đầu tư.
+              </p>
+            )
+          )}
+
+          {!fromBook && (editingId !== null || book) && (
+            <>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Dự án" id="project">
               <select
@@ -214,9 +342,6 @@ export function PropertyFormPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-4">
-            <Field label="Giá bán (tỷ VNĐ)" id="price">
-              <input id="price" className="input" required inputMode="decimal" placeholder="3,2" value={form.price_ty} onChange={set("price_ty")} />
-            </Field>
             <Field label="Diện tích (m²)" id="area">
               <input id="area" className="input" required inputMode="decimal" placeholder="68,5" value={form.area_m2} onChange={set("area_m2")} />
             </Field>
@@ -235,14 +360,23 @@ export function PropertyFormPage() {
             <Field label="Hướng" id="direction">
               <Select id="direction" value={form.direction} onChange={set("direction")} options={DIRECTION} />
             </Field>
+            <Field label="Pháp lý" id="legal">
+              <Select id="legal" value={form.legal_status} onChange={set("legal_status")} options={LEGAL} />
+            </Field>
+          </div>
+
+            </>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Giá bán (tỷ VNĐ)" id="price">
+              <input id="price" className="input" required inputMode="decimal" placeholder="3,2" value={form.price_ty} onChange={set("price_ty")} />
+            </Field>
             <Field label="View" id="view">
               <Select id="view" value={form.view} onChange={set("view")} options={VIEW} />
             </Field>
             <Field label="Nội thất" id="furnishing">
               <Select id="furnishing" value={form.furnishing} onChange={set("furnishing")} options={FURNISHING} />
-            </Field>
-            <Field label="Pháp lý" id="legal">
-              <Select id="legal" value={form.legal_status} onChange={set("legal_status")} options={LEGAL} />
             </Field>
           </div>
 
@@ -251,21 +385,30 @@ export function PropertyFormPage() {
           </Field>
         </fieldset>
 
-        <div className="flex justify-end gap-2">
-          <Link to="/owner" className="btn-secondary">
-            Hủy
-          </Link>
-          <button type="submit" className="btn-primary" disabled={locked || save.isPending}>
-            {save.isPending ? "Đang lưu..." : "Lưu bản nháp"}
+        <PhotoPicker photos={photos} onChange={setPhotos} disabled={locked} />
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {needsPhoto && !locked && <p className="mr-auto text-sm text-muted">Thêm ít nhất 1 ảnh để đăng tin.</p>}
+          {inline ? (
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Hủy
+            </button>
+          ) : (
+            <Link to={editingId === null ? "/owner" : "/owner?tab=review"} className="btn-secondary">
+              Hủy
+            </Link>
+          )}
+          <button type="submit" className="btn-primary" disabled={locked || needsPhoto || save.isPending}>
+            {save.isPending
+              ? "Đang lưu..."
+              : editingId === null
+                ? "Đăng tin bán"
+                : status && SEND_ON_SAVE.includes(status)
+                  ? "Lưu & gửi duyệt lại"
+                  : "Lưu thay đổi"}
           </button>
         </div>
       </form>
-
-      {existing.data && (
-        <div className="mt-6">
-          <MediaManager property={existing.data} editable={!locked} />
-        </div>
-      )}
     </div>
   );
 }

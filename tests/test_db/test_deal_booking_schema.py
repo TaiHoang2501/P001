@@ -116,13 +116,25 @@ def test_released_hold_frees_the_window(db):
     assert _hold(db, other).status == HoldStatus.ACTIVE
 
 
-def test_reschedule_requested_booking_still_blocks_its_window(db):
+def test_unanswered_requests_may_overlap(db):
     an, binh = _buyers(db)[:2]
     prop = _property(db)
-    _booking(db, _deal(db, an, prop), START, BookingStatus.RESCHEDULE_REQUESTED)
+    _booking(db, _deal(db, an, prop), START, BookingStatus.REQUESTED)
+    # The owner has not answered: another buyer may ask for the same time, the owner chooses
+    _booking(db, _deal(db, binh, prop), START, BookingStatus.REQUESTED)
 
-    with pytest.raises(IntegrityError, match="ex_bookings_no_overlap"):
-        _booking(db, _deal(db, binh, prop), START, BookingStatus.REQUESTED)
+
+def test_owner_never_has_two_confirmed_viewings_at_once_even_on_different_homes(db):
+    an, binh = _buyers(db)[:2]
+    owner_id = _property(db).owner_id
+    first, second = db.query(Property).filter_by(owner_id=owner_id).order_by(Property.id).limit(2).all()
+    _booking(db, _deal(db, an, first), START, BookingStatus.RESCHEDULE_REQUESTED)
+    other = _booking(db, _deal(db, binh, second), START + timedelta(minutes=30), BookingStatus.REQUESTED)
+    assert other.owner_id == owner_id  # copied from the home by the trigger
+
+    other.status = BookingStatus.CONFIRMED
+    with pytest.raises(IntegrityError, match="ex_bookings_owner_no_overlap"):
+        db.flush()
 
 
 def test_proposed_time_must_be_complete_and_ordered(db):

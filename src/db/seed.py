@@ -13,12 +13,13 @@ Never run this against production.
 import argparse
 import csv
 import random
+import re
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session
 
 from src.config import get_settings
@@ -137,7 +138,7 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
     extra = [
         (5, PropertyStatus.PENDING_REVIEW, "Căn 2PN view công viên, đang chờ duyệt tin."),
         (4, PropertyStatus.PENDING_REVIEW, "Căn 3PN góc, chờ Ban quản trị duyệt."),
-        (4, PropertyStatus.DRAFT, "Bản nháp, chưa gửi duyệt."),
+        (4, PropertyStatus.PENDING_REVIEW, "Căn 2PN, chờ Ban quản trị duyệt."),
         (6, PropertyStatus.AVAILABLE, "Tin của chủ nhà chưa xác minh - không được hiển thị."),
     ]
     for j, (owner_id, status, desc) in enumerate(extra):
@@ -165,18 +166,9 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
 
 
 def _media(props: list[Property]) -> list[PropertyMedia]:
-    """Every seeded listing has a private ownership document and one cover photo."""
+    """One cover photo per seeded listing (ownership is proven by its red book, see ensure_red_book_units)."""
     media = []
     for prop in props:
-        media.append(
-            PropertyMedia(
-                property_id=prop.id,
-                kind=MediaKind.OWNERSHIP_DOC,
-                s3_key=f"private/properties/{prop.id}/so-hong.pdf",
-                content_type="application/pdf",
-                is_public=False,
-            )
-        )
         media.append(
             PropertyMedia(
                 property_id=prop.id,
@@ -307,17 +299,31 @@ def ensure_seller_story(db: Session) -> str:
     used = set(db.scalars(select(Property.verification_id).where(Property.verification_id.is_not(None))))
     for prop in db.scalars(select(Property).where(Property.owner_id == seller.id)):
         code = STORY_SELLING.get(prop.unit_code)
+        stand_in = prop.verification if prop.verification and _generated(prop.verification.red_book_code) else None
         if code is not None:
             book = books[code]
-            if prop.verification_id is None and book.id not in used:
+            if (prop.verification_id is None or stand_in) and book.id not in used:
+                # Her own red book replaces one made up for an older listing (ensure_red_book_units ran first)
                 prop.verification_id = book.id
                 used.add(book.id)
+                if book.unit_code is None:
+                    _copy_unit(book, prop)
+                if stand_in is not None:
+                    db.flush()
+                    db.delete(stand_in)
                 linked += 1
         elif (
             prop.status == PropertyStatus.AVAILABLE
             and db.scalar(select(Deal.id).where(Deal.property_id == prop.id)) is None
         ):
             prop.owner_id = other.id
+            if stand_in is not None:
+                # The made-up red book follows the home to its new owner
+                stand_in.user_id, stand_in.red_book_holder_name, stand_in.owner_phone = (
+                    other.id,
+                    other.full_name,
+                    other.phone or "",
+                )
             moved += 1
     db.commit()
     return f"{added_books} red book(s) added, {linked} listing(s) linked, {moved} listing(s) moved to the other seller"
@@ -576,6 +582,123 @@ def ensure_red_books(db: Session) -> int:
     return added
 
 
+# The investor's record of the home behind each demo red book that no listing uses yet
+# (code -> building, unit, bedrooms, bathrooms, area m², floor, direction). Red books behind a listing take
+# the listing's facts instead (see ensure_red_book_units).
+RED_BOOK_UNITS = {
+    "SD-2019-0456123": ("S1.08", "S1.08-3105", 2, 2, "69.5", 31, Direction.SE),
+    "SD-2020-0456124": ("R1.02", "R1.02-2808", 3, 2, "86.0", 28, Direction.S),
+    "SD-2023-0456125": ("TK1", "TK1-1506", 2, 2, "74.2", 15, Direction.E),
+    "SD-2022-0991234": ("GS3", "GS3-0907", 1, 1, "47.5", 9, Direction.NW),
+    "SD-2017-0332211": ("S2.01", "S2.01-1911", 2, 2, "67.0", 19, Direction.SW),
+    "SD-2015-0110022": ("W2", "W2-1203", 3, 2, "95.0", 12, Direction.N),
+    "SD-2019-0778905": ("S1.08", "S1.08-2702", 2, 2, "64.8", 27, Direction.NE),
+    "SD-2020-0778906": ("R1.02", "R1.02-1407", 2, 2, "70.3", 14, Direction.SE),
+    "SD-2022-0778907": ("SA2", "SA2-2210", 3, 2, "88.6", 22, Direction.E),
+    "SD-2025-0778908": ("S7.02", "S7.02-1608", 2, 2, "68.0", 16, Direction.SE),
+}
+
+_UNIT_FIELDS = ("building_id", "unit_code", "property_type", "area_m2", "bedrooms", "bathrooms", "floor", "direction")
+
+
+def _generated(code: str) -> bool:
+    """A red book made up by ensure_red_book_units for a listing seeded before red books existed."""
+    return re.fullmatch(r"SD-\d{4}-9\d{6}", code) is not None
+
+
+def _copy_unit(book: PropertyOwnershipVerification, prop: Property) -> None:
+    for field in _UNIT_FIELDS:
+        setattr(book, field, getattr(prop, field))
+
+
+def ensure_red_book_units(db: Session) -> str:
+    """Every listing is backed by a verified red book that carries the home's facts; no uploaded documents.
+
+    - A red book behind a listing gets that listing's facts (building, unit, type, area, rooms, floor, direction).
+    - A listing without a red book (seeded before red book verification) gets a verified one in its owner's name.
+    - Demo red books not listed yet get their facts from RED_BOOK_UNITS.
+    - The made-up "ownership documents" of the old seed are removed.
+    Safe to run again. Run after the seller story, which links Lan's listings to her own red books.
+    """
+    owners = {u.id: u for u in db.scalars(select(User).where(User.role == UserRole.OWNER))}
+    buildings = {b.code: b for b in db.scalars(select(Building))}
+    books = {b.id: b for b in db.scalars(select(PropertyOwnershipVerification))}
+    filled = created = 0
+    for prop in db.scalars(select(Property).order_by(Property.id)):
+        book = books.get(prop.verification_id) if prop.verification_id else None
+        if book is None:
+            owner = owners.get(prop.owner_id)
+            if owner is None:
+                continue
+            book = PropertyOwnershipVerification(
+                user_id=owner.id,
+                red_book_holder_name=owner.full_name,
+                red_book_code=f"SD-{prop.created_at.year}-9{prop.id:06d}",
+                owner_phone=owner.phone or "",
+                status=OwnershipVerificationStatus.VERIFIED,
+                otp_attempts=1,
+                verified_at=prop.created_at,
+            )
+            db.add(book)
+            db.flush()
+            prop.verification_id = book.id
+            created += 1
+        if book.unit_code is None:
+            _copy_unit(book, prop)
+            filled += 1
+    for code, (building, unit, beds, baths, area, floor, direction) in RED_BOOK_UNITS.items():
+        book = next((b for b in books.values() if b.red_book_code == code), None)
+        if book is None or book.unit_code is not None or building not in buildings:
+            continue
+        book.building_id = buildings[building].id
+        book.unit_code = unit
+        book.property_type = PropertyType.APARTMENT
+        book.bedrooms, book.bathrooms, book.area_m2, book.floor, book.direction = (
+            beds,
+            baths,
+            Decimal(area),
+            floor,
+            direction,
+        )
+        filled += 1
+    removed = db.execute(delete(PropertyMedia).where(PropertyMedia.kind == MediaKind.OWNERSHIP_DOC)).rowcount
+    # There are no drafts any more: a listing is sent for review when it is posted
+    drafts = db.execute(
+        update(Property).where(Property.status == PropertyStatus.DRAFT).values(status=PropertyStatus.PENDING_REVIEW)
+    ).rowcount
+    # The old seed's draft said so in its description
+    db.execute(
+        update(Property)
+        .where(Property.description == "Bản nháp, chưa gửi duyệt.")
+        .values(description="Căn 2PN, chờ Ban quản trị duyệt.")
+    )
+    db.commit()
+    return (
+        f"{created} red book(s) added for older listings, {filled} given their home's facts, "
+        f"{removed} document(s) removed, {drafts} draft(s) sent for review"
+    )
+
+
+def ensure_sellers_verified(db: Session) -> int:
+    """Sellers with a verified red book are verified sellers (the operator no longer reviews sellers).
+
+    Kept out of the test seed, where an unverified seller is part of the data. Returns how many changed.
+    """
+    with_books = select(PropertyOwnershipVerification.user_id).where(
+        PropertyOwnershipVerification.status == OwnershipVerificationStatus.VERIFIED
+    )
+    changed = db.execute(
+        update(SellerProfile)
+        .where(
+            SellerProfile.user_id.in_(with_books),
+            SellerProfile.verification_status != SellerVerificationStatus.VERIFIED,
+        )
+        .values(verification_status=SellerVerificationStatus.VERIFIED, rejection_reason=None)
+    ).rowcount
+    db.commit()
+    return changed
+
+
 def seed(db: Session, *, reset: bool = False) -> None:
     if reset:
         tables = ", ".join(t.name for t in reversed(Base.metadata.sorted_tables))
@@ -672,6 +795,16 @@ if __name__ == "__main__":
         help="Demo seller Hoàng Thị Lan: 8 verified red books, 4 homes on sale (see STORY_*)",
     )
     parser.add_argument(
+        "--ensure-sellers-verified",
+        action="store_true",
+        help="Mark sellers with a verified red book as verified sellers",
+    )
+    parser.add_argument(
+        "--ensure-red-book-units",
+        action="store_true",
+        help="Back every listing with a verified red book carrying the home's facts; drop uploaded documents",
+    )
+    parser.add_argument(
         "--ensure-red-books",
         action="store_true",
         help="Add demo red books missing from an existing database (never changes existing rows)",
@@ -690,6 +823,11 @@ if __name__ == "__main__":
             print(f"Added photos to {ensure_photos(session)} listing(s).")
         if args.ensure_seller_story:
             print(f"Seller story: {ensure_seller_story(session)}.")
+        # After the seller story, which links Lan's listings to her own red books
+        if args.ensure_red_book_units:
+            print(f"Red books: {ensure_red_book_units(session)}.")
+        if args.ensure_sellers_verified:
+            print(f"Verified {ensure_sellers_verified(session)} seller(s) by their red book.")
         if args.ensure_slots:
             print(f"Added {ensure_slots(session, args.ensure_slots)} demo viewing slot(s).")
         # Last: the demo requests book the slots topped up above

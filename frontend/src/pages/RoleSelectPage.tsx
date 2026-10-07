@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
-import { homePathFor, useAuth } from "../auth/AuthContext";
 import { RedBookHomeArt } from "../components/AuthShell";
 import { BRAND_GRADIENT_TEXT, BrandLogo } from "../components/Brand";
 import { AiBot } from "../buyer/AiBot";
@@ -12,19 +11,11 @@ import { ArrowRightIcon, CheckIcon, SparkleIcon } from "../buyer/icons";
  * or sell one (BookingBot seller portal, which also hosts the investor/operator console).
  */
 export function RoleSelectPage() {
-  const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  function viewHomes() {
-    // A seller/operator session would be bounced by the buyer area: sign out first
-    if (user && user.role !== "CUSTOMER") logout();
-    navigate(user?.role === "CUSTOMER" ? "/buyer/chat" : "/buyer/start");
-  }
-
-  function sellHome() {
-    if (user?.role === "CUSTOMER") logout();
-    navigate(user && user.role !== "CUSTOMER" ? homePathFor(user) : "/login");
-  }
+  // Each area keeps its own sign-in: a signed-in buyer goes on to the chat, a signed-in seller to their page
+  const viewHomes = () => navigate("/buyer/start");
+  const sellHome = () => navigate("/login");
 
   const typed = useTypewriter([HEADLINE, SUBTITLE]);
   const done = typed === null;

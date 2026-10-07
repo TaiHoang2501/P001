@@ -350,6 +350,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/owner/ownership/support": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My Ownership Support */
+        get: operations["my_ownership_support_api_v1_owner_ownership_support_get"];
+        put?: never;
+        /**
+         * Ask Ownership Support
+         * @description Cannot verify a red book on your own (no OTP, locked, proxy, co-owners, ...): ask the investor.
+         */
+        post: operations["ask_ownership_support_api_v1_owner_ownership_support_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/owner/ownership": {
         parameters: {
             query?: never;
@@ -1090,6 +1111,139 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/escalations/{escalation_id}/ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ownership Case */
+        get: operations["ownership_case_api_v1_operator_escalations__escalation_id__ownership_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/escalations/{escalation_id}/ownership/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unlock Red Book
+         * @description Unlock the red book (and set the owner's new phone); the seller then verifies with the OTP again.
+         */
+        post: operations["unlock_red_book_api_v1_operator_escalations__escalation_id__ownership_unlock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/escalations/{escalation_id}/ownership/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Red Book
+         * @description Verify by hand after checking the documents.
+         */
+        post: operations["verify_red_book_api_v1_operator_escalations__escalation_id__ownership_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/escalations/{escalation_id}/ownership/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Red Book
+         * @description Take back a wrong verification; its listing comes off the market and its viewings are cancelled.
+         */
+        post: operations["revoke_red_book_api_v1_operator_escalations__escalation_id__ownership_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/owner/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Photo
+         * @description A photo from the seller's device; attach it to a listing with its `key`.
+         *
+         *     `private`: an identity / authorisation document (ownership support), only shown to the investor.
+         */
+        post: operations["upload_photo_api_v1_owner_media_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/{media_id}/private": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Private Document */
+        get: operations["private_document_api_v1_media__media_id__private_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Photo */
+        get: operations["photo_api_v1_media__media_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1127,7 +1281,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED";
+            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED" | "SUPERSEDED";
             /**
              * By
              * @enum {string}
@@ -1162,6 +1316,16 @@ export interface components {
          * @enum {string}
          */
         ActorType: "USER" | "AI_AGENT" | "SYSTEM";
+        /** Body_upload_photo_api_v1_owner_media_post */
+        Body_upload_photo_api_v1_owner_media_post: {
+            /** File */
+            file: string;
+            /**
+             * Private
+             * @default false
+             */
+            private: boolean;
+        };
         /**
          * BookingCreate
          * @description Viewing request: pick a seller slot (`slot_id`) or a proposed start time (`start_at`).
@@ -1438,7 +1602,7 @@ export interface components {
          * @description When a human must step in (spec §4.3, §4.8 HITL, §6.4).
          * @enum {string}
          */
-        EscalationType: "SELLER_NO_RESPONSE" | "NO_COMMON_SLOT" | "SCHEDULE_CONFLICT" | "PROPERTY_ISSUE" | "MULTI_BUYER" | "SYSTEM_FAILURE" | "OTHER";
+        EscalationType: "SELLER_NO_RESPONSE" | "NO_COMMON_SLOT" | "SCHEDULE_CONFLICT" | "PROPERTY_ISSUE" | "MULTI_BUYER" | "SYSTEM_FAILURE" | "OTHER" | "OWNERSHIP_SUPPORT";
         /**
          * Furnishing
          * @enum {string}
@@ -1512,6 +1676,18 @@ export interface components {
             is_public: boolean;
         };
         /**
+         * MediaUploadOut
+         * @description An uploaded photo: attach it to a listing with `key` (PropertyCreate.photos or MediaCreate.s3_key).
+         */
+        MediaUploadOut: {
+            /** Key */
+            key: string;
+            /** Url */
+            url: string;
+            /** Content Type */
+            content_type: string;
+        };
+        /**
          * MessageRole
          * @enum {string}
          */
@@ -1538,6 +1714,11 @@ export interface components {
             sent_at: string | null;
             /** Read At */
             read_at: string | null;
+        };
+        /** OperatorNote */
+        OperatorNote: {
+            /** Note */
+            note: string;
         };
         /** OtpRequest */
         OtpRequest: {
@@ -1620,6 +1801,13 @@ export interface components {
              */
             open_slots_week: number;
         };
+        /** OwnershipCaseOut */
+        OwnershipCaseOut: {
+            /** Escalation Id */
+            escalation_id: number;
+            seller: components["schemas"]["SupportSeller"] | null;
+            red_book: components["schemas"]["RedBookState"] | null;
+        };
         /**
          * OwnershipChallengeOut
          * @description Result of a claim: an OTP was sent to the phone on record (or the red book is already the caller's).
@@ -1656,6 +1844,25 @@ export interface components {
             /** Code */
             code: string;
         };
+        /** OwnershipSupportCreate */
+        OwnershipSupportCreate: {
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "NO_OTP" | "LOCKED" | "MISMATCH" | "PROXY" | "CO_OWNER" | "INHERITANCE" | "NO_RED_BOOK" | "CLAIMED_BY_OTHER" | "OTHER";
+            /** Red Book Holder Name */
+            red_book_holder_name: string;
+            /** Red Book Code */
+            red_book_code: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Documents */
+            documents?: string[];
+        };
         /** OwnershipVerificationOut */
         OwnershipVerificationOut: {
             /** Id */
@@ -1669,6 +1876,7 @@ export interface components {
             verified_at: string | null;
             /** Property Id */
             property_id?: number | null;
+            unit?: components["schemas"]["RedBookUnit"] | null;
         };
         /**
          * OwnershipVerificationStatus
@@ -1764,6 +1972,8 @@ export interface components {
             description: string;
             /** Verification Id */
             verification_id: number;
+            /** Photos */
+            photos?: string[];
         };
         /** PropertyOut */
         PropertyOut: {
@@ -1807,6 +2017,13 @@ export interface components {
             /** Rejection Reason */
             rejection_reason?: string | null;
             /**
+             * Verified Red Book
+             * @default false
+             */
+            verified_red_book: boolean;
+            /** Red Book Code */
+            red_book_code?: string | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1828,7 +2045,7 @@ export interface components {
         PropertyType: "APARTMENT" | "VILLA" | "TOWNHOUSE" | "SHOPHOUSE";
         /**
          * PropertyUpdate
-         * @description Partial update; only allowed while the listing is DRAFT or REJECTED.
+         * @description Partial update; allowed while the listing is a draft, waiting for review, rejected or withdrawn.
          */
         PropertyUpdate: {
             /** Unit Code */
@@ -1860,6 +2077,59 @@ export interface components {
             matched: components["schemas"]["CriterionMatch"][];
             /** Unmatched */
             unmatched: components["schemas"]["CriterionMatch"][];
+        };
+        /**
+         * RedBookState
+         * @description The red book as it stands now, for the operator (full phone included).
+         */
+        RedBookState: {
+            /** Id */
+            id: number;
+            /** Red Book Code */
+            red_book_code: string;
+            /** Red Book Holder Name */
+            red_book_holder_name: string;
+            /** Owner Phone */
+            owner_phone: string;
+            /** Masked Phone */
+            masked_phone: string;
+            status: components["schemas"]["OwnershipVerificationStatus"];
+            /** Otp Attempts */
+            otp_attempts: number;
+            /** Verified By Id */
+            verified_by_id: number | null;
+            /** Verified By Name */
+            verified_by_name: string | null;
+            /** Property Id */
+            property_id: number | null;
+            /** Property Label */
+            property_label: string | null;
+        };
+        /**
+         * RedBookUnit
+         * @description The investor's record of the home behind a red book: a listing takes these facts as they are.
+         */
+        RedBookUnit: {
+            /** Project Code */
+            project_code: string;
+            /** Project Name */
+            project_name: string;
+            /** Building Id */
+            building_id: number;
+            /** Building Name */
+            building_name: string;
+            /** Unit Code */
+            unit_code: string;
+            property_type: components["schemas"]["PropertyType"];
+            /** Area M2 */
+            area_m2: string;
+            /** Bedrooms */
+            bedrooms: number;
+            /** Bathrooms */
+            bathrooms: number;
+            /** Floor */
+            floor: number;
+            direction: components["schemas"]["Direction"];
         };
         /** RejectRequest */
         RejectRequest: {
@@ -2045,6 +2315,16 @@ export interface components {
              */
             is_free: boolean;
         };
+        /** SupportSeller */
+        SupportSeller: {
+            /** Id */
+            id: number;
+            /** Full Name */
+            full_name: string;
+            /** Phone */
+            phone: string | null;
+            verification_status: components["schemas"]["SellerVerificationStatus"] | null;
+        };
         /** TimeWindow */
         TimeWindow: {
             /**
@@ -2068,6 +2348,11 @@ export interface components {
              */
             token_type: string;
             user: components["schemas"]["UserOut"];
+        };
+        /** UnlockRequest */
+        UnlockRequest: {
+            /** Owner Phone */
+            owner_phone?: string | null;
         };
         /** UnreadCount */
         UnreadCount: {
@@ -2768,6 +3053,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SellerProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_ownership_support_api_v1_owner_ownership_support_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EscalationOut"][];
+                };
+            };
+        };
+    };
+    ask_ownership_support_api_v1_owner_ownership_support_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnershipSupportCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EscalationOut"];
                 };
             };
             /** @description Validation Error */
@@ -4090,6 +4428,233 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EscalationOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ownership_case_api_v1_operator_escalations__escalation_id__ownership_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                escalation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipCaseOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlock_red_book_api_v1_operator_escalations__escalation_id__ownership_unlock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                escalation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipCaseOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_red_book_api_v1_operator_escalations__escalation_id__ownership_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                escalation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorNote"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipCaseOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_red_book_api_v1_operator_escalations__escalation_id__ownership_revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                escalation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorNote"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipCaseOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_photo_api_v1_owner_media_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_photo_api_v1_owner_media_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaUploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    private_document_api_v1_media__media_id__private_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    photo_api_v1_media__media_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

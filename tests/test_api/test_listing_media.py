@@ -34,31 +34,27 @@ async def _new_draft(client, headers) -> int:
 
 
 @pytest.mark.asyncio
-async def test_red_book_backed_listing_submits_without_document(client):
+async def test_new_listing_goes_straight_to_review(client):
     owner = await auth(client, OWNER_TUAN)
     pid = await _new_draft(client, owner)
-
-    r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "PENDING_REVIEW"
+    r = await client.get("/api/v1/owner/properties", headers=owner)
+    assert next(p for p in r.json() if p["id"] == pid)["status"] == "PENDING_REVIEW"
 
 
 @pytest.mark.asyncio
-async def test_legacy_listing_without_red_book_still_needs_document(client, db):
+async def test_listing_without_verified_red_book_cannot_be_sent_again(client, db):
     owner = await auth(client, OWNER_TUAN)
     pid = await _new_draft(client, owner)
-    # Listings created before red book verification carry no verification_id
+    op = await auth(client, OPERATOR)
+    await client.post(f"/api/v1/operator/properties/{pid}/reject", json={"reason": "Ảnh mờ"}, headers=op)
     db.execute(text("UPDATE properties SET verification_id = NULL WHERE id = :id"), {"id": pid})
     db.commit()
 
-    r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
-    assert r.status_code == 422
-    assert r.json()["error"]["details"]["missing"] == "OWNERSHIP_DOC"
-
+    # Ownership is proven by the red book only; an uploaded document no longer counts
     assert (await client.post(f"/api/v1/owner/properties/{pid}/media", json=DOC, headers=owner)).status_code == 201
     r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "PENDING_REVIEW"
+    assert r.status_code == 422
+    assert r.json()["error"]["details"]["missing"] == "OWNERSHIP_VERIFICATION"
 
 
 @pytest.mark.asyncio
@@ -75,7 +71,6 @@ async def test_buyer_sees_photos_but_not_documents(client):
     pid = await _new_draft(client, owner)
     await client.post(f"/api/v1/owner/properties/{pid}/media", json=DOC, headers=owner)
     await client.post(f"/api/v1/owner/properties/{pid}/media", json=PHOTO, headers=owner)
-    await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
     operator = await auth(client, OPERATOR)
     r = await client.post(f"/api/v1/operator/properties/{pid}/approve", headers=operator)
     assert {m["kind"] for m in r.json()["media"]} == {"OWNERSHIP_DOC", "IMAGE"}

@@ -6,10 +6,24 @@ from src.core.deps import DbSession, OwnerActor
 from src.core.errors import NotFoundError
 from src.db.models import BookingStatus, Property
 from src.models.booking import BookingOut, BookingRejectRequest, SlotCreate, SlotOut
-from src.models.ownership import OwnershipChallengeOut, OwnershipClaim, OwnershipOtpConfirm, OwnershipVerificationOut
+from src.models.escalation import EscalationOut
+from src.models.ownership import (
+    OwnershipChallengeOut,
+    OwnershipClaim,
+    OwnershipOtpConfirm,
+    OwnershipSupportCreate,
+    OwnershipVerificationOut,
+)
 from src.models.property import MediaCreate, OwnerOverview, PropertyCreate, PropertyOut, PropertyUpdate
 from src.models.seller import SellerProfileOut, SellerVerificationSubmit
-from src.services import availability_service, booking_service, ownership_service, property_service, seller_service
+from src.services import (
+    availability_service,
+    booking_service,
+    ownership_service,
+    ownership_support_service,
+    property_service,
+    seller_service,
+)
 
 router = APIRouter(prefix="/owner", tags=["owner"])
 
@@ -28,6 +42,17 @@ def submit_verification(data: SellerVerificationSubmit, actor: OwnerActor, db: D
 
 
 # ---------- Red book ownership (required before listing) ----------
+
+
+@router.post("/ownership/support", response_model=EscalationOut, status_code=201)
+def ask_ownership_support(data: OwnershipSupportCreate, actor: OwnerActor, db: DbSession) -> EscalationOut:
+    """Cannot verify a red book on your own (no OTP, locked, proxy, co-owners, ...): ask the investor."""
+    return ownership_support_service.request(db, actor, data)
+
+
+@router.get("/ownership/support", response_model=list[EscalationOut])
+def my_ownership_support(actor: OwnerActor, db: DbSession) -> list[EscalationOut]:
+    return ownership_support_service.list_mine(db, actor)
 
 
 @router.get("/ownership", response_model=list[OwnershipVerificationOut])

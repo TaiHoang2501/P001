@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { api, ApiError, call } from "../../api/client";
 import type { OwnershipChallenge, OwnershipVerification } from "../../api/types";
 import { ErrorBox, Notice } from "../../components/ui";
+import { SupportForm, SupportList, type SupportPrefill } from "./OwnershipSupport";
 import { RedBookList } from "./RedBooks";
 
 /**
@@ -12,9 +13,14 @@ import { RedBookList } from "./RedBooks";
  * investor's records, then the OTP sent to the owner's phone on record.
  */
 export function OwnershipVerifyPage() {
+  // A red book the automatic check cannot handle goes to the investor (support request)
+  const [help, setHelp] = useState<SupportPrefill | null>(null);
   return (
     <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
-      <VerifyForm />
+      <div className="space-y-6">
+        {help ? <SupportForm prefill={help} onClose={() => setHelp(null)} /> : <VerifyForm onNeedHelp={setHelp} />}
+        <SupportList />
+      </div>
       <section aria-labelledby="books-title">
         <h2 id="books-title" className="mb-4 font-display text-2xl font-bold">
           Sổ đỏ đã xác thực
@@ -25,7 +31,7 @@ export function OwnershipVerifyPage() {
   );
 }
 
-function VerifyForm() {
+function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => void }) {
   const queryClient = useQueryClient();
   const [holder, setHolder] = useState("");
   const [code, setCode] = useState("");
@@ -76,8 +82,8 @@ function VerifyForm() {
     return (
       <div className="h-fit space-y-4 rounded-[28px] bg-sand p-6">
         <Notice tone="success">
-          Đã xác thực sổ đỏ <strong className="font-mono">{done.red_book_code}</strong> của {done.red_book_holder_name}. Hồ sơ của bạn
-          được gửi tới Chủ đầu tư để duyệt; bạn có thể soạn tin đăng ngay trong lúc chờ.
+          Đã xác thực sổ đỏ <strong className="font-mono">{done.red_book_code}</strong> của {done.red_book_holder_name}. Tài khoản
+          người bán của bạn đã được xác thực, bạn có thể đăng bán ngay.
         </Notice>
         <div className="flex flex-wrap gap-2">
           {done.property_id == null ? (
@@ -121,7 +127,12 @@ function VerifyForm() {
           <>
             <ErrorBox error={confirm.error} />
             {locked ? (
-              <Notice tone="warning">Sổ đỏ đã bị khóa do nhập sai quá nhiều lần. Vui lòng liên hệ Chủ đầu tư để mở khóa.</Notice>
+              <Notice tone="warning">
+                Sổ đỏ đã bị khóa do nhập sai quá nhiều lần.{" "}
+                <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "LOCKED", holder, code })}>
+              Gửi yêu cầu mở khóa tới Chủ đầu tư
+            </button>
+              </Notice>
             ) : (
               attemptsLeft !== undefined && <p className="text-xs text-muted">Còn {attemptsLeft} lần thử.</p>
             )}
@@ -145,6 +156,12 @@ function VerifyForm() {
             onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
           />
         </div>
+        <p className="text-xs text-muted">
+          Không nhận được mã vì chủ sở hữu đã đổi số?{" "}
+          <button type="button" className="font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "NO_OTP", holder, code })}>
+            Nhờ Chủ đầu tư cập nhật
+          </button>
+        </p>
         <div className="flex flex-wrap gap-2">
           <button type="submit" className="btn-primary rounded-full px-5" disabled={otp.length !== 6 || confirm.isPending || locked}>
             {confirm.isPending ? "Đang xác thực..." : "Xác thực"}
@@ -175,11 +192,31 @@ function VerifyForm() {
       </div>
       {claim.isError &&
         (conflict === "CLAIMED" ? (
-          <Notice tone="warning">Sổ đỏ này đã được xác thực bởi một tài khoản khác. Nếu bạn là chủ sở hữu, hãy liên hệ Chủ đầu tư.</Notice>
+          <Notice tone="warning">
+            Sổ đỏ này đã được xác thực bởi một tài khoản khác. Nếu bạn là chủ sở hữu:{" "}
+            <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "CLAIMED_BY_OTHER", holder, code })}>
+              gửi giấy tờ để Chủ đầu tư xử lý
+            </button>
+          </Notice>
         ) : conflict === "LOCKED" ? (
-          <Notice tone="warning">Sổ đỏ này đang bị khóa do nhập sai OTP quá nhiều lần. Vui lòng liên hệ Chủ đầu tư.</Notice>
+          <Notice tone="warning">
+            Sổ đỏ này đang bị khóa do nhập sai OTP quá nhiều lần.{" "}
+            <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "LOCKED", holder, code })}>
+              Gửi yêu cầu mở khóa
+            </button>
+          </Notice>
         ) : (
-          <ErrorBox error={claim.error} />
+          <>
+            <ErrorBox error={claim.error} />
+            {claim.error instanceof ApiError && claim.error.code === "OWNERSHIP_NOT_MATCHED" && (
+              <p className="text-xs text-muted">
+                Chắc chắn đã nhập đúng như trên sổ?{" "}
+                <button type="button" className="font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "MISMATCH", holder, code })}>
+                  Nhờ Chủ đầu tư kiểm tra
+                </button>
+              </p>
+            )}
+          </>
         ))}
       <div>
         <label htmlFor="rb-holder" className="label">
@@ -219,6 +256,13 @@ function VerifyForm() {
         Họ tên (có dấu) và mã số phải khớp với dữ liệu sổ đỏ của Chủ đầu tư. Mã OTP được gửi tới số điện thoại của chủ sở hữu đã đăng
         ký trên sổ.
       </p>
+      <div className="rounded-2xl bg-paper/70 px-4 py-3 text-sm">
+        <p className="font-semibold">Không tự xác thực được?</p>
+        <p className="mt-0.5 text-xs text-muted">Bán thay có ủy quyền, sổ đồng sở hữu, thừa kế, căn chưa có sổ…</p>
+        <button type="button" className="mt-1.5 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "PROXY", holder, code })}>
+          Gửi yêu cầu hỗ trợ tới Chủ đầu tư
+        </button>
+      </div>
     </form>
   );
 }

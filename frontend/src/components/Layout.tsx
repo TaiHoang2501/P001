@@ -17,7 +17,6 @@ const NAV: Record<Role | "GUEST", NavItem[]> = {
   OWNER: [],
   INVESTOR_OPERATOR: [
     { to: "/operator", label: "Duyệt tin", end: true },
-    { to: "/operator/sellers", label: "Xác thực chủ căn" },
     { to: "/operator/escalations", label: "Ngoại lệ" },
     { to: "/operator/bookings", label: "Giám sát lịch xem" },
   ],
@@ -40,15 +39,18 @@ export function Layout() {
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-20 border-b border-line bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
-          <Link
-            to="/"
-            className="flex items-center gap-2 font-semibold text-brand-700"
-          >
-            <span className="grid size-7 place-items-center rounded-lg bg-brand-600 text-xs text-white">
-              BB
+          {/* The investor's console is its own place: its logo leads nowhere (the start page is for buyers / sellers) */}
+          {path.startsWith("/operator") ? (
+            <span className="flex select-none items-center gap-2 font-semibold text-brand-700">
+              <span className="grid size-7 place-items-center rounded-lg bg-brand-600 text-xs text-white">BB</span>
+              BookingBot
             </span>
-            BookingBot
-          </Link>
+          ) : (
+            <Link to="/" className="flex items-center gap-2 font-semibold text-brand-700">
+              <span className="grid size-7 place-items-center rounded-lg bg-brand-600 text-xs text-white">BB</span>
+              BookingBot
+            </Link>
+          )}
 
           <nav
             className="hidden flex-1 items-center gap-1 md:flex"

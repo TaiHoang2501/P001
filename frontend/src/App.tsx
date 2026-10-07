@@ -17,7 +17,6 @@ import { PassCheckPage } from "./pages/PassCheckPage";
 import { BookingsMonitorPage } from "./pages/operator/BookingsMonitorPage";
 import { EscalationsPage } from "./pages/operator/EscalationsPage";
 import { ModerationPage } from "./pages/operator/ModerationPage";
-import { SellerVerificationPage } from "./pages/operator/SellerVerificationPage";
 import { OwnerBookingsPage } from "./pages/owner/OwnerBookingsPage";
 import { OwnershipVerifyPage } from "./pages/owner/OwnershipVerifyPage";
 import { OwnerPropertiesPage } from "./pages/owner/OwnerPropertiesPage";
@@ -119,10 +118,6 @@ export function App() {
         <Route
           path="operator"
           element={as(["INVESTOR_OPERATOR"], <ModerationPage />)}
-        />
-        <Route
-          path="operator/sellers"
-          element={as(["INVESTOR_OPERATOR"], <SellerVerificationPage />)}
         />
         <Route
           path="operator/escalations"

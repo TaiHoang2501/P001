@@ -23,7 +23,7 @@ export function SellerShell() {
       active: path === "/owner" || path.startsWith("/owner/properties"),
       badge: 0,
     },
-    { to: "/owner/verify", label: "Sổ đỏ", active: path.startsWith("/owner/verify"), badge: 0 },
+    { to: "/owner/verify", label: "Xác thực sổ đỏ", active: path.startsWith("/owner/verify"), badge: 0 },
   ];
 
   return (

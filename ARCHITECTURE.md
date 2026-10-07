@@ -96,7 +96,7 @@ flowchart TB
 ### 3.4. Kho lưu trữ thông tin (Database & Cloud Storage)
 - **PostgreSQL:** "Sổ cái" an toàn lưu trữ toàn bộ người dùng, căn hộ, lịch đặt, tin nhắn và lịch sử kiểm toán (Audit Log).
 - **Bộ tìm kiếm văn bản tích hợp:** Cho phép gõ tìm tên tòa, phân khu, tiện ích với tốc độ cực nhanh mà không cần cài thêm các hệ thống tìm kiếm cồng kềnh.
-- **Kho lưu trữ Amazon S3:** Nơi cất giữ hình ảnh giấy tờ, ảnh chụp và video căn hộ chất lượng cao, giúp hệ thống hoạt động nhẹ nhàng và tải ảnh nhanh.
+- **Kho lưu trữ Amazon S3 (định hướng):** Nơi cất giữ ảnh chụp, video căn hộ và giấy tờ. **Hiện tại** ảnh người bán tải từ máy được lưu ngay trong PostgreSQL (bảng `media_files`, phục vụ qua `/api/v1/media/{id}`) để không mất khi server miễn phí khởi động lại; giấy tờ gửi kèm yêu cầu hỗ trợ xác thực sổ đỏ là riêng tư, chỉ người gửi và Chủ đầu tư mở được. Khi chuyển sang S3 chỉ cần thay lớp `media_service`.
 
 ---
 
@@ -174,7 +174,7 @@ Giống như cơ chế giữ ghế tạm thời khi bạn đặt vé xem phim:
 | **Cơ sở dữ liệu** | **PostgreSQL** | Hệ quản trị cơ sở dữ liệu chuẩn mực hàng đầu thế giới, đảm bảo dữ liệu giao dịch chính xác 100%, chống trùng lặp lịch hẹn hoàn hảo. |
 | **Công cụ tìm kiếm** | **PostgreSQL Full-text Search** | Tận dụng sẵn sức mạnh tìm kiếm văn bản của PostgreSQL; đáp ứng xuất sắc nhu cầu của dự án mà không cần tốn thêm chi phí dựng cụm máy chủ tìm kiếm riêng. |
 | **Cơ sở dữ liệu Vector (Vector DB)** | **Chưa dùng trong bản MVP** | Vì giai đoạn này hệ thống ưu tiên lọc chính xác theo tiêu chí thực tế (giá, phòng ngủ, vị trí) chứ không cần tìm kiếm tài liệu chung chung; tiết kiệm chi phí vận hành. |
-| **Lưu trữ ảnh & video** | **Amazon S3** | Lưu toàn bộ hình ảnh và video thực tế của căn hộ lên đám mây dung lượng lớn, giúp website tải nhanh mà không làm nặng cơ sở dữ liệu. |
+| **Lưu trữ ảnh & video** | **Amazon S3** (định hướng) · hiện tại PostgreSQL `media_files` | Đích dài hạn là S3 cho ảnh / video dung lượng lớn. Bản MVP lưu ảnh tải lên trong PostgreSQL (ảnh được thu nhỏ còn cạnh dài 1600px ngay trên trình duyệt, tối đa 5MB, 10 ảnh mỗi tin). |
 | **Kênh Chat trực tiếp** | **WebSocket tích hợp sẵn** | Nhắn tin tức thời giữa khách và chủ nhà giống như Zalo/Messenger thu nhỏ, bảo mật và không bị phụ thuộc vào dịch vụ bên thứ ba. |
 | **Bảo mật đăng nhập** | **Mã OTP + Khóa token JWT & Mã hóa mật khẩu chuẩn cao** | Đăng nhập tiện lợi bằng số điện thoại/OTP, mã hóa mật khẩu nhiều lớp đảm bảo thông tin cá nhân của người dùng luôn được an toàn tuyệt đối. |
 

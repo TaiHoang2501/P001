@@ -79,7 +79,9 @@ interface Conversation {
   since?: string;
 }
 
-const AGENT_EVENTS = new Set(["AGENT_FOLLOWUP", "AGENT_NEW_MATCH"]);
+// Posted in the chat as the assistant's own messages. VIEWING_SUPERSEDED: the owner received someone else at the
+// time this buyer asked for, so the assistant offers other times
+const AGENT_EVENTS = new Set(["AGENT_FOLLOWUP", "AGENT_NEW_MATCH", "VIEWING_SUPERSEDED"]);
 
 // What the assistant is doing while it works, by the tool it called
 const TOOL_STATUS: Record<string, string> = {
@@ -269,6 +271,7 @@ export function BuyerChatPage() {
         const payload = (n.payload ?? {}) as {
           property_ids?: number[];
           property_id?: number;
+          unit_code?: string;
         };
         return {
           id: newId(),
@@ -278,6 +281,10 @@ export function BuyerChatPage() {
             payload.property_ids ??
             (payload.property_id ? [payload.property_id] : []),
           trackBookingId: n.booking_id ?? undefined,
+          replies:
+            n.event_type === "VIEWING_SUPERSEDED" && payload.unit_code
+              ? [`Tìm giờ xem khác cho căn ${payload.unit_code}`, "Tìm căn tương tự"]
+              : undefined,
         };
       });
       return {

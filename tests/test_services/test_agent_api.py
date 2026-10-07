@@ -86,9 +86,9 @@ def test_viewing_request_via_agent_is_requested_opens_deal_and_is_audited_as_ai(
     deals = agent_api.get_deal_status(BUYER_ID)["data"]
     assert [d["id"] for d in deals] == [booking["deal_id"]]
 
+    # Not answered yet: another buyer may ask for the same time (the owner chooses)
     again = agent_api.create_viewing_request(OTHER_BUYER_ID, PROPERTY_ID, start_at=at(15))
-    assert again["ok"] is False
-    assert again["error"]["code"] == "SLOT_UNAVAILABLE"
+    assert again["ok"] is True, again
 
 
 def test_agent_cannot_book_as_owner_or_cancel_others(db):

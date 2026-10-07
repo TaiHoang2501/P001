@@ -50,18 +50,63 @@ async def test_happy_path_request_approve(client, db):
 
 
 @pytest.mark.asyncio
-async def test_second_customer_gets_slot_unavailable_with_alternatives(client):
+async def test_several_buyers_may_ask_for_one_time_and_the_owner_chooses(client):
     an = await auth(client, CUSTOMER_AN)
     binh = await auth(client, CUSTOMER_BINH)
+    tuan = await auth(client, OWNER_TUAN)
     slot = await first_free_slot(client, TUAN_PROPERTY)
 
-    assert (await _request(client, an, slot)).status_code == 201
+    mine = (await _request(client, an, slot)).json()
     r = await _request(client, binh, slot)
+    assert r.status_code == 201, r.text  # not answered yet: Bình may ask for the same time
+    theirs = r.json()
+    pending = (await client.get("/api/v1/owner/bookings", params={"status": "REQUESTED"}, headers=tuan)).json()
+    assert {mine["id"], theirs["id"]} <= {b["id"] for b in pending}
+
+    # The owner receives Bình: An's overlapping request is closed and the assistant tells An
+    r = await client.post(f"/api/v1/owner/bookings/{theirs['id']}/approve", headers=tuan)
+    assert r.json()["status"] == "CONFIRMED", r.text
+    closed = (await client.get(f"/api/v1/bookings/{mine['id']}", headers=an)).json()
+    assert closed["status"] == "REJECTED"
+    assert "lịch xem khác" in closed["rejection_reason"]
+    notes = (await client.get("/api/v1/notifications", headers=an)).json()
+    assert [n["booking_id"] for n in notes if n["event_type"] == "VIEWING_SUPERSEDED"] == [mine["id"]]
+    latest = (await client.get("/api/v1/bookings/activity", headers=an)).json()[0]
+    assert (latest["kind"], latest["by"], latest["booking_id"]) == ("SUPERSEDED", "BOOKINGBOT", mine["id"])
+
+    # Too late to receive An at that time, and nobody can ask for it any more (other times are offered)
+    assert (await client.post(f"/api/v1/owner/bookings/{mine['id']}/approve", headers=tuan)).status_code == 409
+    r = await _request(client, an, slot)
     assert r.status_code == 409
     err = r.json()["error"]
     assert err["code"] == "SLOT_UNAVAILABLE"
-    alternatives = err["details"]["free_slots"]
-    assert alternatives and slot["id"] not in [s["id"] for s in alternatives]
+    assert err["details"]["free_slots"] and slot["id"] not in [s["id"] for s in err["details"]["free_slots"]]
+
+
+@pytest.mark.asyncio
+async def test_owner_is_not_double_booked_across_their_homes(client):
+    an = await auth(client, CUSTOMER_AN)
+    binh = await auth(client, CUSTOMER_BINH)
+    tuan = await auth(client, OWNER_TUAN)
+    first = await first_free_slot(client, TUAN_PROPERTY)
+    # Tuấn's other home has a slot at the same time
+    other_home = 3
+    same_time = [
+        s
+        for s in (await client.get(f"/api/v1/properties/{other_home}/slots")).json()
+        if s["start_at"] == first["start_at"]
+    ]
+    assert same_time, "the demo data gives both homes the same slots"
+
+    mine = (await _request(client, an, first)).json()
+    theirs = (await _request(client, binh, same_time[0])).json()
+    r = await client.post(f"/api/v1/owner/bookings/{mine['id']}/approve", headers=tuan)
+    assert r.json()["status"] == "CONFIRMED", r.text
+
+    # Bình's request on the other home at that time is closed; that time is no longer offered there
+    assert (await client.get(f"/api/v1/bookings/{theirs['id']}", headers=binh)).json()["status"] == "REJECTED"
+    offered = (await client.get(f"/api/v1/properties/{other_home}/slots")).json()
+    assert first["start_at"] not in [s["start_at"] for s in offered]
 
 
 @pytest.mark.asyncio

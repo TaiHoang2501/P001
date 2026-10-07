@@ -117,6 +117,8 @@ ActivityKind = Literal[
     "RESCHEDULE_DECLINED",
     "CANCELLED",
     "COMPLETED",
+    # The owner confirmed another buyer at an overlapping time, so this request was closed
+    "SUPERSEDED",
 ]
 
 

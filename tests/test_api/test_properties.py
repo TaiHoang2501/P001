@@ -74,17 +74,14 @@ async def test_pending_listing_hidden_from_public(client):
 
 
 @pytest.mark.asyncio
-async def test_listing_lifecycle_draft_submit_approve(client):
+async def test_listing_goes_straight_to_review_then_approved(client):
     owner = await auth(client, OWNER_TUAN)
     op = await auth(client, OPERATOR)
 
     r = await client.post("/api/v1/owner/properties", json=NEW_LISTING, headers=owner)
     assert r.status_code == 201, r.text
     pid = r.json()["id"]
-    assert r.json()["status"] == "DRAFT"
-
-    # Backed by a verified red book, so no ownership document is needed for review
-    r = await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=owner)
+    # "Đăng tin bán": no draft, the investor reviews it right away
     assert r.json()["status"] == "PENDING_REVIEW"
 
     queue = await client.get("/api/v1/operator/properties", headers=op)

@@ -37,11 +37,12 @@ from src.db.models import (
     BuyerProfile,
     Property,
     PropertyStatus,
+    User,
     UserRole,
 )
 from src.models.booking import ActivityOut, BookingCreate, BookingOut, RescheduleRequest
 from src.services import audit, deal_service, hold_service, notification_service, seller_service
-from src.services.availability_service import TimeConflictError, is_exclusion_violation, list_slots
+from src.services.availability_service import TimeConflictError, is_exclusion_violation, list_slots, owner_busy
 
 # Booking lifecycle (spec §4.12)
 _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
@@ -141,7 +142,9 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
     )
 
 
-def _audit_transition(db: Session, actor: Actor, action: str, booking: Booking, before: BookingStatus, **extra) -> None:
+def _audit_transition(
+    db: Session, actor: Actor | None, action: str, booking: Booking, before: BookingStatus, **extra
+) -> None:
     audit.record(
         db,
         actor,
@@ -165,6 +168,7 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
         raise NotFoundError(f"Property {data.property_id} not found")
     seller_service.require_verified(db, prop.owner_id)  # AC-04
     slot, start_at, end_at = _resolve_time(db, prop, slot_id=data.slot_id, start_at=data.start_at)
+    _require_owner_free(db, prop, start_at, end_at)
 
     try:
         deal = deal_service.get_or_create_open(db, actor, prop)
@@ -206,6 +210,69 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
     notification_service.viewing_requested(db, booking)
     db.commit()
     return to_out(_load(db, booking.id), actor)
+
+
+def _lock_owner(db: Session, owner_id: int) -> None:
+    """Serialize viewing changes per owner: a request cannot slip in while the owner confirms another one."""
+    db.execute(select(User.id).where(User.id == owner_id).with_for_update())
+
+
+def _require_owner_free(
+    db: Session, prop: Property, start_at: datetime, end_at: datetime, *, except_booking: int | None = None
+) -> None:
+    """The owner already confirmed a viewing at this time (on any of their homes): offer the free times instead."""
+    _lock_owner(db, prop.owner_id)
+    if owner_busy(db, prop.owner_id, start_at, end_at, except_booking=except_booking):
+        raise SlotUnavailableError(
+            "The owner already has a confirmed viewing at this time",
+            details={"free_slots": [s.model_dump(mode="json") for s in list_slots(db, prop.id)]},
+        )
+
+
+SUPERSEDED_REASON = "Chủ căn đã nhận một lịch xem khác vào giờ này"
+
+
+def _close_overlapping(db: Session, confirmed: Booking) -> None:
+    """The owner just took this time: other buyers' overlapping requests can no longer happen.
+
+    Unanswered requests are closed and their buyers told by the assistant (with free times); a new time asked for
+    on a confirmed viewing is declined and its old time stays. Same transaction as the confirmation.
+    """
+    overlapping = db.scalars(
+        select(Booking)
+        .where(
+            Booking.owner_id == confirmed.owner_id,
+            Booking.id != confirmed.id,
+            Booking.status.in_((BookingStatus.REQUESTED, BookingStatus.RESCHEDULE_REQUESTED)),
+        )
+        .with_for_update()
+    ).all()
+    for other in overlapping:
+        if (
+            other.status == BookingStatus.REQUESTED
+            and other.start_at < confirmed.end_at
+            and other.end_at > confirmed.start_at
+        ):
+            before = _transition(other, BookingStatus.REJECTED)
+            other.responded_at = _now()
+            other.rejection_reason = SUPERSEDED_REASON
+            _audit_transition(db, None, "booking.superseded", other, before, reason=SUPERSEDED_REASON)
+            _sync_deal(db, None, other)
+            free = [s.start_at for s in list_slots(db, other.property_id)[:3]]
+            notification_service.viewing_superseded(db, other, free)
+        elif (
+            other.status == BookingStatus.RESCHEDULE_REQUESTED
+            and other.proposed_start_at is not None
+            and other.proposed_end_at is not None
+            and other.proposed_start_at < confirmed.end_at
+            and other.proposed_end_at > confirmed.start_at
+        ):
+            before = _transition(other, BookingStatus.CONFIRMED)
+            other.proposed_start_at = other.proposed_end_at = None
+            other.responded_at = _now()
+            _audit_transition(db, None, "booking.reschedule_decline", other, before, reason=SUPERSEDED_REASON)
+            _sync_deal(db, None, other)
+            notification_service.reschedule_declined(db, other, SUPERSEDED_REASON)
 
 
 def _raise_slot_taken(db: Session, err: DBAPIError, property_id: int) -> NoReturn:
@@ -275,6 +342,10 @@ def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleReque
       the owner is told and still has to confirm it.
     - CONFIRMED: the owner must confirm the new time; the current time and its hold stay until then.
     """
+    # Owner first, then the booking (same lock order as a confirmation)
+    owner_id = db.scalar(select(Booking.owner_id).where(Booking.id == booking_id))
+    if owner_id is not None:
+        _lock_owner(db, owner_id)
     booking = _load(db, booking_id, for_update=True)
     if booking.customer_id != actor.id:
         raise NotFoundError(f"Booking {booking_id} not found")
@@ -282,6 +353,7 @@ def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleReque
     if booking.status == BookingStatus.REQUESTED:
         return _move_request(db, actor, booking, data)
     _, start_at, end_at = _resolve_time(db, booking.property, start_at=data.start_at)
+    _require_owner_free(db, booking.property, start_at, end_at, except_booking=booking.id)
     before = _transition(booking, BookingStatus.RESCHEDULE_REQUESTED)
     booking.proposed_start_at, booking.proposed_end_at = start_at, end_at
     _audit_transition(db, actor, "booking.reschedule_request", booking, before, proposed_start_at=start_at.isoformat())
@@ -296,6 +368,7 @@ def _move_request(db: Session, actor: Actor, booking: Booking, data: RescheduleR
     property_id = booking.property_id  # read now: attributes can't be loaded after a failed flush
     old_start, old_end = booking.start_at, booking.end_at
     slot, start_at, end_at = _resolve_time(db, booking.property, start_at=data.start_at)
+    _require_owner_free(db, booking.property, start_at, end_at)
     try:
         booking.slot_id = slot.id if slot else None
         booking.start_at, booking.end_at = start_at, end_at
@@ -316,7 +389,7 @@ def _move_request(db: Session, actor: Actor, booking: Booking, data: RescheduleR
     return to_out(_load(db, booking.id), actor)
 
 
-def _sync_deal(db: Session, actor: Actor, booking: Booking) -> None:
+def _sync_deal(db: Session, actor: Actor | None, booking: Booking) -> None:
     db.flush()
     deal_service.sync_status(db, actor, booking.deal)
 
@@ -335,6 +408,8 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     """Owner confirms a request (or a new time) -> CONFIRMED + viewing hold, in one transaction (AC-05, AC-08)."""
     if actor.role != UserRole.OWNER:
         raise ForbiddenError("Only the property owner can confirm a viewing")
+    # Owner first, then the booking: the same lock order everywhere, so concurrent changes cannot deadlock
+    _lock_owner(db, actor.id)
     booking = _load_for_owner(db, actor, booking_id)
     deal_service.require_open(booking.deal)
     property_id = booking.property_id  # read now: attributes can't be loaded after a failed flush
@@ -359,6 +434,7 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     _audit_transition(db, actor, "booking.reschedule_approve" if rescheduling else "booking.approve", booking, before)
     _sync_deal(db, actor, booking)
     notification_service.viewing_confirmed(db, booking, rescheduled=rescheduling)
+    _close_overlapping(db, booking)
     db.commit()
     return to_out(_load(db, booking.id), actor)
 
@@ -450,6 +526,7 @@ _ACTIVITY_KIND = {
     "booking.reschedule_decline": "RESCHEDULE_DECLINED",
     "booking.cancel": "CANCELLED",
     "booking.complete": "COMPLETED",
+    "booking.superseded": "SUPERSEDED",
 }
 
 

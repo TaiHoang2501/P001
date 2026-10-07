@@ -24,13 +24,20 @@ const EVENT: Record<Kind, { title: (a: Activity) => string; tone: "ask" | "good"
   CONFIRMED: { title: () => "Chủ căn đã xác nhận lịch xem", tone: "good" },
   REJECTED: { title: () => "Chủ căn từ chối lịch xem", tone: "bad" },
   RESCHEDULE_APPROVED: { title: () => "Chủ căn đồng ý đổi giờ", tone: "good" },
-  RESCHEDULE_DECLINED: { title: () => "Chủ căn không đồng ý đổi giờ, lịch cũ giữ nguyên", tone: "warn" },
+  RESCHEDULE_DECLINED: {
+    title: (a) =>
+      a.by === "BOOKINGBOT"
+        ? "Giờ mới không còn trống (chủ căn đã nhận lịch khác), lịch cũ giữ nguyên"
+        : "Chủ căn không đồng ý đổi giờ, lịch cũ giữ nguyên",
+    tone: "warn",
+  },
   CANCELLED: {
     title: (a) =>
       a.by === "BUYER" ? "Bạn đã hủy lịch xem" : a.by === "OWNER" ? "Chủ căn đã hủy lịch xem" : "BookingBot đã hủy lịch xem",
     tone: "bad",
   },
   COMPLETED: { title: () => "Buổi xem đã hoàn tất", tone: "done" },
+  SUPERSEDED: { title: () => "Chủ căn đã nhận một lịch xem khác vào giờ này", tone: "bad" },
 };
 
 const TONE = {
@@ -48,6 +55,7 @@ const WHEN_LABEL: Partial<Record<Kind, string>> = {
   CONFIRMED: "Giờ xem",
   RESCHEDULE_APPROVED: "Giờ xem mới",
   RESCHEDULE_DECLINED: "Vẫn xem lúc",
+  SUPERSEDED: "Giờ bạn đã chọn",
 };
 
 /**
