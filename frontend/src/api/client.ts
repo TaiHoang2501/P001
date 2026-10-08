@@ -7,7 +7,10 @@ import type { ChatResponse } from "./types";
  * Typed API client generated from the FastAPI OpenAPI spec.
  * Regenerate types after backend changes: `npm run gen:api` (backend must be running).
  */
-export const api = createClient<paths>({ baseUrl: import.meta.env.VITE_API_URL ?? "" });
+// No trailing slash: VITE_API_URL may be set as "https://host/", and paths already start with "/"
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+
+export const api = createClient<paths>({ baseUrl: API_BASE });
 
 let token: string | null = null;
 let onUnauthorized: (() => void) | null = null;
@@ -51,6 +54,7 @@ const FRIENDLY: Record<string, string> = {
   RATE_LIMITED: "Bạn yêu cầu mã quá nhiều lần, vui lòng thử lại sau ít phút.",
   SELLER_UNVERIFIED: "Chủ căn chưa được Chủ đầu tư xác thực.",
   AGENT_UNAVAILABLE: "Trợ lý AI đang tạm thời gián đoạn, vui lòng thử lại sau.",
+  STORAGE_UNAVAILABLE: "Không tải được tệp lên lúc này, vui lòng thử lại sau.",
   FORBIDDEN: "Bạn không có quyền thực hiện thao tác này.",
   NOT_FOUND: "Không tìm thấy dữ liệu.",
   ALREADY_EXISTS: "Dữ liệu đã tồn tại.",
@@ -125,7 +129,7 @@ export async function streamChat(
 ): Promise<ChatResponse> {
   let response: Response;
   try {
-    response = await fetch(`${import.meta.env.VITE_API_URL ?? ""}${path}`, {
+    response = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),

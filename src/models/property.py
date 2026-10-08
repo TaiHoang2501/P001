@@ -140,7 +140,11 @@ class SearchCriteria(BaseModel):
     )
 
     # Soft preferences
-    preferred_bedrooms: int | None = Field(default=None, ge=0)
+    preferred_bedrooms: int | None = Field(
+        default=None,
+        ge=0,
+        description="Ranking only; alone just for soft wishes ('khoảng 2PN'), else with bedrooms_min",
+    )
     preferred_area_m2: Decimal | None = Field(default=None, gt=0)
     preferred_directions: list[Direction] | None = None
     preferred_views: list[ViewType] | None = None

@@ -76,6 +76,8 @@ def _extract(messages: list[BaseMessage]) -> tuple[list[Recommendation], Viewing
             continue
         if m.name == "search_properties":
             recommendations = [Recommendation.model_validate(r) for r in data["results"]]
+            if data.get("top_viewing_times"):
+                viewing_times = ViewingTimesOut.model_validate(data["top_viewing_times"])
         elif m.name == "check_property_availability":
             viewing_times = ViewingTimesOut.model_validate(data)
         elif m.name in _BOOKING_TOOLS:

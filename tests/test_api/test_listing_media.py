@@ -129,3 +129,107 @@ async def test_cannot_withdraw_with_active_booking(client):
     owner = await auth(client, OWNER_TUAN)
     r = await client.post("/api/v1/owner/properties/1/withdraw", headers=owner)
     assert r.status_code == 409
+
+
+# ---------- Uploads to object storage ----------
+
+
+@pytest.fixture
+def storage(monkeypatch):
+    """In-memory stand-in for the S3-compatible bucket."""
+    from src.services import storage_service
+
+    objects: dict[tuple[bool, str], bytes] = {}
+    monkeypatch.setattr(storage_service, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        storage_service, "upload", lambda key, body, _ct, *, private: objects.__setitem__((private, key), body.read())
+    )
+    monkeypatch.setattr(storage_service, "delete", lambda key, *, private: objects.pop((private, key), None))
+    monkeypatch.setattr(storage_service, "signed_url", lambda key: f"https://signed.example/{key}?token=x")
+    return objects
+
+
+async def _upload(client, headers, pid: int, kind: str, content_type: str, body: bytes = b"data"):
+    return await client.post(
+        f"/api/v1/owner/properties/{pid}/media/upload",
+        data={"kind": kind},
+        files={"file": ("file", body, content_type)},
+        headers=headers,
+    )
+
+
+@pytest.mark.asyncio
+async def test_upload_photo_goes_to_public_bucket(client, storage):
+    owner = await auth(client, OWNER_TUAN)
+    pid = await _new_draft(client, owner)
+
+    r = await _upload(client, owner, pid, "IMAGE", "image/webp", b"photo")
+    assert r.status_code == 201, r.text
+    [media] = r.json()["media"]
+    assert media["is_public"] is True
+    assert media["url"].startswith(f"properties/{pid}/") and media["url"].endswith(".webp")
+    assert storage == {(False, media["url"]): b"photo"}
+
+
+@pytest.mark.asyncio
+async def test_uploaded_document_is_private_and_signed(client, storage):
+    owner = await auth(client, OWNER_TUAN)
+    pid = await _new_draft(client, owner)
+
+    r = await _upload(client, owner, pid, "OWNERSHIP_DOC", "application/pdf")
+    assert r.status_code == 201, r.text
+    [media] = r.json()["media"]
+    assert media["is_public"] is False
+    assert media["url"].startswith(f"https://signed.example/properties/{pid}/")
+    [(private, _key)] = storage
+    assert private is True
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_wrong_type_and_empty_file(client, storage):
+    owner = await auth(client, OWNER_TUAN)
+    pid = await _new_draft(client, owner)
+
+    assert (await _upload(client, owner, pid, "IMAGE", "text/html")).status_code == 422
+    assert (await _upload(client, owner, pid, "IMAGE", "image/png", b"")).status_code == 422
+    assert storage == {}
+
+
+@pytest.mark.asyncio
+async def test_upload_blocked_for_live_listing_and_other_owners(client, storage):
+    tuan = await auth(client, OWNER_TUAN)
+    lan = await auth(client, OWNER_LAN)
+    assert (await _upload(client, tuan, 1, "IMAGE", "image/jpeg")).status_code == 409
+    pid = await _new_draft(client, tuan)
+    assert (await _upload(client, lan, pid, "IMAGE", "image/jpeg")).status_code == 404
+    assert storage == {}
+
+
+@pytest.mark.asyncio
+async def test_upload_without_storage_configured(client):
+    owner = await auth(client, OWNER_TUAN)
+    pid = await _new_draft(client, owner)
+    r = await _upload(client, owner, pid, "IMAGE", "image/jpeg")
+    assert r.status_code == 503
+    assert r.json()["error"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_deleting_media_removes_the_file(client, storage):
+    owner = await auth(client, OWNER_TUAN)
+    pid = await _new_draft(client, owner)
+    media_id = (await _upload(client, owner, pid, "IMAGE", "image/jpeg")).json()["media"][0]["id"]
+
+    r = await client.delete(f"/api/v1/owner/properties/{pid}/media/{media_id}", headers=owner)
+    assert r.status_code == 200
+    assert storage == {}
+
+
+@pytest.mark.asyncio
+async def test_cannot_register_another_listings_private_file(client, storage):
+    """A signed URL would expose someone else's ownership document."""
+    owner = await auth(client, OWNER_TUAN)
+    pid = await _new_draft(client, owner)
+    stolen = {**DOC, "s3_key": "properties/1/someone-elses-so-hong.pdf"}
+    r = await client.post(f"/api/v1/owner/properties/{pid}/media", json=stolen, headers=owner)
+    assert r.status_code == 422

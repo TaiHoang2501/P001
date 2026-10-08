@@ -1,10 +1,12 @@
 """Owner endpoints: verification, listings, viewing slots, booking approval (HITL)."""
 
-from fastapi import APIRouter, Response
+from typing import Annotated
+
+from fastapi import APIRouter, Form, Response, UploadFile
 
 from src.core.deps import DbSession, OwnerActor
 from src.core.errors import NotFoundError
-from src.db.models import BookingStatus, Property
+from src.db.models import BookingStatus, MediaKind, Property
 from src.models.booking import BookingOut, BookingRejectRequest, SlotCreate, SlotOut
 from src.models.escalation import EscalationOut
 from src.models.ownership import (
@@ -106,6 +108,14 @@ def submit_property(property_id: int, actor: OwnerActor, db: DbSession) -> Prope
 @router.post("/properties/{property_id}/media", response_model=PropertyOut, status_code=201)
 def add_media(property_id: int, data: MediaCreate, actor: OwnerActor, db: DbSession) -> PropertyOut:
     return property_service.add_media(db, actor, property_id, data)
+
+
+@router.post("/properties/{property_id}/media/upload", response_model=PropertyOut, status_code=201)
+def upload_media(
+    property_id: int, kind: Annotated[MediaKind, Form()], file: UploadFile, actor: OwnerActor, db: DbSession
+) -> PropertyOut:
+    """Upload a photo / floor plan / video / ownership document to object storage and attach it to the listing."""
+    return property_service.upload_media(db, actor, property_id, kind, file.file, file.content_type or "")
 
 
 @router.delete("/properties/{property_id}/media/{media_id}", response_model=PropertyOut)

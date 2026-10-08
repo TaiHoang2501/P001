@@ -30,6 +30,9 @@ TEST_DATABASE_URL = _test_database_url()
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["APP_ENV"] = "test"
 os.environ["JWT_SECRET"] = "test-secret-" + "x" * 40
+# Never touch the real media storage configured in .env; storage tests patch storage_service instead
+for _var in ("MEDIA_BASE_URL", "S3_ENDPOINT_URL", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"):
+    os.environ[_var] = ""
 get_settings.cache_clear()
 
 from alembic.config import Config  # noqa: E402

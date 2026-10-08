@@ -24,10 +24,11 @@ services:
       - key: GOOGLE_API_KEY
         sync: false
       # The agent books on its own, so it needs the stronger model; the lite one answers when it is overloaded
+      # Flash-Lite: ~1s per agent step vs ~3.5s for Flash, and a far larger free quota
       - key: MODEL_NAME
-        value: gemini-flash-latest
-      - key: MODEL_FALLBACK_NAME
         value: gemini-flash-lite-latest
+      - key: MODEL_FALLBACK_NAME
+        value: gemini-flash-latest
       # Public demo with fake data: show OTP codes on screen (no SMS/Zalo provider yet)
       - key: OTP_EXPOSE_CODE
         value: "true"

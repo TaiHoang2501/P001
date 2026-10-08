@@ -91,6 +91,28 @@ class Settings(BaseSettings):
     viewing_outcome_hours: int = Field(default=48, ge=1)
     # Photos one listing can have
     media_max_photos: int = Field(default=10, ge=1)
+    # S3-compatible object storage (Supabase Storage, Cloudflare R2, AWS S3). Empty endpoint/keys = uploads disabled.
+    s3_endpoint_url: str = ""
+    s3_region: str = "auto"
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    # Photos/floor plans/videos, served as media_base_url + key
+    s3_public_bucket: str = ""
+    # Ownership documents (PII), only reachable through short-lived presigned URLs
+    s3_private_bucket: str = ""
+    media_signed_url_seconds: int = Field(default=600, ge=60, le=3600)
+
+    @property
+    def storage_enabled(self) -> bool:
+        return all(
+            (
+                self.s3_endpoint_url,
+                self.s3_access_key_id,
+                self.s3_secret_access_key,
+                self.s3_public_bucket,
+                self.s3_private_bucket,
+            )
+        )
 
     # OTP login (spec §4.17); SMS/Zalo provider is TBD, so codes are only logged for now
     otp_ttl_seconds: int = Field(default=300, ge=30)

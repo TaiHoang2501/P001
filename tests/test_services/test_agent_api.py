@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from src.db.models import ActorType, AuditLog, AvailabilitySlot, SellerProfile, SellerVerificationStatus
+from src.db.models import ActorType, AuditLog, AvailabilitySlot, Property, SellerProfile, SellerVerificationStatus
 from src.services import agent_api
 
 BUYER_ID = 1
@@ -41,6 +41,28 @@ def test_invalid_criteria_returns_validation_error():
     result = agent_api.search_properties({"budget_min": 5, "budget_max": 1})
     assert result["ok"] is False
     assert result["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_search_includes_viewing_times_of_best_match(db):
+    _seller_free(db, 14.5, 16)
+    criteria = {"keyword": db.get(Property, PROPERTY_ID).unit_code}
+    windows = [{"start_at": at(14), "end_at": at(17)}]
+    result = agent_api.search_with_viewing_times(criteria, windows)
+    assert result["ok"] is True, result
+    assert result["data"]["results"][0]["property"]["id"] == PROPERTY_ID
+    times = result["data"]["top_viewing_times"]
+    assert times["property_id"] == PROPERTY_ID
+    starts = [datetime.fromisoformat(p["start_at"]) for p in times["proposals"]]
+    assert starts == [SAT + timedelta(hours=h) for h in (14.5, 15, 15.5)]
+    # Echoed so the agent can pass the same windows to create_viewing_request
+    assert [datetime.fromisoformat(w["start_at"]) for w in times["buyer_windows"]] == [SAT + timedelta(hours=14)]
+
+
+def test_search_without_results_has_no_viewing_times():
+    result = agent_api.search_with_viewing_times({"budget_max": 1})
+    assert result["ok"] is True
+    assert result["data"]["results"] == []
+    assert result["data"]["top_viewing_times"] is None
 
 
 def test_seller_status_has_no_pii(db):
