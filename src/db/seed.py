@@ -4,7 +4,7 @@ Usage:
     python -m src.db.seed           # only if the database is empty
     python -m src.db.seed --reset   # wipe all rows first (dev only!)
     python -m src.db.seed --ensure-red-books  # add demo red books missing from an existing database
-    python -m src.db.seed --if-empty --ensure-slots --ensure-red-books   # deploy start-up
+    python -m src.db.seed --if-empty --ensure-slots --ensure-red-books   # deploy start-up (see scripts/start.sh)
 
 Seeded buyers and operators use the password below; sellers sign in with phone + OTP.
 Never run this against production.
@@ -458,6 +458,193 @@ def ensure_demo_requests(db: Session) -> int:
     return added
 
 
+# Demo cases added by ensure_showcase (all for the story seller unless said otherwise)
+SHOWCASE_LISTING_BOOK = "SD-2025-0778908"  # one of Lan's unlisted red books: a listing with uploaded photos
+SHOWCASE_UPLOADS = Path(__file__).resolve().parents[2] / "data" / "demo_uploads"
+SHOWCASE_PHOTOS = ("living.jpg", "bedroom.jpg", "kitchen.jpg")
+# Two buyers asking for the same time on two of her homes: she can only confirm one
+SHOWCASE_OVERLAP = [
+    ("Nguyễn Thảo Vy", "0938100111", 3.0, 3.5, "S1.08-2410", "Muốn xem buổi chiều sau giờ làm"),
+    ("Lý Minh Khôi", "0938100112", 3.8, 4.3, "S2.01-0718", None),
+]
+SHOWCASE_OVERLAP_DAY, SHOWCASE_OVERLAP_HOUR = 2, 16
+# A confirmed viewing that is over and waits for her to record it
+SHOWCASE_PAST = ("Cao Thị Hồng", "0938100113", 3.8, 4.4, "S2.01-0718")
+# Recorded as a no-show, the buyer says they came: a case for the investor
+SHOWCASE_DISPUTE = (
+    "Mai Quốc Việt",
+    "0938100114",
+    4.5,
+    5.0,
+    "S1.08-1026",
+    "Tôi đến lúc 9h05, bảo vệ toà S1.08 có gặp tôi",
+)
+# A seller whose red book got locked after wrong OTPs asks the investor for help
+SHOWCASE_LOCKED = ("Trần Văn Đức", "0933444555", "SD-2015-0110022")
+
+
+def _showcase_buyer(db: Session, name: str, phone: str, lo: float, hi: float) -> User | None:
+    """A new demo buyer, or None when one with this phone already exists (the case was added before)."""
+    if db.scalar(select(User.id).where(User.phone == phone)) is not None:
+        return None
+    buyer = User(role=UserRole.CUSTOMER, full_name=name, phone=phone, status=UserStatus.ACTIVE)
+    db.add(buyer)
+    db.flush()
+    db.add(BuyerProfile(user_id=buyer.id, budget_min_vnd=int(lo * 1e9), budget_max_vnd=int(hi * 1e9)))
+    db.commit()
+    return buyer
+
+
+def _past_booking(db: Session, buyer: User, prop: Property, start: datetime, status: str) -> int:
+    """A viewing in the past (it can no longer be booked through the service), with its deal kept in step."""
+    from src.core.actor import Actor
+    from src.db.models import Booking, BookingStatus
+    from src.services import deal_service
+
+    actor = Actor(buyer)
+    deal = deal_service.get_or_create_open(db, actor, prop)
+    booking = Booking(
+        deal_id=deal.id,
+        property_id=prop.id,
+        customer_id=buyer.id,
+        start_at=start,
+        end_at=start + timedelta(minutes=SLOT_MINUTES),
+        status=BookingStatus(status),
+        created_at=start - timedelta(days=2),
+        responded_at=start - timedelta(days=2) + timedelta(minutes=40),
+    )
+    db.add(booking)
+    db.flush()
+    deal_service.sync_status(db, actor, deal)
+    db.commit()
+    return booking.id
+
+
+def ensure_showcase(db: Session) -> str:
+    """Demo cases beyond DEMO_REQUESTS, so a fresh deployment shows every screen; each is added once.
+
+    - Lan posts a listing with photos uploaded from her device (waits in the operator's review queue).
+    - Two buyers ask for the same time on two of her homes (confirming one closes the other).
+    - A confirmed viewing of hers is over and waits for "Đã xem xong" / "Khách không đến".
+    - A buyer recorded as a no-show says they came (VIEWING_DISPUTE case for the operator).
+    - Trần Văn Đức's red book is locked after wrong OTPs; he asks for help (OWNERSHIP_SUPPORT case).
+    Run after --ensure-requests. A case whose seller, home or red book is missing is left out.
+    """
+    from src.core.actor import Actor
+    from src.models.booking import BookingCreate
+    from src.models.ownership import OwnershipSupportCreate
+    from src.models.property import PropertyCreate
+    from src.services import (
+        booking_service,
+        media_service,
+        ownership_support_service,
+        property_service,
+        viewing_outcome_service,
+    )
+
+    seller = db.scalar(select(User).where(User.phone == STORY_SELLER_PHONE, User.role == UserRole.OWNER))
+    if seller is None:
+        return "skipped (no demo seller)"
+    owner = Actor(seller)
+    homes = {
+        p.unit_code: p
+        for p in db.scalars(
+            select(Property).where(Property.owner_id == seller.id, Property.status == PropertyStatus.AVAILABLE)
+        )
+    }
+    tz = ZoneInfo(get_settings().timezone)
+    now = datetime.now(tz)
+    done: list[str] = []
+
+    # 1. A listing with photos the seller uploaded (stored in media_files, like a real upload)
+    book = db.scalar(
+        select(PropertyOwnershipVerification).where(
+            PropertyOwnershipVerification.red_book_code == SHOWCASE_LISTING_BOOK,
+            PropertyOwnershipVerification.user_id == seller.id,
+        )
+    )
+    files = [SHOWCASE_UPLOADS / name for name in SHOWCASE_PHOTOS]
+    if (
+        book is not None
+        and book.building_id is not None
+        and db.scalar(select(Property.id).where(Property.verification_id == book.id)) is None
+        and all(f.is_file() for f in files)
+    ):
+        keys = [media_service.upload(db, owner, f.read_bytes()).key for f in files]
+        property_service.create(
+            db,
+            owner,
+            PropertyCreate(
+                verification_id=book.id,
+                building_id=book.building_id,
+                unit_code=book.unit_code or "",
+                property_type=book.property_type or PropertyType.APARTMENT,
+                bedrooms=book.bedrooms or 2,
+                bathrooms=book.bathrooms or 2,
+                area_m2=book.area_m2 or Decimal("68.0"),
+                floor=book.floor or 1,
+                direction=book.direction or Direction.SE,
+                price_vnd=3_950_000_000,
+                view=ViewType.PARK,
+                furnishing=Furnishing.FULL,
+                legal_status=LegalStatus.PINK_BOOK,
+                description="Căn góc 2PN nhìn công viên, nội thất đầy đủ, ảnh chụp thực tế tháng này.",
+                photos=keys,
+            ),
+        )
+        done.append("listing with uploaded photos")
+
+    # 2. Same time, two homes of one seller: both wait for her answer
+    start = datetime.combine(now.date() + timedelta(days=SHOWCASE_OVERLAP_DAY), time(SHOWCASE_OVERLAP_HOUR), tzinfo=tz)
+    for name, phone, lo, hi, unit, note in SHOWCASE_OVERLAP:
+        if unit not in homes:
+            continue
+        buyer = _showcase_buyer(db, name, phone, lo, hi)
+        if buyer is not None:
+            booking_service.create_request(
+                db, Actor(buyer), BookingCreate(property_id=homes[unit].id, start_at=start, note=note)
+            )
+            done.append(f"overlapping request ({unit})")
+
+    # 3. A confirmed viewing that is over (a few hours ago) and not recorded yet
+    name, phone, lo, hi, unit = SHOWCASE_PAST
+    if unit in homes and (buyer := _showcase_buyer(db, name, phone, lo, hi)) is not None:
+        past = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=3)
+        _past_booking(db, buyer, homes[unit], past, "CONFIRMED")
+        done.append("past viewing to record")
+
+    # 4. A no-show the buyer disputes
+    name, phone, lo, hi, unit, note = SHOWCASE_DISPUTE
+    if unit in homes and (buyer := _showcase_buyer(db, name, phone, lo, hi)) is not None:
+        yesterday = datetime.combine(now.date() - timedelta(days=1), time(9), tzinfo=tz)
+        booking_id = _past_booking(db, buyer, homes[unit], yesterday, "NO_SHOW")
+        viewing_outcome_service.dispute(db, Actor(buyer), booking_id, "I_CAME", note)
+        done.append("viewing dispute")
+
+    # 5. A locked red book: the seller asks the investor for help
+    name, phone, code = SHOWCASE_LOCKED
+    locked = db.scalar(select(PropertyOwnershipVerification).where(PropertyOwnershipVerification.red_book_code == code))
+    if locked is not None and db.scalar(select(User.id).where(User.phone == phone)) is None:
+        user = User(role=UserRole.OWNER, full_name=name, phone=phone, status=UserStatus.ACTIVE)
+        db.add(user)
+        db.flush()
+        db.add(SellerProfile(user_id=user.id))
+        db.commit()
+        ownership_support_service.request(
+            db,
+            Actor(user),
+            OwnershipSupportCreate(
+                reason="LOCKED",
+                red_book_holder_name=name,
+                red_book_code=code,
+                note="Tôi gõ nhầm mã OTP mấy lần nên sổ bị khóa, nhờ mở lại giúp tôi.",
+            ),
+        )
+        done.append("ownership support case")
+
+    return ", ".join(done) if done else "nothing to add"
+
+
 SLOT_HOURS = (9, 14, 16)
 SLOT_MINUTES = 30
 DEMO_OWNER_IDS = {uid for uid, role, *_ in USERS if role == UserRole.OWNER}
@@ -785,6 +972,11 @@ if __name__ == "__main__":
         help="Demo buyers and viewing requests of every kind for the story seller (see DEMO_REQUESTS)",
     )
     parser.add_argument(
+        "--ensure-showcase",
+        action="store_true",
+        help="More demo cases: uploaded photos, overlapping requests, a viewing to record, a dispute, a locked red book",
+    )
+    parser.add_argument(
         "--ensure-photos",
         action="store_true",
         help="Give demo listings illustrative interior photos (replaces the seed's placeholder cover only)",
@@ -833,3 +1025,5 @@ if __name__ == "__main__":
         # Last: the demo requests book the slots topped up above
         if args.ensure_requests:
             print(f"Added {ensure_demo_requests(session)} demo viewing request(s).")
+        if args.ensure_showcase:
+            print(f"Showcase: {ensure_showcase(session)}.")

@@ -20,5 +20,6 @@ tests/
 data/*
 # ...except the red book records the demo seed loads (src/db/seed.py)
 !data/property_ownership_verifications_seed.csv
+!data/demo_uploads/
 DIagram/
 .specify/
