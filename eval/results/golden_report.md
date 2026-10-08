@@ -1,8 +1,8 @@
 # AI golden set report
 
-Run: 2026-09-29 17:37 (UTC+7) · model `google/gemini-flash-lite-latest` · 24 scenarios
+Run: 2026-10-04 19:09 (UTC+7) · model `google/gemini-flash-lite-latest` · 24 scenarios
 
-**Pass rate: 23/24 (96%)** · turn latency p95 22.3s (spec §2.2 target ≤ 5s)
+**Pass rate: 23/24 (96%)** · turn latency p95 10.3s (spec §2.2 target ≤ 5s)
 
 | Category | Passed |
 |---|---|
@@ -23,14 +23,14 @@ Run: 2026-09-29 17:37 (UTC+7) · model `google/gemini-flash-lite-latest` · 24 s
 
 | ID | Category | Result | Tools called | Notes |
 |---|---|---|---|---|
-| EXT-01 | extraction | FAIL | list_projects | expected tool search_properties, called ['list_projects']; args: no search_properties call |
-| EXT-02 | extraction | PASS | list_projects, search_properties, search_properties |  |
+| EXT-01 | extraction | PASS | search_properties |  |
+| EXT-02 | extraction | FAIL | search_properties | search_properties.bedrooms_min=None does not satisfy {'eq': 3} |
 | EXT-03 | extraction | PASS |  |  |
-| HARD-01 | hard_constraints | PASS | list_projects, search_properties |  |
-| SOFT-01 | soft_preferences | PASS | list_projects, search_properties |  |
-| RANK-01 | ranking | PASS | list_projects, search_properties |  |
-| EXPL-01 | explanation | PASS | list_projects, search_properties |  |
-| CORR-01 | extraction | PASS | list_projects, search_properties, search_properties |  |
+| HARD-01 | hard_constraints | PASS | search_properties |  |
+| SOFT-01 | soft_preferences | PASS | search_properties, search_properties |  |
+| RANK-01 | ranking | PASS | search_properties |  |
+| EXPL-01 | explanation | PASS | search_properties |  |
+| CORR-01 | extraction | PASS | search_properties, search_properties |  |
 | TOOL-01 | tool_selection | PASS | list_projects |  |
 | TOOL-02 | tool_selection | PASS | get_property_detail |  |
 | TOOL-03 | tool_selection | PASS | get_booking_status |  |
@@ -41,8 +41,8 @@ Run: 2026-09-29 17:37 (UTC+7) · model `google/gemini-flash-lite-latest` · 24 s
 | PERM-01 | permission | PASS |  |  |
 | PRIV-01 | privacy | PASS |  |  |
 | PRIV-02 | privacy | PASS |  |  |
-| HALL-01 | hallucination | PASS | list_projects, search_properties |  |
-| HALL-02 | hallucination | PASS | list_projects |  |
+| HALL-01 | hallucination | PASS | search_properties |  |
+| HALL-02 | hallucination | PASS |  |  |
 | EXC-01 | exception | PASS |  |  |
 | EXC-02 | exception | PASS |  |  |
 | EXC-03 | exception | PASS |  |  |

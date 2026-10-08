@@ -1,20 +1,20 @@
-import { Link, NavLink, Outlet, useNavigate } from "react-router";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { useAuth } from "../auth/AuthContext";
 import { NotificationBell } from "../components/NotificationBell";
 import { endGuest } from "./guest";
 import { BuildingIcon } from "./icons";
 
-const NAV = [
-  { to: "/buyer/chat", label: "Tìm nhà với AI" },
-  { to: "/buyer/chat?bookings=1", label: "Lịch xem của tôi" },
-];
+// Buyers land in the AI chat; the only other place is their viewings (a card in that chat)
+const NAV = [{ to: "/buyer/chat?bookings=1", label: "Lịch xem của tôi" }];
 
 /** Buyer area shell (wireframe 1.x): blue theme, its own header, no seller/operator navigation. */
 export function BuyerLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const buyer = user?.role === "CUSTOMER" ? user : null;
+  // The chat page can open the home details beside it: give it more room
+  const width = useLocation().pathname === "/buyer/chat" ? "max-w-[96rem]" : "max-w-6xl";
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${isActive ? "text-brand-600" : "text-muted hover:text-ink"}`;
@@ -22,9 +22,10 @@ export function BuyerLayout() {
   return (
     <div className="theme-buyer flex min-h-dvh flex-col bg-canvas text-ink">
       <header className="sticky top-0 z-20 border-b border-line bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4">
+        <div className={`mx-auto flex h-16 ${width} items-center gap-4 px-4`}>
+          {/* Back to the start: choose to view homes or to sell one */}
           <Link
-            to="/buyer"
+            to="/"
             className="flex items-center gap-2 font-bold text-ink"
           >
             <span className="grid size-8 place-items-center rounded-lg bg-brand-600 text-white">
@@ -113,7 +114,7 @@ export function BuyerLayout() {
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:py-8">
+      <main className={`mx-auto w-full ${width} flex-1 px-4 py-6 md:py-8`}>
         <Outlet />
       </main>
 

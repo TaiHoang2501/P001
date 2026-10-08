@@ -2,13 +2,16 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from io import SEEK_END
+from typing import BinaryIO
+from uuid import uuid4
 
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.config import get_settings
 from src.core.actor import Actor
-from src.core.errors import BusinessRuleViolationError, NotFoundError, StateConflictError
+from src.core.errors import BusinessRuleViolationError, NotFoundError, StateConflictError, StorageUnavailableError
 from src.db.models import (
     ACTIVE_BOOKING_STATUSES,
     Booking,
@@ -35,7 +38,7 @@ from src.models.property import (
     SearchCriteria,
     SearchResult,
 )
-from src.services import audit, notification_service, ownership_service, seller_service
+from src.services import audit, notification_service, ownership_service, seller_service, storage_service
 
 # Listing lifecycle (spec §4.11). SOLD is terminal; a WITHDRAWN listing can be re-submitted.
 _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
@@ -50,16 +53,40 @@ _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
 _EDITABLE = {PropertyStatus.DRAFT, PropertyStatus.REJECTED, PropertyStatus.WITHDRAWN}
 _MAX_CANDIDATES = 500
 
+# Uploads: allowed file types per media kind, and size limits (Supabase free tier caps files at 50 MB)
+_UPLOAD_TYPES: dict[MediaKind, set[str]] = {
+    MediaKind.IMAGE: {"image/jpeg", "image/png", "image/webp"},
+    MediaKind.FLOORPLAN: {"image/jpeg", "image/png", "image/webp", "application/pdf"},
+    MediaKind.VIDEO: {"video/mp4", "video/webm"},
+    MediaKind.OWNERSHIP_DOC: {"application/pdf", "image/jpeg", "image/png"},
+}
+_EXTENSIONS = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "application/pdf": "pdf",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+}
+_MAX_UPLOAD_MB: dict[MediaKind, int] = {MediaKind.VIDEO: 50}
+_DEFAULT_MAX_UPLOAD_MB = 10
+
 
 def media_url(s3_key: str) -> str:
     return get_settings().media_base_url + s3_key
 
 
 def _media_out(m: PropertyMedia) -> MediaOut:
+    # Private media sits in the private bucket: hand out a short-lived signed URL instead of a public one
+    url = (
+        storage_service.signed_url(m.s3_key)
+        if not m.is_public and storage_service.is_enabled()
+        else media_url(m.s3_key)
+    )
     return MediaOut(
         id=m.id,
         kind=m.kind,
-        url=media_url(m.s3_key),
+        url=url,
         content_type=m.content_type,
         sort_order=m.sort_order,
         is_public=m.is_public,
@@ -220,6 +247,11 @@ def add_media(db: Session, actor: Actor, property_id: int, data: MediaCreate) ->
     _require_editable(prop)
     # Ownership documents are for the operator only, never for buyers
     is_public = data.is_public and data.kind != MediaKind.OWNERSHIP_DOC
+    # Private keys get signed download URLs, so an owner may only register files stored under their own listing
+    if not is_public and storage_service.is_enabled() and not data.s3_key.startswith(_key_prefix(prop.id)):
+        raise BusinessRuleViolationError(
+            "Private documents must be uploaded through the upload endpoint", details={"s3_key": data.s3_key}
+        )
     media = PropertyMedia(
         kind=data.kind,
         s3_key=data.s3_key,
@@ -243,7 +275,51 @@ def delete_media(db: Session, actor: Actor, property_id: int, media_id: int) -> 
     prop.media.remove(media)  # delete-orphan cascade removes the row
     audit.record(db, actor, "property.media_delete", "property", prop.id, before={"media_id": media_id})
     db.commit()
+    # Only remove files uploaded for this listing: a manually registered key may point at someone else's file
+    if media.s3_key.startswith(_key_prefix(prop.id)):
+        storage_service.delete(media.s3_key, private=not media.is_public)
     return get_property(db, prop.id, actor)
+
+
+def _key_prefix(property_id: int) -> str:
+    return f"properties/{property_id}/"
+
+
+def upload_media(
+    db: Session, actor: Actor, property_id: int, kind: MediaKind, file: BinaryIO, content_type: str
+) -> PropertyOut:
+    """Store a file in object storage, then register it as listing media."""
+    if not storage_service.is_enabled():
+        raise StorageUnavailableError("Media storage is not configured")
+    allowed = _UPLOAD_TYPES[kind]
+    if content_type not in allowed:
+        raise BusinessRuleViolationError(
+            f"File type {content_type or 'unknown'} is not allowed for {kind.value}",
+            details={"allowed": sorted(allowed)},
+        )
+    file.seek(0, SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    max_mb = _MAX_UPLOAD_MB.get(kind, _DEFAULT_MAX_UPLOAD_MB)
+    if size == 0 or size > max_mb * 1024 * 1024:
+        raise BusinessRuleViolationError(f"File must be between 1 byte and {max_mb} MB", details={"max_mb": max_mb})
+
+    # Check ownership and status before uploading; add_media re-checks both under the row lock
+    prop = _load_owned(db, actor, property_id)
+    _require_editable(prop)
+    sort_order = len(prop.media)
+    db.rollback()  # don't hold the row lock during the upload
+
+    private = kind == MediaKind.OWNERSHIP_DOC
+    key = f"{_key_prefix(property_id)}{uuid4().hex}.{_EXTENSIONS[content_type]}"
+    storage_service.upload(key, file, content_type, private=private)
+    data = MediaCreate(kind=kind, s3_key=key, content_type=content_type, sort_order=sort_order, is_public=not private)
+    try:
+        return add_media(db, actor, property_id, data)
+    except Exception:
+        db.rollback()
+        storage_service.delete(key, private=private)
+        raise
 
 
 def submit_for_review(db: Session, actor: Actor, property_id: int) -> PropertyOut:

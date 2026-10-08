@@ -4,6 +4,7 @@ The graph is built from any chat model that supports tool binding, so tests can 
 scripted fake model. Conversation memory is keyed by thread_id (set by the chat service).
 """
 
+import time
 from functools import lru_cache
 
 from langchain_core.language_models import BaseChatModel
@@ -20,10 +21,29 @@ from src.agents.state import AgentState
 from src.agents.tools import TOOLS
 from src.config import get_settings
 from src.core.errors import AgentUnavailableError
+from src.services import agent_api
 from src.services.llm import get_fallback_llm, get_llm
 
 # Messages of history sent to the model each turn (full history stays in the checkpoint)
 _HISTORY_WINDOW = 40
+
+# Project codes go in the prompt, so searching needs no list_projects round (one LLM call less)
+_PROJECTS_TTL_SECONDS = 300
+_projects_cache: tuple[float, str | None] = (0.0, None)
+
+
+def _project_catalog() -> str | None:
+    global _projects_cache
+    fetched_at, catalog = _projects_cache
+    if time.monotonic() - fetched_at < _PROJECTS_TTL_SECONDS:
+        return catalog
+    envelope = agent_api.list_projects()
+    if not envelope.get("ok"):
+        # Do not cache a failure; the prompt then tells the model to call list_projects
+        return catalog
+    catalog = "\n".join(f"- {p['code']}: {p['name']} ({p['city']})" for p in envelope["data"]) or None
+    _projects_cache = (time.monotonic(), catalog)
+    return catalog
 
 
 def build_graph(
@@ -45,7 +65,8 @@ def build_graph(
         history = trim_messages(
             state["messages"], strategy="last", token_counter=len, max_tokens=_HISTORY_WINDOW, start_on="human"
         )
-        response = await model.ainvoke([SystemMessage(system_prompt(buyer_name, memory)), *history], config)
+        prompt = system_prompt(buyer_name, memory, _project_catalog())
+        response = await model.ainvoke([SystemMessage(prompt), *history], config)
         return {"messages": [response]}
 
     graph = StateGraph(AgentState)
@@ -75,4 +96,6 @@ def get_agent() -> CompiledStateGraph:
         key = "GOOGLE_API_KEY" if settings.llm_provider == "google" else "OPENAI_API_KEY"
         raise AgentUnavailableError(f"AI assistant is not configured ({key} missing)")
     # Without Postgres the memory is in-process: lost on restart and not shared between workers
+    # The main model keeps its retries: a short rate-limit blip is better retried than handed to the
+    # fallback, whose free quota (Flash: 20 requests/day) is easily used up
     return build_graph(get_llm(), _checkpointer or InMemorySaver(), get_fallback_llm())

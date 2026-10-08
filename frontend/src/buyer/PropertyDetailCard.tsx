@@ -36,7 +36,7 @@ export function PropertyDetailCard({
 }: {
   propertyId: number;
   onBook: (p: Property) => void;
-  onBack: () => void;
+  onBack?: () => void;
 }) {
   const property = useProperty(propertyId);
   const [active, setActive] = useState(0);
@@ -53,18 +53,21 @@ export function PropertyDetailCard({
 
   return (
     <article
-      className="card w-full overflow-hidden shadow-sm"
+      // Laid out by its own width (@container): stacked in the narrow side panel, two columns when wide
+      className="card @container w-full shadow-sm"
       aria-label={`Chi tiết căn ${p.unit_code}`}
     >
-      <div className="px-3 pt-3">
-        <BackButton onClick={onBack}>Quay lại</BackButton>
-      </div>
-      <div className="grid gap-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      {onBack && (
+        <div className="px-3 pt-3">
+          <BackButton onClick={onBack}>Quay lại</BackButton>
+        </div>
+      )}
+      <div className="grid gap-0 @2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="space-y-2 p-3">
           <PropertyImage
             src={images[active]?.url}
             alt={`Ảnh căn ${p.unit_code}`}
-            className="aspect-[4/3] w-full rounded-xl"
+            className="aspect-[2/1] w-full rounded-xl @2xl:aspect-[4/3]"
           />
           {thumbs.length > 1 && (
             <div className="grid grid-cols-5 gap-1.5">
@@ -119,17 +122,20 @@ export function PropertyDetailCard({
               {p.description}
             </p>
           )}
-          <button
-            type="button"
-            className="btn-primary w-full rounded-xl py-2.5"
-            onClick={() => onBook(p)}
-          >
-            Đặt lịch xem căn này
-          </button>
-          <p className="text-xs text-muted">
-            Chủ căn chỉ thấy mã người mua và khoảng ngân sách, không thấy số
-            điện thoại của bạn.
-          </p>
+          {/* Stays in view at the bottom of the side panel while the details scroll */}
+          <div className="sticky bottom-0 -mx-4 -mb-4 space-y-2 rounded-b-xl bg-white px-4 pb-4 pt-2">
+            <button
+              type="button"
+              className="btn-primary w-full rounded-xl py-2.5"
+              onClick={() => onBook(p)}
+            >
+              Đặt lịch xem căn này
+            </button>
+            <p className="text-xs text-muted">
+              Chủ căn chỉ thấy mã người mua và khoảng ngân sách, không thấy số
+              điện thoại của bạn.
+            </p>
+          </div>
         </div>
       </div>
     </article>
