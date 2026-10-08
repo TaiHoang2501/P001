@@ -329,11 +329,12 @@ def ensure_seller_story(db: Session) -> str:
     return f"{added_books} red book(s) added, {linked} listing(s) linked, {moved} listing(s) moved to the other seller"
 
 
-# Illustrative interiors served by the web app (frontend/public/demo/homes, Pexels License; see CREDITS.md there)
+# Illustrative interiors served by the web app (frontend/public/demo/homes: Pexels photos and AI-generated ones;
+# see CREDITS.md there)
 DEMO_PHOTOS = {
-    "living": [f"/demo/homes/living-{i}.jpg" for i in range(1, 9)],
-    "bedroom": [f"/demo/homes/bedroom-{i}.jpg" for i in range(1, 5)],
-    "kitchen": [f"/demo/homes/kitchen-{i}.jpg" for i in range(1, 6)],
+    "living": [f"/demo/homes/living-{i}.jpg" for i in range(1, 25)],
+    "bedroom": [f"/demo/homes/bedroom-{i}.jpg" for i in range(1, 17)],
+    "kitchen": [f"/demo/homes/kitchen-{i}.jpg" for i in range(1, 13)],
 }
 
 
@@ -350,10 +351,16 @@ def ensure_photos(db: Session) -> int:
         placeholder = f"public/properties/{prop.id}/cover.jpg"  # the key `_media` gives every seeded listing
         if any(m.s3_key != placeholder and not m.s3_key.startswith("/demo/homes/") for m in images):
             continue  # the seller's own photos
-        # Spread the sets so listings shown together (e.g. one seller's) do not share a cover photo
+        # Spread the sets so listings shown together (e.g. one seller's) do not share a cover photo: each step is
+        # coprime with its set size, so consecutive ids cycle through every photo before one repeats
         i = prop.id
-        cover = (i * 7 + i // 8) % 8
-        photos = [living[cover], bedroom[(i * 3 + i // 4) % 4], kitchen[(i * 2 + i // 5) % 5], living[(cover + 3) % 8]]
+        cover = (i * 7) % len(living)
+        photos = [
+            living[cover],
+            bedroom[(i * 5) % len(bedroom)],
+            kitchen[(i * 5) % len(kitchen)],
+            living[(cover + len(living) // 2) % len(living)],
+        ]
         if [m.s3_key for m in sorted(images, key=lambda m: m.sort_order)] == photos:
             continue
         for m in images:

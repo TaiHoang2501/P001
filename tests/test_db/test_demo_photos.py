@@ -1,9 +1,11 @@
 """Demo listings get illustrative photos; a seller's own photos are never replaced."""
 
+from pathlib import Path
+
 from sqlalchemy import select
 
 from src.db.models import MediaKind, Property, PropertyMedia
-from src.db.seed import ensure_photos
+from src.db.seed import DEMO_PHOTOS, ensure_photos
 from src.services.property_service import media_url
 
 
@@ -35,6 +37,12 @@ def test_seller_photos_are_kept(db):
     db.commit()
     ensure_photos(db)
     assert "public/sellers/own.jpg" in _images(db, first)
+
+
+def test_every_demo_photo_is_shipped():
+    public = Path(__file__).resolve().parents[2] / "frontend" / "public"
+    missing = [p for paths in DEMO_PHOTOS.values() for p in paths if not (public / p.lstrip("/")).is_file()]
+    assert missing == []
 
 
 def test_paths_and_urls_are_served_as_is():
