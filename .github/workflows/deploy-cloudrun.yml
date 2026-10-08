@@ -71,6 +71,8 @@ jobs:
             MODEL_NAME=gemini-flash-lite-latest
             MODEL_FALLBACK_NAME=gemini-flash-latest
             OTP_EXPOSE_CODE=true
+            # Uploaded photos are served by this API; the web app on Vercel needs its full address
+            PUBLIC_API_URL=https://bookingbot-api-wlvipunyga-as.a.run.app
             SEED_DEMO_DATA=true
             TIMEZONE=Asia/Ho_Chi_Minh
           secrets: |-

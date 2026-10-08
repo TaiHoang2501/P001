@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -83,6 +83,13 @@ class Settings(BaseSettings):
 
     # Media: public URL = media_base_url + s3_key (e.g. a CloudFront domain); empty means return the key
     media_base_url: str = ""
+    # Photos uploaded from the seller's device are served by this API; this is its public address, so the
+    # web app on another domain can show them (Render sets RENDER_EXTERNAL_URL). Empty: same-origin path.
+    public_api_url: str = Field(default="", validation_alias=AliasChoices("PUBLIC_API_URL", "RENDER_EXTERNAL_URL"))
+    media_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+    # Photos one listing can have
+    media_max_photos: int = Field(default=10, ge=1)
+
     # S3-compatible object storage (Supabase Storage, Cloudflare R2, AWS S3). Empty endpoint/keys = uploads disabled.
     s3_endpoint_url: str = ""
     s3_region: str = "auto"

@@ -10,8 +10,9 @@ OWNER_LAN = "lan.hoang@gmail.com"  # owns odd-indexed seed properties (ids 2, 4,
 OPERATOR = "operator@vinhomes.vn"
 OWNER_KHOA = "khoa.do@gmail.com"  # seeded with a PENDING verification
 
-# Sellers have no password: they sign in with phone + OTP
+# Sellers and buyers have no password: they sign in with phone + OTP (only operators use a password)
 SELLER_PHONES = {OWNER_TUAN: "0918765432", OWNER_LAN: "0912345678", OWNER_KHOA: "0987654321"}
+BUYER_PHONES = {CUSTOMER_AN: "0901111222", CUSTOMER_BINH: "0902222333"}
 
 # Red books from data/property_ownership_verifications_seed.csv
 TUAN_RED_BOOK = 1  # verified by Tuấn, not yet backing a listing
@@ -21,6 +22,8 @@ UNCLAIMED_RED_BOOK = {"id": 7, "red_book_holder_name": "Nguyễn Thị Hương",
 async def auth(client: AsyncClient, identifier: str, password: str = SEED_PASSWORD) -> dict[str, str]:
     if identifier in SELLER_PHONES:
         return await otp_auth(client, SELLER_PHONES[identifier])
+    if identifier in BUYER_PHONES:
+        return await otp_auth(client, BUYER_PHONES[identifier])
     r = await client.post("/api/v1/auth/login", json={"identifier": identifier, "password": password})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}

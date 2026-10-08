@@ -93,6 +93,17 @@ async def test_requests_are_rate_limited(client):
     r = await client.post("/api/v1/auth/otp/request", json={"target": NEW_PHONE})
     assert r.status_code == 429
     assert r.json()["error"]["code"] == "RATE_LIMITED"
+    assert 1 <= r.json()["error"]["details"]["retry_after_minutes"] <= 15
+
+
+@pytest.mark.asyncio
+async def test_signing_in_again_and_again_is_not_rate_limited(client):
+    # A buyer who signs out and back in (e.g. switching to a seller account to test) is not locked out:
+    # only codes nobody used count towards the limit
+    for _ in range(7):
+        code = await _request(client, "0901111222")
+        r = await _verify(client, "0901111222", code)
+        assert r.status_code == 200, r.text
 
 
 @pytest.mark.asyncio

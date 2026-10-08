@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useParams } from "react-router";
 import type { Role } from "./api/types";
 import { RequireRole } from "./auth/RequireRole";
 import { BuyerChatPage } from "./buyer/BuyerChatPage";
+import { ActivityPage } from "./buyer/ActivityPage";
 import { BuyerHomePage } from "./buyer/BuyerHomePage";
 import { BuyerLayout } from "./buyer/BuyerLayout";
 import { BuyerLoginPage } from "./buyer/BuyerLoginPage";
@@ -12,10 +13,10 @@ import { RequireBuyer, RequireBuyerOrGuest } from "./buyer/shared";
 import { Layout } from "./components/Layout";
 import { EmptyState } from "./components/ui";
 import { LoginPage, OperatorLoginPage } from "./pages/LoginPage";
+import { PassCheckPage } from "./pages/PassCheckPage";
 import { BookingsMonitorPage } from "./pages/operator/BookingsMonitorPage";
 import { EscalationsPage } from "./pages/operator/EscalationsPage";
 import { ModerationPage } from "./pages/operator/ModerationPage";
-import { SellerVerificationPage } from "./pages/operator/SellerVerificationPage";
 import { OwnerBookingsPage } from "./pages/owner/OwnerBookingsPage";
 import { OwnershipVerifyPage } from "./pages/owner/OwnershipVerifyPage";
 import { OwnerPropertiesPage } from "./pages/owner/OwnerPropertiesPage";
@@ -42,15 +43,10 @@ function ToChat({ schedule = false }: { schedule?: boolean }) {
   );
 }
 
-/** /buyer/bookings[/:id]: the buyer's viewings and their status also open as cards in the agent chat. */
-function BookingsToChat() {
+/** /buyer/bookings[/:id] (older links): the buyer's viewings now live on the "Hoạt động" page. */
+function BookingsToActivity() {
   const id = useParams().id;
-  return (
-    <Navigate
-      to={id ? `/buyer/chat?booking=${id}` : "/buyer/chat?bookings=1"}
-      replace
-    />
-  );
+  return <Navigate to={id ? `/buyer/activity?booking=${id}` : "/buyer/activity"} replace />;
 }
 
 /** Old buyer links (/properties/:id) now live in the buyer area. */
@@ -63,6 +59,8 @@ export function App() {
     <Routes>
       {/* Entry: "view homes" -> buyer area, "sell a home" -> BookingBot */}
       <Route index element={<RoleSelectPage />} />
+      {/* Scanned at the building's gate from the buyer's QR (public) */}
+      <Route path="pass/:token" element={<PassCheckPage />} />
 
       {/* Buyer area: AI agent chat + viewing requests (wireframe 1.1-1.6) */}
       <Route path="buyer" element={<BuyerLayout />}>
@@ -73,8 +71,9 @@ export function App() {
         {/* A home's details and its viewing-time picker live inside the agent chat */}
         <Route path="properties/:id" element={<ToChat />} />
         <Route path="properties/:id/schedule" element={<ToChat schedule />} />
-        <Route path="bookings" element={buyer(<BookingsToChat />)} />
-        <Route path="bookings/:id" element={buyer(<BookingsToChat />)} />
+        <Route path="activity" element={buyer(<ActivityPage />)} />
+        <Route path="bookings" element={buyer(<BookingsToActivity />)} />
+        <Route path="bookings/:id" element={buyer(<BookingsToActivity />)} />
         <Route path="*" element={<EmptyState title="Không tìm thấy trang" />} />
       </Route>
       <Route path="chat" element={<Navigate to="/buyer/chat" replace />} />
@@ -119,10 +118,6 @@ export function App() {
         <Route
           path="operator"
           element={as(["INVESTOR_OPERATOR"], <ModerationPage />)}
-        />
-        <Route
-          path="operator/sellers"
-          element={as(["INVESTOR_OPERATOR"], <SellerVerificationPage />)}
         />
         <Route
           path="operator/escalations"

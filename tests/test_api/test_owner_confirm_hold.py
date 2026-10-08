@@ -152,22 +152,55 @@ async def test_reschedule_declined_keeps_original_time(client, db):
 
 
 @pytest.mark.asyncio
-async def test_reschedule_to_taken_time_fails_at_confirmation(client):
+async def test_new_time_wins_over_an_unanswered_request_at_that_time(client):
     tuan, an = await _setup(client)
     binh = await auth(client, CUSTOMER_BINH)
     mine = await _request(client, an, 15)
     await client.post(f"/api/v1/owner/bookings/{mine['id']}/approve", headers=tuan)
     await client.post(f"/api/v1/bookings/{mine['id']}/reschedule", json={"start_at": at(16)}, headers=an)
-    # Someone else books 16:00 before the owner answers
-    await _request(client, binh, 16)
+    # Someone else asks for 16:00 before the owner answers: allowed, the owner chooses
+    theirs = await _request(client, binh, 16)
 
     r = await client.post(f"/api/v1/owner/bookings/{mine['id']}/approve", headers=tuan)
+    assert r.status_code == 200, r.text
+    assert datetime.fromisoformat(r.json()["start_at"]) == SAT + timedelta(hours=16)
+    # Bình's request at 16:00 is closed and Bình is told
+    assert (await client.get(f"/api/v1/bookings/{theirs['id']}", headers=binh)).json()["status"] == "REJECTED"
+
+
+@pytest.mark.asyncio
+async def test_new_time_already_confirmed_for_someone_else_cannot_be_asked(client):
+    tuan, an = await _setup(client)
+    binh = await auth(client, CUSTOMER_BINH)
+    mine = await _request(client, an, 15)
+    await client.post(f"/api/v1/owner/bookings/{mine['id']}/approve", headers=tuan)
+    theirs = await _request(client, binh, 16)
+    await client.post(f"/api/v1/owner/bookings/{theirs['id']}/approve", headers=tuan)
+
+    r = await client.post(f"/api/v1/bookings/{mine['id']}/reschedule", json={"start_at": at(16)}, headers=an)
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "SLOT_UNAVAILABLE"
-    # Nothing changed: still waiting on the reschedule, old time still held
+    # Nothing changed: still confirmed at the old time, still held
     r = await client.get(f"/api/v1/bookings/{mine['id']}", headers=an)
-    assert r.json()["status"] == "RESCHEDULE_REQUESTED"
+    assert r.json()["status"] == "CONFIRMED"
     assert r.json()["hold_status"] == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_confirming_another_buyer_declines_an_overlapping_new_time(client):
+    tuan, an = await _setup(client)
+    binh = await auth(client, CUSTOMER_BINH)
+    mine = await _request(client, an, 15)
+    await client.post(f"/api/v1/owner/bookings/{mine['id']}/approve", headers=tuan)
+    await client.post(f"/api/v1/bookings/{mine['id']}/reschedule", json={"start_at": at(16)}, headers=an)
+    theirs = await _request(client, binh, 16)
+
+    # The owner receives Bình at 16:00: An's wish to move to 16:00 is declined, 15:00 stays
+    r = await client.post(f"/api/v1/owner/bookings/{theirs['id']}/approve", headers=tuan)
+    assert r.json()["status"] == "CONFIRMED", r.text
+    r = await client.get(f"/api/v1/bookings/{mine['id']}", headers=an)
+    assert (r.json()["status"], r.json()["proposed_start_at"]) == ("CONFIRMED", None)
+    assert datetime.fromisoformat(r.json()["start_at"]) == SAT + timedelta(hours=15)
 
 
 @pytest.mark.asyncio
@@ -196,12 +229,18 @@ async def test_unanswered_request_moves_to_the_new_time_and_still_needs_the_owne
 
 
 @pytest.mark.asyncio
-async def test_unanswered_request_cannot_move_onto_a_taken_time(client):
-    _, an = await _setup(client)
+async def test_unanswered_request_cannot_move_onto_a_confirmed_time(client):
+    tuan, an = await _setup(client)
     binh = await auth(client, CUSTOMER_BINH)
     mine = await _request(client, an, 15)
-    await _request(client, binh, 16)
+    theirs = await _request(client, binh, 16)
 
+    # Another unanswered request at 16:00 does not stop An
+    r = await client.post(f"/api/v1/bookings/{mine['id']}/reschedule", json={"start_at": at(16)}, headers=an)
+    assert r.status_code == 200, r.text
+    await client.post(f"/api/v1/bookings/{mine['id']}/reschedule", json={"start_at": at(15)}, headers=an)
+    # Once the owner confirmed Bình at 16:00, An cannot move there
+    await client.post(f"/api/v1/owner/bookings/{theirs['id']}/approve", headers=tuan)
     r = await client.post(f"/api/v1/bookings/{mine['id']}/reschedule", json={"start_at": at(16)}, headers=an)
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "SLOT_UNAVAILABLE"

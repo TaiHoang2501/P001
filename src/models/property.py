@@ -36,10 +36,12 @@ class PropertyBase(BaseModel):
 class PropertyCreate(PropertyBase):
     # A red book the seller verified (red book + OTP) and no other listing uses yet
     verification_id: int
+    # Keys of photos uploaded with POST /owner/media, in display order (the first is the cover)
+    photos: list[str] = Field(default_factory=list, max_length=10)
 
 
 class PropertyUpdate(BaseModel):
-    """Partial update; only allowed while the listing is DRAFT or REJECTED."""
+    """Partial update; allowed while the listing is a draft, waiting for review, rejected or withdrawn."""
 
     unit_code: str | None = Field(default=None, min_length=1, max_length=50)
     property_type: PropertyType | None = None
@@ -65,6 +67,14 @@ class MediaCreate(BaseModel):
     is_public: bool = True
 
 
+class MediaUploadOut(BaseModel):
+    """An uploaded photo: attach it to a listing with `key` (PropertyCreate.photos or MediaCreate.s3_key)."""
+
+    key: str
+    url: str
+    content_type: str
+
+
 class MediaOut(BaseModel):
     id: int
     kind: MediaKind
@@ -85,6 +95,10 @@ class PropertyOut(PropertyBase):
     building_name: str
     city: str
     rejection_reason: str | None = None
+    # Ownership proven by a red book the seller verified (red book + OTP against the investor's records)
+    verified_red_book: bool = False
+    # Its code, for the seller and the investor (not shown to buyers)
+    red_book_code: str | None = None
     created_at: datetime
     # Buyers only get public media; the owner and operators also see private documents
     media: list[MediaOut] = Field(default_factory=list)
@@ -110,8 +124,13 @@ class SearchCriteria(BaseModel):
     property_types: list[PropertyType] | None = None
     budget_min: int | None = Field(default=None, ge=0)
     budget_max: int | None = Field(default=None, gt=0)
+    bedrooms: int | None = Field(
+        default=None,
+        ge=0,
+        description="Exactly this many bedrooms: '2 phòng ngủ' / '2PN' -> 2 (0 = studio)",
+    )
     bedrooms_min: int | None = Field(
-        default=None, ge=0, description="Set whenever the buyer names a bedroom count ('căn 2 phòng ngủ', '3PN')"
+        default=None, ge=0, description="At least this many bedrooms, only for 'từ 2 PN trở lên' / 'ít nhất 2 PN'"
     )
     area_min: Decimal | None = Field(default=None, gt=0)
     keyword: str | None = Field(
@@ -140,6 +159,13 @@ class SearchCriteria(BaseModel):
     limit: int = Field(default=5, ge=1, le=20)
 
     @model_validator(mode="after")
+    def _rank_wanted_bedrooms_first(self) -> "SearchCriteria":
+        # "At least 2" still ranks exactly 2 first; an exact count shows as a matched criterion
+        if self.preferred_bedrooms is None:
+            self.preferred_bedrooms = self.bedrooms if self.bedrooms is not None else self.bedrooms_min
+        return self
+
+    @model_validator(mode="after")
     def _check_ranges(self) -> "SearchCriteria":
         if self.budget_min is not None and self.budget_max is not None and self.budget_min > self.budget_max:
             raise ValueError("budget_min must be <= budget_max")
@@ -165,6 +191,23 @@ class Recommendation(BaseModel):
     match_score: float = Field(..., ge=0, le=1)
     matched: list[CriterionMatch]
     unmatched: list[CriterionMatch]
+
+
+class OwnerPropertyStats(BaseModel):
+    property_id: int
+    viewing_requests: int = Field(description="All viewing requests ever made for this home")
+    pending_requests: int = Field(
+        description="Requests waiting for the seller's answer (new request or new time) whose viewing time is still ahead"
+    )
+    ai_suggestions: int = Field(description="Times the AI assistant showed this home to signed-in buyers")
+    open_slots_week: int = Field(default=0, description="Viewing slots the seller opened for the next 7 days")
+
+
+class OwnerOverview(BaseModel):
+    """The seller's dashboard numbers."""
+
+    response_hours: int = Field(description="A request left unanswered this long goes to the investor's staff")
+    properties: list[OwnerPropertyStats]
 
 
 class SearchResult(BaseModel):

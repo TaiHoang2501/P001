@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import type { Role } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { ROLE } from "../lib/format";
+import { SellerShell } from "../pages/owner/SellerShell";
 import { NotificationBell } from "./NotificationBell";
 
 type NavItem = { to: string; label: string; end?: boolean };
@@ -12,14 +13,10 @@ const NAV: Record<Role | "GUEST", NavItem[]> = {
   GUEST: [],
   // Buyers use the separate buyer area (/buyer); BookingBot is for sellers and the investor/operator
   CUSTOMER: [],
-  OWNER: [
-    { to: "/owner", label: "Căn của tôi", end: true },
-    { to: "/owner/bookings", label: "Yêu cầu xem nhà" },
-    { to: "/owner/verify", label: "Xác thực sổ đỏ" },
-  ],
+  // Sellers have their own shell (SellerShell): its top bar holds their pages
+  OWNER: [],
   INVESTOR_OPERATOR: [
     { to: "/operator", label: "Duyệt tin", end: true },
-    { to: "/operator/sellers", label: "Xác thực chủ căn" },
     { to: "/operator/escalations", label: "Ngoại lệ" },
     { to: "/operator/bookings", label: "Giám sát lịch xem" },
   ],
@@ -30,6 +27,10 @@ export function Layout() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const items = NAV[user?.role ?? "GUEST"];
+  const path = useLocation().pathname;
+  const sellerPage = user?.role === "OWNER" && path.startsWith("/owner");
+
+  if (sellerPage) return <SellerShell />;
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `rounded-lg px-3 py-2 text-sm font-medium ${isActive ? "bg-brand-50 text-brand-700" : "text-muted hover:text-ink"}`;
@@ -38,15 +39,18 @@ export function Layout() {
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-20 border-b border-line bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
-          <Link
-            to="/"
-            className="flex items-center gap-2 font-semibold text-brand-700"
-          >
-            <span className="grid size-7 place-items-center rounded-lg bg-brand-600 text-xs text-white">
-              BB
+          {/* The investor's console is its own place: its logo leads nowhere (the start page is for buyers / sellers) */}
+          {path.startsWith("/operator") ? (
+            <span className="flex select-none items-center gap-2 font-semibold text-brand-700">
+              <span className="grid size-7 place-items-center rounded-lg bg-brand-600 text-xs text-white">BB</span>
+              BookingBot
             </span>
-            BookingBot
-          </Link>
+          ) : (
+            <Link to="/" className="flex items-center gap-2 font-semibold text-brand-700">
+              <span className="grid size-7 place-items-center rounded-lg bg-brand-600 text-xs text-white">BB</span>
+              BookingBot
+            </Link>
+          )}
 
           <nav
             className="hidden flex-1 items-center gap-1 md:flex"

@@ -1,7 +1,7 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.db.models import UserRole, UserStatus
 
@@ -11,7 +11,6 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 SelfServiceRole = Literal["CUSTOMER", "OWNER"]
 # Password sign-up is for buyers only: sellers sign up and sign in with phone + OTP
-PasswordSignupRole = Literal["CUSTOMER"]
 
 
 def is_phone(target: str) -> bool:
@@ -23,15 +22,6 @@ def _phone_or_email(value: str) -> str:
     if not (is_phone(value) or _EMAIL_RE.fullmatch(value)):
         raise ValueError("must be a Vietnamese phone number (e.g. 09xxxxxxxx) or an email")
     return value
-
-
-class RegisterRequest(BaseModel):
-    full_name: str = Field(..., min_length=2, max_length=255)
-    phone: str = Field(..., pattern=PHONE_PATTERN, description="Vietnamese phone, e.g. 09xxxxxxxx")
-    email: EmailStr | None = None
-    password: str = Field(..., min_length=8, max_length=128)
-    # Operators are created by admins/seed only; sellers use phone + OTP
-    role: PasswordSignupRole = "CUSTOMER"
 
 
 class LoginRequest(BaseModel):

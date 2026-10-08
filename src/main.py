@@ -12,6 +12,7 @@ from src.api.routers import (
     chat,
     deals,
     escalations,
+    media,
     notifications,
     operator,
     owner,
@@ -60,12 +61,14 @@ API_PREFIX = "/api/v1"
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(properties.router, prefix=API_PREFIX)
 app.include_router(bookings.router, prefix=API_PREFIX)
+app.include_router(bookings.passes, prefix=API_PREFIX)
 app.include_router(deals.router, prefix=API_PREFIX)
 app.include_router(owner.router, prefix=API_PREFIX)
 app.include_router(operator.router, prefix=API_PREFIX)
 app.include_router(chat.router, prefix=API_PREFIX)
 app.include_router(notifications.router, prefix=API_PREFIX)
 app.include_router(escalations.router, prefix=API_PREFIX)
+app.include_router(media.router, prefix=API_PREFIX)
 
 
 @app.get("/health")

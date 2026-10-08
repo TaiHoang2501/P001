@@ -18,6 +18,13 @@
   --color-muted: #6b6560;
   --color-line: #e7e3df;
   --color-canvas: #faf8f6;
+
+  /* Buyer area surfaces (see .theme-organic) */
+  --color-sand: #ebddc5;
+  --color-paper: #f9f4ed;
+  --color-leaf: #e1eecc;
+  --color-leaf-ink: #56633f;
+  --color-blush: #ffe1d0;
 }
 
 /* Role chooser + buyer area: blue per the buyer wireframe. Redefining the tokens re-skins every brand-* utility inside. */
@@ -34,6 +41,54 @@
   --color-muted: #5f6b7a;
   --color-line: #e3e8f0;
   --color-canvas: #f5f7fb;
+}
+
+/* Buyer area: the layout of buyer design v2 in the buyer's original blue (same tokens as .theme-buyer),
+   white panels on a light blue-grey page, green for what matched. */
+.theme-organic {
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe7ff;
+  --color-brand-200: #b9cffe;
+  --color-brand-500: #3b7bff;
+  --color-brand-600: #1463ff;
+  --color-brand-700: #0f4fd6;
+  --color-brand-900: #0b2e7a;
+
+  --color-ink: #111827;
+  --color-muted: #5f6b7a;
+  --color-line: #e3e8f0;
+  --color-canvas: #f5f7fb;
+  --color-sand: #e8eef8;
+  --color-paper: #ffffff;
+  --color-leaf: #e3f5ea;
+  --color-leaf-ink: #1f7a4a;
+  --color-blush: #dbe7ff;
+  font-family: Figtree, ui-sans-serif, system-ui, sans-serif;
+}
+/* Seller area ("Dành cho chủ căn" design): warm sand + terracotta, sage for what is verified / on sale. */
+.theme-seller {
+  --color-brand-50: #fbefe6;
+  --color-brand-100: #ffe1d0;
+  --color-brand-200: #efc3a3;
+  --color-brand-500: #d17f47;
+  --color-brand-600: #c67139;
+  --color-brand-700: #a85a28;
+  --color-brand-900: #4a2410;
+
+  --color-ink: #201e1d;
+  --color-muted: #6f655b;
+  --color-line: #e4d6bf;
+  --color-canvas: #f5ead8;
+  --color-sand: #ebddc5;
+  --color-paper: #f9f4ed;
+  --color-leaf: #e1eecc;
+  --color-leaf-ink: #56633f;
+  --color-blush: #ffe1d0;
+  font-family: Figtree, ui-sans-serif, system-ui, sans-serif;
+}
+.theme-seller .font-display,
+.theme-organic .font-display {
+  font-family: "Baloo 2", Figtree, ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {

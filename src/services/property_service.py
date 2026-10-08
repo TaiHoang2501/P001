@@ -1,6 +1,6 @@
 """Property listings: owner CRUD, operator moderation, customer search + recommendation."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import SEEK_END
 from typing import BinaryIO
@@ -14,8 +14,11 @@ from src.core.actor import Actor
 from src.core.errors import BusinessRuleViolationError, NotFoundError, StateConflictError, StorageUnavailableError
 from src.db.models import (
     ACTIVE_BOOKING_STATUSES,
+    AvailabilitySlot,
     Booking,
+    BookingStatus,
     Building,
+    LegalStatus,
     MediaKind,
     Project,
     Property,
@@ -31,6 +34,8 @@ from src.models.property import (
     CriterionMatch,
     MediaCreate,
     MediaOut,
+    OwnerOverview,
+    OwnerPropertyStats,
     PropertyCreate,
     PropertyOut,
     PropertyUpdate,
@@ -38,7 +43,14 @@ from src.models.property import (
     SearchCriteria,
     SearchResult,
 )
-from src.services import audit, notification_service, ownership_service, seller_service, storage_service
+from src.services import (
+    audit,
+    media_service,
+    notification_service,
+    ownership_service,
+    seller_service,
+    storage_service,
+)
 
 # Listing lifecycle (spec §4.11). SOLD is terminal; a WITHDRAWN listing can be re-submitted.
 _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
@@ -50,7 +62,20 @@ _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
     PropertyStatus.SOLD: set(),
 }
 # Content (including media) can only change while the listing is off the marketplace
-_EDITABLE = {PropertyStatus.DRAFT, PropertyStatus.REJECTED, PropertyStatus.WITHDRAWN}
+# Facts of the home a listing takes from its red book (the investor's record), not from the seller
+RED_BOOK_FIELDS = (
+    "building_id",
+    "unit_code",
+    "property_type",
+    "area_m2",
+    "bedrooms",
+    "bathrooms",
+    "floor",
+    "direction",
+)
+
+# A listing waiting for review can still be corrected (a wrong detail would only get it rejected)
+_EDITABLE = {PropertyStatus.DRAFT, PropertyStatus.PENDING_REVIEW, PropertyStatus.REJECTED, PropertyStatus.WITHDRAWN}
 _MAX_CANDIDATES = 500
 
 # Uploads: allowed file types per media kind, and size limits (Supabase free tier caps files at 50 MB)
@@ -73,6 +98,12 @@ _DEFAULT_MAX_UPLOAD_MB = 10
 
 
 def media_url(s3_key: str) -> str:
+    # Photos uploaded from a device are served by this API: a full URL when the web app is on another domain
+    if s3_key.startswith("/api/"):
+        return get_settings().public_api_url.rstrip("/") + s3_key
+    # A path or full URL (the demo photos shipped with the web app, see seed.ensure_photos) is used as is
+    if s3_key.startswith(("/", "http://", "https://")):
+        return s3_key
     return get_settings().media_base_url + s3_key
 
 
@@ -117,6 +148,8 @@ def to_out(p: Property, *, include_private: bool = False) -> PropertyOut:
         building_name=p.building.name,
         city=p.building.project.city,
         rejection_reason=p.rejection_reason,
+        verified_red_book=p.verification_id is not None,
+        red_book_code=p.verification.red_book_code if include_private and p.verification else None,
         created_at=p.created_at,
         media=[_media_out(m) for m in media],
         image_urls=[media_url(m.s3_key) for m in media if m.kind == MediaKind.IMAGE and m.is_public],
@@ -183,6 +216,64 @@ def list_owned(db: Session, actor: Actor) -> list[PropertyOut]:
     return [to_out(p, include_private=True) for p in db.scalars(stmt)]
 
 
+def owner_overview(db: Session, actor: Actor) -> OwnerOverview:
+    """Per-listing numbers for the seller's dashboard: viewing requests (all / waiting for them) and AI exposure."""
+    # Imported here: the db models module also defines `Recommendation`, a name this module uses for the schema
+    from src.db.models import Recommendation as Suggested
+
+    ids = list(db.scalars(select(Property.id).where(Property.owner_id == actor.id)))
+    waiting = (BookingStatus.REQUESTED, BookingStatus.RESCHEDULE_REQUESTED)
+    requests = dict(
+        db.execute(
+            select(Booking.property_id, func.count()).where(Booking.property_id.in_(ids)).group_by(Booking.property_id)
+        ).all()
+    )
+    pending = dict(
+        db.execute(
+            select(Booking.property_id, func.count())
+            .where(
+                Booking.property_id.in_(ids),
+                Booking.status.in_(waiting),
+                # Still answerable: the (proposed) viewing time has not passed yet
+                func.coalesce(Booking.proposed_start_at, Booking.start_at) > datetime.now(UTC),
+            )
+            .group_by(Booking.property_id)
+        ).all()
+    )
+    shown = dict(
+        db.execute(
+            select(Suggested.property_id, func.count())
+            .where(Suggested.property_id.in_(ids))
+            .group_by(Suggested.property_id)
+        ).all()
+    )
+    now = datetime.now(UTC)
+    slots = dict(
+        db.execute(
+            select(AvailabilitySlot.property_id, func.count())
+            .where(
+                AvailabilitySlot.property_id.in_(ids),
+                AvailabilitySlot.start_at > now,
+                AvailabilitySlot.start_at <= now + timedelta(days=7),
+            )
+            .group_by(AvailabilitySlot.property_id)
+        ).all()
+    )
+    return OwnerOverview(
+        response_hours=get_settings().seller_response_hours,
+        properties=[
+            OwnerPropertyStats(
+                property_id=i,
+                viewing_requests=requests.get(i, 0),
+                pending_requests=pending.get(i, 0),
+                ai_suggestions=shown.get(i, 0),
+                open_slots_week=slots.get(i, 0),
+            )
+            for i in ids
+        ],
+    )
+
+
 def list_by_status(db: Session, status: PropertyStatus) -> list[PropertyOut]:
     """Operator moderation queue."""
     stmt = _base_query().where(Property.status == status).order_by(Property.updated_at.asc())
@@ -193,13 +284,38 @@ def list_by_status(db: Session, status: PropertyStatus) -> list[PropertyOut]:
 
 
 def create(db: Session, actor: Actor, data: PropertyCreate) -> PropertyOut:
+    """ "Đăng tin bán": the listing, its photos and the request for review in one step (there are no drafts)."""
     if db.get(Building, data.building_id) is None:
         raise NotFoundError(f"Building {data.building_id} not found")
-    ownership_service.require_usable(db, actor, data.verification_id)
-    prop = Property(owner_id=actor.id, status=PropertyStatus.DRAFT, **data.model_dump())
+    record = ownership_service.require_usable(db, actor, data.verification_id)
+    fields = data.model_dump(exclude={"photos"})
+    # The home's facts come from the red book (the investor's data), whatever the form sent
+    unit = ownership_service.unit_of(db, record)
+    if unit is not None:
+        fields.update(unit.model_dump(include=set(RED_BOOK_FIELDS)), legal_status=LegalStatus.PINK_BOOK)
+    prop = Property(owner_id=actor.id, status=PropertyStatus.DRAFT, **fields)
     db.add(prop)
+    for order, key in enumerate(data.photos):
+        upload = media_service.require_own_upload(db, actor, key)
+        prop.media.append(
+            PropertyMedia(
+                kind=MediaKind.IMAGE,
+                s3_key=key,
+                content_type=upload.content_type if upload else "image/jpeg",
+                sort_order=order,
+                is_public=True,
+            )
+        )
     db.flush()
-    audit.record(db, actor, "property.create", "property", prop.id, after={"status": prop.status.value})
+    audit.record(
+        db,
+        actor,
+        "property.create",
+        "property",
+        prop.id,
+        after={"status": prop.status.value, "photos": len(data.photos)},
+    )
+    _submit(db, actor, prop)
     db.commit()
     return get_property(db, prop.id, actor)
 
@@ -208,6 +324,13 @@ def update(db: Session, actor: Actor, property_id: int, data: PropertyUpdate) ->
     prop = _load_owned(db, actor, property_id)
     _require_editable(prop)
     changes = data.model_dump(exclude_unset=True)
+    # Facts taken from the red book cannot be changed by the seller (sending the same value is fine)
+    if prop.verification and ownership_service.unit_of(db, prop.verification) is not None:
+        locked = {k for k in (*RED_BOOK_FIELDS, "legal_status") if k in changes and changes[k] != getattr(prop, k)}
+        if locked:
+            raise BusinessRuleViolationError(
+                "These details come from the red book and cannot be changed", details={"fields": sorted(locked)}
+            )
     before = {k: _jsonable(getattr(prop, k)) for k in changes}
     for key, value in changes.items():
         setattr(prop, key, value)
@@ -227,7 +350,7 @@ def update(db: Session, actor: Actor, property_id: int, data: PropertyUpdate) ->
 def _require_editable(prop: Property) -> None:
     if prop.status not in _EDITABLE:
         raise StateConflictError(
-            "Only DRAFT, REJECTED or WITHDRAWN listings can be edited",
+            "Only listings waiting for review, rejected or withdrawn can be edited",
             details={"current_status": prop.status.value},
         )
 
@@ -245,6 +368,11 @@ def _require_no_active_bookings(db: Session, prop: Property, action: str) -> Non
 def add_media(db: Session, actor: Actor, property_id: int, data: MediaCreate) -> PropertyOut:
     prop = _load_owned(db, actor, property_id)
     _require_editable(prop)
+    upload = media_service.require_own_upload(db, actor, data.s3_key)
+    if data.kind == MediaKind.IMAGE:
+        limit = get_settings().media_max_photos
+        if sum(m.kind == MediaKind.IMAGE for m in prop.media) >= limit:
+            raise BusinessRuleViolationError(f"A listing can have at most {limit} photos", details={"max": limit})
     # Ownership documents are for the operator only, never for buyers
     is_public = data.is_public and data.kind != MediaKind.OWNERSHIP_DOC
     # Private keys get signed download URLs, so an owner may only register files stored under their own listing
@@ -255,7 +383,7 @@ def add_media(db: Session, actor: Actor, property_id: int, data: MediaCreate) ->
     media = PropertyMedia(
         kind=data.kind,
         s3_key=data.s3_key,
-        content_type=data.content_type,
+        content_type=upload.content_type if upload else data.content_type,
         sort_order=data.sort_order,
         is_public=is_public,
     )
@@ -324,19 +452,23 @@ def upload_media(
 
 def submit_for_review(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     prop = _load_owned(db, actor, property_id)
-    # Spec §4.5: ownership is proven by a verified red book; listings without one need a document for review
-    if prop.verification_id is None and not any(m.kind == MediaKind.OWNERSHIP_DOC for m in prop.media):
+    _submit(db, actor, prop)
+    db.commit()
+    return get_property(db, prop.id, actor)
+
+
+def _submit(db: Session, actor: Actor, prop: Property) -> None:
+    # Spec §4.5: ownership is proven by a verified red book (red book + OTP), checked by the seller themselves
+    if prop.verification_id is None:
         raise BusinessRuleViolationError(
-            "Upload an ownership document (sổ hồng / HĐMB) before submitting for review",
-            details={"missing": MediaKind.OWNERSHIP_DOC.value},
+            "Verify the red book of this home before submitting it for review",
+            details={"missing": "OWNERSHIP_VERIFICATION"},
         )
     before = _transition(prop, PropertyStatus.PENDING_REVIEW)
     prop.rejection_reason = None
     audit.record(
         db, actor, "property.submit", "property", prop.id, before={"status": before}, after={"status": prop.status}
     )
-    db.commit()
-    return get_property(db, prop.id, actor)
 
 
 def withdraw(db: Session, actor: Actor, property_id: int) -> PropertyOut:
@@ -434,6 +566,8 @@ def search(db: Session, criteria: SearchCriteria) -> SearchResult:
         stmt = stmt.where(Property.price_vnd >= criteria.budget_min)
     if criteria.budget_max is not None:
         stmt = stmt.where(Property.price_vnd <= criteria.budget_max)
+    if criteria.bedrooms is not None:
+        stmt = stmt.where(Property.bedrooms == criteria.bedrooms)
     if criteria.bedrooms_min is not None:
         stmt = stmt.where(Property.bedrooms >= criteria.bedrooms_min)
     if criteria.area_min is not None:
@@ -469,6 +603,8 @@ def match(prop: Property, criteria: SearchCriteria) -> Recommendation | None:
         c.budget_max is not None and prop.price_vnd > c.budget_max
     ):
         return None
+    if c.bedrooms is not None and prop.bedrooms != c.bedrooms:
+        return None
     if c.bedrooms_min is not None and prop.bedrooms < c.bedrooms_min:
         return None
     if c.area_min is not None and prop.area_m2 < c.area_min:
@@ -493,11 +629,10 @@ def _score(prop: Property, c: SearchCriteria) -> Recommendation:
         )
 
     if c.budget_min is not None or c.budget_max is not None:
-        if c.budget_min is not None and c.budget_max is not None:
-            target = (c.budget_min + c.budget_max) / 2
-        else:
-            target = c.budget_max if c.budget_max is not None else c.budget_min
-        score = _closeness(prop.price_vnd, target)
+        # The budget is a hard filter: every home left is within it. Being closer to the cap is not
+        # "a better match" (it used to rank a 4,85 tỷ home above a 3,5 tỷ one for "dưới 5 tỷ");
+        # among equally good homes the cheaper one comes first (see `search`).
+        score = 1.0
         wanted = (
             f"{_fmt_vnd(c.budget_min) if c.budget_min else '0'} - {_fmt_vnd(c.budget_max) if c.budget_max else '∞'}"
         )

@@ -15,8 +15,8 @@
 - **Backend (Source of Truth):** Python 3.11+ + FastAPI (RESTful, OpenAPI auto-docs, Pydantic, WebSocket server).
 - **Agent Orchestrator:** LangGraph (stateful workflow, tool selection, multi-turn state, human-in-the-loop, error recovery).
 - **Database:** PostgreSQL 15+ (relational, Full-text Search + `pg_trgm`, ACID, row-level locks, GiST exclusion constraints).
-- **Media Storage:** Amazon S3 (ảnh/video căn, giấy tờ xác thực Owner).
-- **Model Layer:** OpenAI API (`gpt-4o-mini` mặc định, `gpt-4o` khi cần); spec cho phép Gemini/OpenAI.
+- **Media Storage:** Amazon S3 (ảnh/video căn, giấy tờ xác thực Owner) là đích dài hạn; hiện ảnh người bán tải lên được lưu trong PostgreSQL (`media_files`, phục vụ qua `/api/v1/media/{id}`; giấy tờ hỗ trợ xác thực là riêng tư — chỉ người gửi và Operator xem được).
+- **Model Layer:** OpenAI API (`gpt-4o-mini` mặc định trong code, `gpt-4o` khi cần); spec cho phép Gemini/OpenAI. Bản demo trên Render dùng Gemini (`LLM_PROVIDER=google`, `gemini-flash-latest`, dự phòng `gemini-flash-lite-latest`).
 - **Auth:** JWT + OTP.
 - **Realtime Chat:** WebSocket qua FastAPI (Buyer ↔ Seller, post-MVP — xem §6.3).
 - **Notification:** SMS/Zalo/In-app (provider TBD).
@@ -29,15 +29,18 @@
 1. **Database là Source of Truth** — Property, Seller, lịch trống, Deal, Booking, Hold 100% do Backend DB kiểm soát. AI chỉ dùng dữ liệu đã có trong hệ thống.
 2. **AI-first, không AI-only** — AI hiểu intent, trích xuất tiêu chí Buyer, matching, khớp lịch, giải thích đề xuất; business rules và Human quyết định các hành động có tính cam kết. AI **không tự quyết định hoặc ghi đè business rules**.
 3. **Owner Verification** — Seller phải được xác thực và Property phải được Operator duyệt trước khi xuất hiện trong matching. Seller chưa xác thực → **không cho booking** (AC-04).
+   - Seller được xác thực **tự động** khi xác thực sổ đỏ thành công (họ tên + mã sổ khớp dữ liệu Chủ đầu tư, rồi OTP tới SĐT chủ sở hữu trên sổ). Operator **không duyệt người bán**, chỉ **duyệt tin đăng**.
+   - Thông tin gốc của căn (tòa, mã căn, loại hình, diện tích, phòng ngủ, phòng tắm, tầng, hướng) lấy từ dữ liệu sổ đỏ của Chủ đầu tư; seller không sửa được, chỉ nhập giá, view, nội thất, mô tả, ảnh.
+   - Ngoại lệ (không nhận OTP, sổ bị khóa, sai lệch dữ liệu, bán thay có ủy quyền, đồng sở hữu, thừa kế, chưa có sổ, sổ bị người khác nhận): seller gửi yêu cầu hỗ trợ → escalation `OWNERSHIP_SUPPORT` → Operator mở khóa sổ / cập nhật SĐT / xác thực thủ công / thu hồi xác thực. Mọi thao tác ghi `audit_logs` và báo seller.
 4. **Owner Approval (HITL)** — Booking bắt đầu ở `REQUESTED` và gửi thẳng tới Seller. Chỉ chuyển sang `CONFIRMED` khi chính **Seller/Owner** xác nhận (AC-05). Agent không được tự confirm. Operator **không** duyệt từng booking; Operator chỉ can thiệp khi có exception (§3.9).
 5. **Deal ID** — Mỗi quan hệ `Buyer + Seller + Property` có đúng một Deal (mã dạng `VH-2026-00128`). Deal phải được tạo khi Buyer yêu cầu xem (AC-02, AC-09). Deal đã đóng → reject mọi action.
 6. **Privacy by Design (Progressive Disclosure)** — Seller không tự động nhận SĐT/email Buyer khi Buyer chưa xác nhận tiếp tục giao dịch (AC-03):
-   - Level 1 — Anonymous Matching: Seller chỉ thấy Buyer ID, budget range, property preference, viewing preference.
-   - Level 2 — Viewing: hai bên xác nhận lịch.
+   - Level 1 — Matching: Seller thấy Buyer ID, **họ tên** người mua (quyết định sản phẩm), budget range, property preference, viewing preference; **SĐT/email luôn ẩn**.
+   - Level 2 — Viewing: hai bên xác nhận lịch; SĐT/email vẫn ẩn.
    - Level 3 — Continue Transaction: chia sẻ thông tin cần thiết theo policy khi cả hai muốn tiếp tục.
    - Level 4 — Transaction: Chủ đầu tư hỗ trợ quy trình.
    - AI không tự thu thập PII từ bên ngoài, không tự chia sẻ PII, không truy cập PII ngoài quyền.
-7. **Atomic Viewing Hold** — Hold = **tạm khóa căn để phục vụ buổi xem, KHÔNG phải giữ căn để mua**. Chỉ hold sau Owner confirmation; gắn với Deal + Buyer + time window; không hold ngoài viewing window; hết window → release. Atomic (`SELECT ... FOR UPDATE` + exclusion constraint) — không quá một booking/hold hợp lệ cho cùng Property/time (AC-08).
+7. **Atomic Viewing Hold** — Hold = **tạm khóa căn để phục vụ buổi xem, KHÔNG phải giữ căn để mua**. Chỉ hold sau Owner confirmation; gắn với Deal + Buyer + time window; không hold ngoài viewing window; hết window → release. Atomic (`SELECT ... FOR UPDATE` + exclusion constraint) — không quá một hold cho cùng Property/time, và **một chủ căn không có 2 lịch xem đã xác nhận trùng giờ, kể cả ở 2 căn khác nhau** (AC-08). Yêu cầu chưa xác nhận (`REQUESTED`) được phép trùng giờ — chủ căn chọn tiếp ai; khi chủ xác nhận một lịch, các yêu cầu khác của chủ đó bị trùng giờ tự đóng và AI báo người mua kèm giờ khác.
 8. **Never Hallucinate Tool Success / Property** — Không coi Tool call là đã thành công; chỉ thông báo sau khi Backend commit. DB không có căn phù hợp → AI không được tự tạo căn (AC-01).
 9. **Fail Safely & Human Escalation** — AI không chắc chắn → hỏi lại hoặc chuyển Human. Human can thiệp khi: Seller không phản hồi, không có slot chung, lịch conflict, Seller đổi lịch, Property đổi trạng thái, nhiều Buyer cùng yêu cầu một Property, lỗi hệ thống (API/DB/LLM). Fallback: dừng action không an toàn → giữ context → tạo escalation → Human xử lý → Buyer nhận trạng thái.
 10. **Strict Non-Goals (MUST NOT HAVE)**:
@@ -71,6 +74,8 @@
 13. `open_chat(deal_id)` — Chỉ khi đủ điều kiện gating (post-MVP).
 14. `send_notification(user_id, event)` — Qua Notification Service.
 15. `create_human_escalation(type, context)` — Đưa vào Exception Queue của Operator.
+
+> Danh sách trên là năng lực theo spec. Agent thực tế (`src/agents/tools.py`) có 12 tool: `list_projects`, `search_properties`, `get_property_detail`, `get_seller_status`, `check_seller_availability`, `check_property_availability`, `get_deal_status`, `get_booking_status`, `create_viewing_request`, `cancel_viewing`, `reschedule_viewing`, `create_human_escalation`. Các mục 8, 11–14 **không** cấp cho agent: xác nhận lịch là thao tác của Owner trên web, hold do Service tạo/nhả trong transaction và job nền, thông báo do Service gửi, chat Buyer ↔ Seller là post-MVP.
 
 ### Tool Policy
 - LLM không truy cập DB trực tiếp: `LLM → Agent Tool Layer → Authorization → Business Rules → Service Layer → Database`.
@@ -131,9 +136,11 @@ AI Agent Tool Call
 
 ### 6.1. Property Lifecycle
 ```text
-DRAFT → PENDING_REVIEW → AVAILABLE (= APPROVED) → SOLD
-               └──> REJECTED
+(Đăng tin bán) → PENDING_REVIEW → AVAILABLE (= APPROVED) ⇄ WITHDRAWN (tạm ngừng → gửi duyệt lại)
+                      │                 └──> SOLD (không hoàn tác)
+                      └──> REJECTED (kèm lý do) ──(seller sửa)──> PENDING_REVIEW
 ```
+- Không còn bản nháp: "Đăng tin bán" tạo tin ở `PENDING_REVIEW` ngay (`DRAFT` chỉ còn trong dữ liệu cũ). Seller sửa được tin khi `PENDING_REVIEW` / `REJECTED` / `WITHDRAWN`.
 - `PENDING_REVIEW` không xuất hiện với Buyer; chỉ `AVAILABLE` (Seller `VERIFIED`) được matching/booking; `SOLD` không recommendation/booking.
 - `VIEWING_HELD` trong spec **không lưu thành cột trạng thái** của Property — được suy ra từ `property_holds` đang `ACTIVE` trong viewing window, để căn vẫn nhận booking ở khung giờ khác và tự "release" khi hết window.
 - Buyer không có trang tìm kiếm/bộ lọc: sau khi đăng nhập, Buyer vào thẳng AI Chat.
@@ -142,14 +149,15 @@ DRAFT → PENDING_REVIEW → AVAILABLE (= APPROVED) → SOLD
 ```text
 REQUESTED ──(Owner confirm)──> CONFIRMED ──(xem xong)──> COMPLETED
     │                              │
-    ├─> REJECTED (Owner)           ├─> CANCELLED (Buyer/Owner)
+    ├─> REJECTED (Owner)           ├─> CANCELLED (Buyer / Operator)
     ├─> CANCELLED (Buyer)          └─> RESCHEDULE_REQUESTED ──(Owner confirm)──> CONFIRMED
     └─> REQUESTED (Buyer đổi giờ, Owner chưa trả lời: chuyển thẳng sang giờ mới, vẫn chờ Owner xác nhận)
 ```
+- `REJECTED` cũng xảy ra tự động khi Owner xác nhận một người khác trùng giờ (yêu cầu bị đóng, AI báo người mua kèm giờ khác). Owner không có nút hủy lịch đã xác nhận; hủy là của Buyer, hoặc Operator khi xử lý ngoại lệ (vd. thu hồi xác thực sổ đỏ).
 - Đổi giờ khi `REQUESTED` (mở rộng so với spec §4.12): chưa có hold nên Booking chuyển ngay sang giờ mới, giữ nguyên Deal; Seller được báo (`VIEWING_REQUEST_UPDATED`) và vẫn phải xác nhận. Đổi giờ khi `CONFIRMED` giữ giờ cũ + hold cho tới khi Owner đồng ý giờ mới.
 - `OWNER_CONFIRMED` trong spec = `CONFIRMED`; `VIEWING_HELD` = Booking `CONFIRMED` có `property_hold` `ACTIVE`.
 - Owner confirm → tạo Viewing Hold (cùng transaction) → nhắc lịch T-24h & T-2h → xem nhà → `COMPLETED`.
-- Hệ thống phải ngăn double-booking (exclusion constraint trên `property_id` + khoảng thời gian).
+- Hệ thống phải ngăn double-booking: exclusion constraint trên `owner_id` + khoảng thời gian cho Booking `CONFIRMED`/`RESCHEDULE_REQUESTED` (chủ căn không thể ở 2 nơi cùng lúc), và trên `property_id` cho hold `ACTIVE`.
 
 ### 6.3. Deal Lifecycle (spec §4.9)
 ```text
@@ -161,9 +169,10 @@ MATCHED → VIEWING_REQUESTED → VIEWING_CONFIRMED → VIEWED → INTERESTED �
 ---
 
 ## 7. Data Model (spec §4.16, mở rộng)
-Bản đầy đủ gồm 22 bảng:
+Bản đầy đủ gồm 24 bảng:
 - **Identity & Auth:** `users`, `otp_codes`, `buyer_profiles`, `seller_profiles`
-- **Inventory:** `projects`, `buildings`, `properties`, `property_media`
+- **Ownership:** `property_ownership_verifications` (dữ liệu sổ đỏ của Chủ đầu tư + thông tin căn gốc; mỗi sổ gắn tối đa một tin qua `properties.verification_id`)
+- **Inventory:** `projects`, `buildings`, `properties`, `property_media`, `media_files` (ảnh / giấy tờ tải lên)
 - **Scheduling:** `availability_slots` (lịch trống Seller), `buyer_availability`
 - **Deal & Viewing:** `deals`, `bookings`, `property_holds`
 - **Post-viewing (post-MVP):** `purchase_requests`, `chats`, `messages`

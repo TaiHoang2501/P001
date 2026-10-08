@@ -40,7 +40,7 @@ export function GuestSignup({ onDone }: { onDone: (user: User) => void }) {
           <Notice tone="warning">Số điện thoại này thuộc tài khoản người bán/quản trị. Vui lòng dùng số khác.</Notice>
         </div>
       )}
-      <LoginPanel audience="buyer" otpOnly intent={intent} onDone={(u) => void done(u)} />
+      <LoginPanel audience="buyer" intent={intent} onDone={(u) => void done(u)} />
       <p className="mt-3 text-center text-sm text-muted">
         {intent === "signup" ? "Đã có tài khoản? " : "Chưa có tài khoản? "}
         <button

@@ -53,7 +53,7 @@ async def test_ac02_seller_receives_request_linked_to_deal(client):
 
 
 @pytest.mark.asyncio
-async def test_ac03_seller_sees_budget_but_no_contact(client, db):
+async def test_ac03_seller_sees_name_and_budget_but_no_phone(client, db):
     profile = db.get(BuyerProfile, 1)
     profile.budget_min_vnd, profile.budget_max_vnd = 4_000_000_000, 5_000_000_000
     db.commit()
@@ -64,13 +64,28 @@ async def test_ac03_seller_sees_budget_but_no_contact(client, db):
     seen = (await client.get("/api/v1/owner/bookings", headers=tuan)).json()[0]
     assert seen["buyer_budget_min_vnd"] == 4_000_000_000
     assert seen["buyer_budget_max_vnd"] == 5_000_000_000
-    assert seen["customer_name"] is None
+    assert seen["customer_name"] == "Nguyễn Văn An"
     assert seen["customer_phone"] is None
 
     # The buyer sees their own details; the operator sees everything
     assert (await client.get("/api/v1/bookings", headers=an)).json()[0]["customer_phone"] == "0901111222"
     op = await auth(client, OPERATOR)
     assert (await client.get("/api/v1/operator/bookings", headers=op)).json()[0]["customer_name"] == "Nguyễn Văn An"
+
+
+@pytest.mark.asyncio
+async def test_seller_never_sees_the_phone_before_level_3(client):
+    an = await auth(client, CUSTOMER_AN)
+    booking = (await _book_slot(client, an)).json()
+    tuan = await auth(client, OWNER_TUAN)
+
+    # Requested, then confirmed: the name all along, the phone never
+    seen = (await client.get("/api/v1/owner/bookings", headers=tuan)).json()[0]
+    assert seen["customer_name"] == "Nguyễn Văn An"
+    assert seen["customer_phone"] is None
+    r = await client.post(f"/api/v1/owner/bookings/{booking['id']}/approve", headers=tuan)
+    assert r.json()["customer_name"] == "Nguyễn Văn An"
+    assert r.json()["customer_phone"] is None
 
 
 @pytest.mark.asyncio
