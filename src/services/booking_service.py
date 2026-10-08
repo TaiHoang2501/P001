@@ -59,6 +59,8 @@ _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.CANCELLED: set(),
     BookingStatus.COMPLETED: set(),
     BookingStatus.NO_SHOW: set(),
+    BookingStatus.OWNER_ABSENT: set(),
+    BookingStatus.UNREPORTED: set(),
 }
 # Spec §4.7: the seller gets buyer contact details only from level 3 (continue transaction) on
 _CONTACT_LEVEL = 3
@@ -139,6 +141,7 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
         rejection_reason=booking.rejection_reason,
         responded_at=booking.responded_at,
         created_at=booking.created_at,
+        deal_status=deal.status,
     )
 
 
@@ -475,6 +478,15 @@ def complete(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     _audit_transition(db, actor, "booking.complete", booking, before)
     _sync_deal(db, actor, booking)
     notification_service.cancel_reminders(db, booking.id)
+    notification_service.notify(
+        db,
+        booking.customer_id,
+        "VIEWING_COMPLETED",
+        "Bạn thấy căn thế nào?",
+        f"Buổi xem {booking.property.unit_code} đã hoàn tất. Cho chủ căn và trợ lý biết bạn có quan tâm không "
+        "trong mục Hoạt động.",
+        booking=booking,
+    )
     db.commit()
     return to_out(booking, actor)
 
@@ -527,6 +539,20 @@ _ACTIVITY_KIND = {
     "booking.cancel": "CANCELLED",
     "booking.complete": "COMPLETED",
     "booking.superseded": "SUPERSEDED",
+    "booking.no_show": "NO_SHOW",
+    "booking.unreported": "UNREPORTED",
+    "booking.dispute": "DISPUTED",
+    "booking.feedback": "FEEDBACK",
+    "booking.outcome_by_operator": "OUTCOME",
+}
+
+# What an event says, when it depends on the details (the buyer's answer, the operator's finding)
+_KIND_BY_DETAIL = {
+    ("FEEDBACK", "INTERESTED"): "INTERESTED",
+    ("FEEDBACK", "NOT_SUITABLE"): "NOT_SUITABLE",
+    ("OUTCOME", "COMPLETED"): "COMPLETED",
+    ("OUTCOME", "NO_SHOW"): "NO_SHOW",
+    ("OUTCOME", "OWNER_ABSENT"): "OWNER_ABSENT",
 }
 
 
@@ -572,7 +598,10 @@ def activity_for(db: Session, actor: Actor, limit: int = 200) -> list[ActivityOu
             ActivityOut(
                 id=row.id,
                 at=row.created_at,
-                kind=_ACTIVITY_KIND[row.action],
+                kind=_KIND_BY_DETAIL.get(
+                    (_ACTIVITY_KIND[row.action], after.get("interest") or after.get("status")),
+                    _ACTIVITY_KIND[row.action],
+                ),
                 by=by,
                 booking_id=b.id,
                 property_id=b.property_id,

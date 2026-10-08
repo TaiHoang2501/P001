@@ -157,6 +157,7 @@ REQUESTED ──(Owner confirm)──> CONFIRMED ──(xem xong)──> COMPLET
 - Đổi giờ khi `REQUESTED` (mở rộng so với spec §4.12): chưa có hold nên Booking chuyển ngay sang giờ mới, giữ nguyên Deal; Seller được báo (`VIEWING_REQUEST_UPDATED`) và vẫn phải xác nhận. Đổi giờ khi `CONFIRMED` giữ giờ cũ + hold cho tới khi Owner đồng ý giờ mới.
 - `OWNER_CONFIRMED` trong spec = `CONFIRMED`; `VIEWING_HELD` = Booking `CONFIRMED` có `property_hold` `ACTIVE`.
 - Owner confirm → tạo Viewing Hold (cùng transaction) → nhắc lịch T-24h & T-2h → xem nhà → `COMPLETED`.
+- **Sau giờ xem** (`viewing_outcome_service`): Owner ghi nhận "Đã xem xong" (`COMPLETED`) hoặc "Khách không đến" (`NO_SHOW`); quên thì được nhắc một lần; sau `VIEWING_OUTCOME_HOURS` (48h) không ai ghi nhận → `UNREPORTED` (không tính lỗi cho ai). Buyer sau buổi xem đã diễn ra cho biết Quan tâm (Deal → `INTERESTED`, báo Owner) / Chưa phù hợp (Deal → `CLOSED`, AI gợi ý căn khác). Buyer không đồng ý ("Tôi có đến" / "Chủ căn không có mặt") → escalation `VIEWING_DISPUTE`; Operator gọi hai bên rồi ghi kết quả (`COMPLETED` / `NO_SHOW` / `OWNER_ABSENT`). Không phạt tự động; số lần vắng mặt chỉ hiển thị để Operator tham khảo.
 - Hệ thống phải ngăn double-booking: exclusion constraint trên `owner_id` + khoảng thời gian cho Booking `CONFIRMED`/`RESCHEDULE_REQUESTED` (chủ căn không thể ở 2 nơi cùng lúc), và trên `property_id` cho hold `ACTIVE`.
 
 ### 6.3. Deal Lifecycle (spec §4.9)

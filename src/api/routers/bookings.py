@@ -3,8 +3,17 @@
 from fastapi import APIRouter
 
 from src.core.deps import AnyActor, CustomerActor, DbSession
-from src.models.booking import ActivityOut, BookingCreate, BookingOut, PassCheckOut, RescheduleRequest, ViewingPassOut
-from src.services import booking_service, pass_service
+from src.models.booking import (
+    ActivityOut,
+    BookingCreate,
+    BookingOut,
+    PassCheckOut,
+    RescheduleRequest,
+    ViewingDispute,
+    ViewingFeedback,
+    ViewingPassOut,
+)
+from src.services import booking_service, pass_service, viewing_outcome_service
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 # Public: opened by the guard's phone camera from the buyer's QR code
@@ -41,6 +50,18 @@ def cancel_booking(booking_id: int, actor: CustomerActor, db: DbSession) -> Book
 def reschedule_booking(booking_id: int, data: RescheduleRequest, actor: CustomerActor, db: DbSession) -> BookingOut:
     """Ask the owner to move a confirmed viewing; it stays at the old time until the owner confirms."""
     return booking_service.reschedule(db, actor, booking_id, data)
+
+
+@router.post("/{booking_id}/feedback", response_model=BookingOut)
+def viewing_feedback(booking_id: int, data: ViewingFeedback, actor: CustomerActor, db: DbSession) -> BookingOut:
+    """After a viewing that took place: interested (the owner is told) or not suitable (the deal closes)."""
+    return viewing_outcome_service.feedback(db, actor, booking_id, data.interest, data.note.strip())
+
+
+@router.post("/{booking_id}/dispute", response_model=BookingOut)
+def viewing_dispute(booking_id: int, data: ViewingDispute, actor: CustomerActor, db: DbSession) -> BookingOut:
+    """The buyer disagrees with the recorded outcome; the operator checks with both sides."""
+    return viewing_outcome_service.dispute(db, actor, booking_id, data.claim, data.note.strip())
 
 
 @router.get("/{booking_id}/pass", response_model=ViewingPassOut)

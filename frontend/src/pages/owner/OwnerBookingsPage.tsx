@@ -93,7 +93,13 @@ function useNow(): number {
   return now;
 }
 
+/** A confirmed viewing whose time is over and whose outcome the owner has not recorded yet. */
+function awaitingOutcome(b: Booking, now: number): boolean {
+  return b.status === "CONFIRMED" && new Date(b.end_at).getTime() <= now;
+}
+
 function statusChip(b: Booking, now: number): { text: string; tone: string } {
+  if (awaitingOutcome(b, now)) return { text: "Ghi nhận kết quả", tone: "bg-blush text-brand-900" };
   if (b.status === "REQUESTED" && needsAnswer(b, now))
     return { text: "Chờ bạn xác nhận", tone: "bg-blush text-brand-900" };
   if (b.status === "RESCHEDULE_REQUESTED" && needsAnswer(b, now))
@@ -118,8 +124,9 @@ export function OwnerBookingsPage() {
   const all = bookings.data ?? [];
   // Requests whose viewing time already passed can no longer be answered: they go to "Đã qua"
   const lists: Record<View, Booking[]> = {
+    // To answer, and past viewings waiting for "Đã xem xong" / "Khách không đến"
     pending: all
-      .filter((b) => needsAnswer(b, now))
+      .filter((b) => needsAnswer(b, now) || awaitingOutcome(b, now))
       .sort((a, b) => a.created_at.localeCompare(b.created_at)),
     upcoming: all
       .filter(
@@ -397,8 +404,12 @@ function RequestDetail({
       call(api.POST("/api/v1/owner/bookings/{booking_id}/complete", path)),
     onSuccess,
   });
-  const busy = approve.isPending || reject.isPending || complete.isPending;
-  const error = approve.error ?? reject.error ?? complete.error;
+  const noShow = useMutation({
+    mutationFn: () => call(api.POST("/api/v1/owner/bookings/{booking_id}/no-show", path)),
+    onSuccess,
+  });
+  const busy = approve.isPending || reject.isPending || complete.isPending || noShow.isPending;
+  const error = approve.error ?? reject.error ?? complete.error ?? noShow.error;
 
   const answerable = needsAnswer(b, now);
   const rescheduling = b.status === "RESCHEDULE_REQUESTED";
@@ -412,7 +423,11 @@ function RequestDetail({
   const buyer = buyerName(b);
   const budget =
     b.buyer_budget_min_vnd || b.buyer_budget_max_vnd
-      ? `${b.buyer_budget_min_vnd ? formatVnd(b.buyer_budget_min_vnd) : "?"} – ${b.buyer_budget_max_vnd ? formatVnd(b.buyer_budget_max_vnd) : "?"}`
+      ? b.buyer_budget_min_vnd && b.buyer_budget_max_vnd
+        ? `${formatVnd(b.buyer_budget_min_vnd)} – ${formatVnd(b.buyer_budget_max_vnd)}`
+        : b.buyer_budget_max_vnd
+          ? `Tới ${formatVnd(b.buyer_budget_max_vnd)}`
+          : `Từ ${formatVnd(b.buyer_budget_min_vnd!)}`
       : "Chưa cho biết";
 
   return (
@@ -598,14 +613,28 @@ function RequestDetail({
             </>
           )}
           {canComplete && (
-            <button
-              type="button"
-              className="rounded-full border border-ink/15 bg-paper px-5 py-3 font-semibold hover:bg-canvas"
-              disabled={busy}
-              onClick={() => complete.mutate()}
-            >
-              Đã xem xong
-            </button>
+            <>
+              <p className="basis-full text-sm text-muted">Buổi xem đã tới giờ: khách có đến không?</p>
+              <button
+                type="button"
+                className="rounded-full bg-brand-600 px-5 py-3 font-display text-base font-bold text-canvas hover:bg-brand-700"
+                disabled={busy}
+                onClick={() => complete.mutate()}
+              >
+                Đã xem xong
+              </button>
+              <button
+                type="button"
+                className="rounded-full border border-ink/15 bg-paper px-5 py-3 font-semibold hover:bg-canvas"
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm(`Ghi nhận ${buyer} không đến buổi xem này? Người mua sẽ được báo và có thể phản hồi.`))
+                    noShow.mutate();
+                }}
+              >
+                Khách không đến
+              </button>
+            </>
           )}
         </div>
       )}

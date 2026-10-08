@@ -258,6 +258,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bookings/{booking_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Viewing Feedback
+         * @description After a viewing that took place: interested (the owner is told) or not suitable (the deal closes).
+         */
+        post: operations["viewing_feedback_api_v1_bookings__booking_id__feedback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bookings/{booking_id}/dispute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Viewing Dispute
+         * @description The buyer disagrees with the recorded outcome; the operator checks with both sides.
+         */
+        post: operations["viewing_dispute_api_v1_bookings__booking_id__dispute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/bookings/{booking_id}/pass": {
         parameters: {
             query?: never;
@@ -645,6 +685,26 @@ export interface paths {
         put?: never;
         /** Reject Booking */
         post: operations["reject_booking_api_v1_owner_bookings__booking_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/owner/bookings/{booking_id}/no-show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * No Show Booking
+         * @description The buyer did not come (after the viewing time).
+         */
+        post: operations["no_show_booking_api_v1_owner_bookings__booking_id__no_show_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1188,6 +1248,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/escalations/{escalation_id}/viewing-outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Viewing Outcome
+         * @description A viewing dispute: what really happened, after calling both sides. Closes the case and tells both.
+         */
+        post: operations["record_viewing_outcome_api_v1_operator_escalations__escalation_id__viewing_outcome_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/owner/media": {
         parameters: {
             query?: never;
@@ -1281,7 +1361,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED" | "SUPERSEDED";
+            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED" | "SUPERSEDED" | "NO_SHOW" | "OWNER_ABSENT" | "UNREPORTED" | "INTERESTED" | "NOT_SUITABLE" | "DISPUTED";
             /**
              * By
              * @enum {string}
@@ -1403,6 +1483,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            deal_status?: components["schemas"]["DealStatus"] | null;
         };
         /** BookingRejectRequest */
         BookingRejectRequest: {
@@ -1413,7 +1494,7 @@ export interface components {
          * BookingStatus
          * @enum {string}
          */
-        BookingStatus: "REQUESTED" | "CONFIRMED" | "RESCHEDULE_REQUESTED" | "REJECTED" | "CANCELLED" | "COMPLETED" | "NO_SHOW";
+        BookingStatus: "REQUESTED" | "CONFIRMED" | "RESCHEDULE_REQUESTED" | "REJECTED" | "CANCELLED" | "COMPLETED" | "NO_SHOW" | "OWNER_ABSENT" | "UNREPORTED";
         /** BuildingOut */
         BuildingOut: {
             /** Id */
@@ -1602,7 +1683,7 @@ export interface components {
          * @description When a human must step in (spec §4.3, §4.8 HITL, §6.4).
          * @enum {string}
          */
-        EscalationType: "SELLER_NO_RESPONSE" | "NO_COMMON_SLOT" | "SCHEDULE_CONFLICT" | "PROPERTY_ISSUE" | "MULTI_BUYER" | "SYSTEM_FAILURE" | "OTHER" | "OWNERSHIP_SUPPORT";
+        EscalationType: "SELLER_NO_RESPONSE" | "NO_COMMON_SLOT" | "SCHEDULE_CONFLICT" | "PROPERTY_ISSUE" | "MULTI_BUYER" | "SYSTEM_FAILURE" | "OTHER" | "OWNERSHIP_SUPPORT" | "VIEWING_DISPUTE";
         /**
          * Furnishing
          * @enum {string}
@@ -2400,6 +2481,45 @@ export interface components {
          * @enum {string}
          */
         ViewType: "LAKE" | "RIVER" | "PARK" | "POOL" | "CITY" | "INTERNAL";
+        /** ViewingDispute */
+        ViewingDispute: {
+            /**
+             * Claim
+             * @enum {string}
+             */
+            claim: "I_CAME" | "OWNER_ABSENT";
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /** ViewingFeedback */
+        ViewingFeedback: {
+            /**
+             * Interest
+             * @enum {string}
+             */
+            interest: "INTERESTED" | "NOT_SUITABLE";
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
+         * ViewingOutcome
+         * @description What the operator found after calling both sides.
+         */
+        ViewingOutcome: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "VIEWED" | "BUYER_NO_SHOW" | "OWNER_ABSENT";
+            /** Note */
+            note: string;
+        };
         /**
          * ViewingPassOut
          * @description The buyer's entry pass: the QR links to /pass/{token}.
@@ -2866,6 +2986,76 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RescheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    viewing_feedback_api_v1_bookings__booking_id__feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewingFeedback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    viewing_dispute_api_v1_bookings__booking_id__dispute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewingDispute"];
             };
         };
         responses: {
@@ -3646,6 +3836,37 @@ export interface operations {
                 "application/json": components["schemas"]["BookingRejectRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    no_show_booking_api_v1_owner_bookings__booking_id__no_show_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -4563,6 +4784,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OwnershipCaseOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_viewing_outcome_api_v1_operator_escalations__escalation_id__viewing_outcome_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                escalation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewingOutcome"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingOut"];
                 };
             };
             /** @description Validation Error */

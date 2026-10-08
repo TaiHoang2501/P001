@@ -6,6 +6,7 @@ import type { Escalation } from "../../api/types";
 import { EmptyState, ErrorBox, PageHeader, Spinner } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { OwnershipCase } from "./OwnershipCase";
+import { ViewingDisputeCase } from "./ViewingDisputeCase";
 
 const TYPE: Record<Escalation["type"], string> = {
   SELLER_NO_RESPONSE: "Chủ căn chưa phản hồi",
@@ -16,6 +17,7 @@ const TYPE: Record<Escalation["type"], string> = {
   SYSTEM_FAILURE: "Lỗi hệ thống",
   OTHER: "Khác",
   OWNERSHIP_SUPPORT: "Hỗ trợ xác thực sổ đỏ",
+  VIEWING_DISPUTE: "Tranh chấp kết quả buổi xem",
 };
 
 const RAISED_BY: Record<Escalation["raised_by"], string> = { USER: "Người dùng", AI_AGENT: "Trợ lý AI", SYSTEM: "Hệ thống" };
@@ -94,6 +96,7 @@ function EscalationRow({ escalation: e }: { escalation: Escalation }) {
         )}
       </div>
       {e.type === "OWNERSHIP_SUPPORT" && <OwnershipCase escalation={e} />}
+      {e.type === "VIEWING_DISPUTE" && <ViewingDisputeCase escalation={e} />}
       {open && (
         <form
           className="flex flex-wrap gap-2"

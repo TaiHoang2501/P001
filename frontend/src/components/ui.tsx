@@ -52,6 +52,8 @@ const BOOKING_TONE: Record<BookingStatus, string> = {
   CANCELLED: "bg-stone-200 text-stone-700",
   COMPLETED: "bg-sky-100 text-sky-900",
   NO_SHOW: "bg-stone-200 text-stone-700",
+  OWNER_ABSENT: "bg-orange-100 text-orange-900",
+  UNREPORTED: "bg-stone-200 text-stone-700",
 };
 
 const PROPERTY_TONE: Record<PropertyStatus, string> = {

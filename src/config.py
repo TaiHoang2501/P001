@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     # web app on another domain can show them (Render sets RENDER_EXTERNAL_URL). Empty: same-origin path.
     public_api_url: str = Field(default="", validation_alias=AliasChoices("PUBLIC_API_URL", "RENDER_EXTERNAL_URL"))
     media_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+    # After a viewing, the owner records whether the buyer came; unrecorded viewings close after this many hours
+    viewing_outcome_hours: int = Field(default=48, ge=1)
     # Photos one listing can have
     media_max_photos: int = Field(default=10, ge=1)
 

@@ -163,7 +163,12 @@ class BookingStatus(StrEnum):
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
+    # The buyer did not come (recorded by the owner, or by the operator after a dispute)
     NO_SHOW = "NO_SHOW"
+    # The owner was not there (found by the operator after the buyer's dispute)
+    OWNER_ABSENT = "OWNER_ABSENT"
+    # Nobody recorded the outcome in time: closed without blaming anyone
+    UNREPORTED = "UNREPORTED"
 
 
 # Statuses of a viewing that is still going on (asked for or confirmed)
@@ -237,6 +242,8 @@ class EscalationType(StrEnum):
     OTHER = "OTHER"
     # A seller cannot verify a red book on their own (no OTP, locked, mismatch, proxy, dispute...)
     OWNERSHIP_SUPPORT = "OWNERSHIP_SUPPORT"
+    # The buyer disagrees with the recorded outcome of a viewing (came / the owner was not there)
+    VIEWING_DISPUTE = "VIEWING_DISPUTE"
 
 
 class EscalationStatus(StrEnum):

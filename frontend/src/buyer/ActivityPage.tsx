@@ -7,6 +7,7 @@ import type { components } from "../api/schema";
 import type { Booking } from "../api/types";
 import { BookingBadge, ErrorBox, Spinner } from "../components/ui";
 import { formatDateTime, formatTimeRange, TIMEZONE } from "../lib/format";
+import { needsBuyerAfterViewing } from "./AfterViewing";
 import { BookingStatusCard } from "./BookingStatusCard";
 import { CalendarIcon, CheckCircleIcon, ClockIcon } from "./icons";
 import { ViewingScheduler } from "./ViewingScheduler";
@@ -36,7 +37,19 @@ const EVENT: Record<Kind, { title: (a: Activity) => string; tone: "ask" | "good"
       a.by === "BUYER" ? "Bạn đã hủy lịch xem" : a.by === "OWNER" ? "Chủ căn đã hủy lịch xem" : "BookingBot đã hủy lịch xem",
     tone: "bad",
   },
-  COMPLETED: { title: () => "Buổi xem đã hoàn tất", tone: "done" },
+  COMPLETED: {
+    title: (a) => (a.by === "BOOKINGBOT" ? "Chủ đầu tư xác nhận buổi xem đã diễn ra" : "Buổi xem đã hoàn tất"),
+    tone: "done",
+  },
+  NO_SHOW: {
+    title: (a) => (a.by === "BOOKINGBOT" ? "Chủ đầu tư xác định bạn không đến" : "Chủ căn ghi nhận bạn không đến"),
+    tone: "warn",
+  },
+  OWNER_ABSENT: { title: () => "Chủ căn không có mặt ở buổi xem (Chủ đầu tư đã xác minh)", tone: "bad" },
+  UNREPORTED: { title: () => "Không ai ghi nhận kết quả buổi xem, lịch tự đóng", tone: "done" },
+  INTERESTED: { title: () => "Bạn báo quan tâm căn này", tone: "good" },
+  NOT_SUITABLE: { title: () => "Bạn thấy căn chưa phù hợp", tone: "done" },
+  DISPUTED: { title: () => "Bạn gửi phản hồi về kết quả buổi xem cho Chủ đầu tư", tone: "ask" },
   SUPERSEDED: { title: () => "Chủ căn đã nhận một lịch xem khác vào giờ này", tone: "bad" },
 };
 
@@ -105,6 +118,8 @@ export function ActivityPage() {
     .filter((b) => b.status === "CONFIRMED" && Date.parse(b.end_at) > now)
     .sort((a, b) => Date.parse(a.start_at) - Date.parse(b.start_at));
   const events = activity.data ?? [];
+  // After the viewing time: something to say (how it went) or to check (what was recorded)
+  const after = (bookings.data ?? []).filter(needsBuyerAfterViewing);
 
   const detail = selectedId && (
     <div className="space-y-3">
@@ -161,6 +176,26 @@ export function ActivityPage() {
               </BookingRow>
             ))}
           </Section>
+
+          {after.length > 0 && (
+            <Section icon={<CheckCircleIcon className="size-5" />} title="Sau buổi xem" count={after.length}>
+              {after.map((b) => (
+                <BookingRow
+                  key={b.id}
+                  booking={b}
+                  selected={b.id === selectedId}
+                  onOpen={() => select(b.id)}
+                  action={b.status === "COMPLETED" ? "Cho biết cảm nhận" : "Xem chi tiết"}
+                >
+                  {b.status === "COMPLETED"
+                    ? "Bạn thấy căn thế nào? Quan tâm thì chủ căn được báo."
+                    : b.status === "NO_SHOW"
+                      ? "Chủ căn ghi nhận bạn không đến. Thực ra bạn có đến? Mở để phản hồi."
+                      : "Buổi xem đã qua, chờ chủ căn ghi nhận kết quả."}
+                </BookingRow>
+              ))}
+            </Section>
+          )}
 
           {upcoming.length > 0 && (
             <Section icon={<CalendarIcon className="size-5" />} title="Lịch xem sắp tới" count={upcoming.length}>

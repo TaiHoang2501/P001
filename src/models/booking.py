@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.db.models import BookingStatus, Channel, HoldStatus
+from src.db.models import BookingStatus, Channel, DealStatus, HoldStatus
 
 
 class SlotCreate(BaseModel):
@@ -105,6 +105,8 @@ class BookingOut(BaseModel):
     rejection_reason: str | None
     responded_at: datetime | None
     created_at: datetime
+    # Where the deal stands (VIEWED: the buyer has not said yet how they found the home)
+    deal_status: DealStatus | None = None
 
 
 ActivityKind = Literal[
@@ -119,6 +121,14 @@ ActivityKind = Literal[
     "COMPLETED",
     # The owner confirmed another buyer at an overlapping time, so this request was closed
     "SUPERSEDED",
+    # After the viewing time: the buyer did not come / the owner was not there / nobody recorded it
+    "NO_SHOW",
+    "OWNER_ABSENT",
+    "UNREPORTED",
+    # The buyer's answer after the viewing, and a disagreement sent to the operator
+    "INTERESTED",
+    "NOT_SUITABLE",
+    "DISPUTED",
 ]
 
 
@@ -141,6 +151,24 @@ class ActivityOut(BaseModel):
     booking_status: BookingStatus
     booking_start_at: datetime
     booking_end_at: datetime
+
+
+class ViewingFeedback(BaseModel):
+    interest: Literal["INTERESTED", "NOT_SUITABLE"]
+    note: str = Field(default="", max_length=1000)
+
+
+class ViewingDispute(BaseModel):
+    # I_CAME: recorded as a no-show but the buyer came; OWNER_ABSENT: the owner was not there
+    claim: Literal["I_CAME", "OWNER_ABSENT"]
+    note: str = Field(default="", max_length=1000)
+
+
+class ViewingOutcome(BaseModel):
+    """What the operator found after calling both sides."""
+
+    outcome: Literal["VIEWED", "BUYER_NO_SHOW", "OWNER_ABSENT"]
+    note: str = Field(..., min_length=3, max_length=1000)
 
 
 class RescheduleRequest(BaseModel):
