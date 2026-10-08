@@ -67,7 +67,9 @@ export const BOOKING_STATUS: Record<BookingStatus, string> = {
   REJECTED: "Bị từ chối",
   CANCELLED: "Đã hủy",
   COMPLETED: "Đã xem",
-  NO_SHOW: "Vắng mặt",
+  NO_SHOW: "Người mua không đến",
+  OWNER_ABSENT: "Chủ căn vắng mặt",
+  UNREPORTED: "Không ghi nhận kết quả",
 };
 
 export const DEAL_STATUS: Record<DealStatus, string> = {

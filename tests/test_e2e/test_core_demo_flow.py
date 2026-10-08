@@ -80,11 +80,8 @@ async def test_core_demo_flow(client, db, monkeypatch):
         headers=seller,
     )
     assert r.json()["status"] == "VERIFIED"
-    # The red book puts the seller in the operator's queue; the operator verifies them
-    assert (await client.get("/api/v1/owner/verification", headers=seller)).json()["verification_status"] == "PENDING"
-    seller_id = (await client.get("/api/v1/auth/me", headers=seller)).json()["id"]
-    r = await client.post(f"/api/v1/operator/sellers/{seller_id}/verify", headers=operator)
-    assert r.json()["verification_status"] == "VERIFIED"
+    # The verified red book verifies the seller too (no separate operator review)
+    assert (await client.get("/api/v1/owner/verification", headers=seller)).json()["verification_status"] == "VERIFIED"
 
     listing = {
         "building_id": 1,
@@ -104,9 +101,7 @@ async def test_core_demo_flow(client, db, monkeypatch):
     }
     prop = (await client.post("/api/v1/owner/properties", json=listing, headers=seller)).json()
     pid = prop["id"]
-    assert (await client.post(f"/api/v1/owner/properties/{pid}/submit", headers=seller)).json()[
-        "status"
-    ] == "PENDING_REVIEW"
+    assert prop["status"] == "PENDING_REVIEW"
     assert (await client.post(f"/api/v1/operator/properties/{pid}/approve", headers=operator)).json()[
         "status"
     ] == "AVAILABLE"
@@ -166,8 +161,9 @@ async def test_core_demo_flow(client, db, monkeypatch):
     # ---- Seller confirms (HITL) ----
     [seen] = (await client.get("/api/v1/owner/bookings", headers=seller)).json()
     assert "VIEWING_REQUESTED" in await _events(client, seller)
-    # AC-03: privacy level 1, no buyer name/phone
-    assert (seen["buyer_ref"], seen["customer_name"], seen["customer_phone"]) == (f"Buyer #{buyer_id}", None, None)
+    # AC-03: privacy level 1, the buyer's name but never their phone
+    assert seen["buyer_ref"] == f"Buyer #{buyer_id}"
+    assert seen["customer_name"] and seen["customer_phone"] is None
 
     r = await client.post(f"/api/v1/owner/bookings/{booking['id']}/approve", headers=seller)
     assert (r.json()["status"], r.json()["hold_status"]) == ("CONFIRMED", "ACTIVE")

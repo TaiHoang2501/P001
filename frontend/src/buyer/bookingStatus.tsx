@@ -5,7 +5,7 @@ import { CheckIcon } from "./icons";
 /** The deal's path as the buyer sees it (wireframe 1.6). */
 export const STEPS = ["Gửi yêu cầu", "Chờ chủ căn xác nhận", "Xác nhận lịch", "Xem nhà", "Quan tâm", "Gửi yêu cầu mua", "Hoàn tất"];
 
-export const ENDED = new Set<Booking["status"]>(["REJECTED", "CANCELLED", "NO_SHOW"]);
+export const ENDED = new Set<Booking["status"]>(["REJECTED", "CANCELLED", "NO_SHOW", "OWNER_ABSENT", "UNREPORTED"]);
 export const CANCELLABLE = new Set<Booking["status"]>(["REQUESTED", "CONFIRMED", "RESCHEDULE_REQUESTED"]);
 
 /** How far the deal got along STEPS (index of the step in progress; STEPS.length when done). */
@@ -29,7 +29,11 @@ export function progressOf(booking: Booking, deal?: Deal): number {
 }
 
 export function endedLabel(b: Booking): string {
-  return b.status === "REJECTED" ? "chủ căn từ chối" : b.status === "NO_SHOW" ? "vắng mặt" : "đã hủy/đóng";
+  if (b.status === "REJECTED") return "chủ căn từ chối";
+  if (b.status === "NO_SHOW") return "ghi nhận bạn không đến";
+  if (b.status === "OWNER_ABSENT") return "chủ căn vắng mặt";
+  if (b.status === "UNREPORTED") return "không ai ghi nhận kết quả";
+  return "đã hủy/đóng";
 }
 
 export function StatusTimeline({ booking, deal, compact = false }: { booking: Booking; deal?: Deal; compact?: boolean }) {

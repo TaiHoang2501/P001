@@ -72,6 +72,13 @@ export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     // Backend messages are English; prefer the Vietnamese text, keep backend detail for 4xx rule errors
     if (err.code === "BUSINESS_RULE_VIOLATION" || err.code === "ALREADY_EXISTS") return `${FRIENDLY[err.code]} (${err.message})`;
+    // Withdraw / mark as sold while viewings are still open
+    const active = err.details.active;
+    if (err.code === "STATE_CONFLICT" && typeof active === "number")
+      return `Căn còn ${active} lịch xem đang chờ hoặc đã hẹn. Hãy trả lời, đổi hoặc hoàn tất các lịch đó trước.`;
+    const wait = err.details.retry_after_minutes;
+    if (err.code === "RATE_LIMITED" && typeof wait === "number")
+      return `Bạn đã yêu cầu mã quá nhiều lần mà chưa nhập. Vui lòng thử lại sau ${wait} phút.`;
     return FRIENDLY[err.code] ?? err.message;
   }
   return err instanceof Error ? err.message : String(err);

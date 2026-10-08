@@ -13,6 +13,8 @@ import {
 } from "./bookingStatus";
 import { CheckIcon, CopyIcon } from "./icons";
 import { BackButton } from "./shared";
+import { AfterViewing } from "./AfterViewing";
+import { ViewingPass } from "./ViewingPass";
 
 export function useBooking(bookingId: number) {
   return useQuery({
@@ -141,6 +143,13 @@ export function BookingStatusCard({
       ) : (
         <StatusTimeline booking={b} deal={deal.data} compact />
       )}
+
+      {/* Once the viewing time is over: how it went, or a disagreement with what was recorded */}
+      <AfterViewing booking={b} onChanged={onChanged} />
+
+      {/* Confirmed and not over yet: the QR to show at the building's gate */}
+      {(b.status === "CONFIRMED" || b.status === "RESCHEDULE_REQUESTED") &&
+        new Date(b.end_at).getTime() + 30 * 60_000 > Date.now() && <ViewingPass booking={b} />}
 
       {cancel.isError && <ErrorBox error={cancel.error} />}
       {confirmCancel ? (

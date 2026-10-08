@@ -8,10 +8,25 @@ from src.core.deps import DbSession, OwnerActor
 from src.core.errors import NotFoundError
 from src.db.models import BookingStatus, MediaKind, Property
 from src.models.booking import BookingOut, BookingRejectRequest, SlotCreate, SlotOut
-from src.models.ownership import OwnershipChallengeOut, OwnershipClaim, OwnershipOtpConfirm, OwnershipVerificationOut
-from src.models.property import MediaCreate, PropertyCreate, PropertyOut, PropertyUpdate
+from src.models.escalation import EscalationOut
+from src.models.ownership import (
+    OwnershipChallengeOut,
+    OwnershipClaim,
+    OwnershipOtpConfirm,
+    OwnershipSupportCreate,
+    OwnershipVerificationOut,
+)
+from src.models.property import MediaCreate, OwnerOverview, PropertyCreate, PropertyOut, PropertyUpdate
 from src.models.seller import SellerProfileOut, SellerVerificationSubmit
-from src.services import availability_service, booking_service, ownership_service, property_service, seller_service
+from src.services import (
+    availability_service,
+    booking_service,
+    ownership_service,
+    ownership_support_service,
+    property_service,
+    seller_service,
+    viewing_outcome_service,
+)
 
 router = APIRouter(prefix="/owner", tags=["owner"])
 
@@ -30,6 +45,17 @@ def submit_verification(data: SellerVerificationSubmit, actor: OwnerActor, db: D
 
 
 # ---------- Red book ownership (required before listing) ----------
+
+
+@router.post("/ownership/support", response_model=EscalationOut, status_code=201)
+def ask_ownership_support(data: OwnershipSupportCreate, actor: OwnerActor, db: DbSession) -> EscalationOut:
+    """Cannot verify a red book on your own (no OTP, locked, proxy, co-owners, ...): ask the investor."""
+    return ownership_support_service.request(db, actor, data)
+
+
+@router.get("/ownership/support", response_model=list[EscalationOut])
+def my_ownership_support(actor: OwnerActor, db: DbSession) -> list[EscalationOut]:
+    return ownership_support_service.list_mine(db, actor)
 
 
 @router.get("/ownership", response_model=list[OwnershipVerificationOut])
@@ -51,6 +77,12 @@ def confirm_red_book(
 
 
 # ---------- Listings ----------
+
+
+@router.get("/overview", response_model=OwnerOverview)
+def my_overview(actor: OwnerActor, db: DbSession) -> OwnerOverview:
+    """Dashboard numbers: viewing requests and AI suggestions per listing, and how long the seller has to answer."""
+    return property_service.owner_overview(db, actor)
 
 
 @router.get("/properties", response_model=list[PropertyOut])
@@ -139,6 +171,12 @@ def approve_booking(booking_id: int, actor: OwnerActor, db: DbSession) -> Bookin
 @router.post("/bookings/{booking_id}/reject", response_model=BookingOut)
 def reject_booking(booking_id: int, data: BookingRejectRequest, actor: OwnerActor, db: DbSession) -> BookingOut:
     return booking_service.reject(db, actor, booking_id, data.reason)
+
+
+@router.post("/bookings/{booking_id}/no-show", response_model=BookingOut)
+def no_show_booking(booking_id: int, actor: OwnerActor, db: DbSession) -> BookingOut:
+    """The buyer did not come (after the viewing time)."""
+    return viewing_outcome_service.no_show(db, actor, booking_id)
 
 
 @router.post("/bookings/{booking_id}/complete", response_model=BookingOut)

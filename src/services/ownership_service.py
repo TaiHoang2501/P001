@@ -22,6 +22,7 @@ from src.core.errors import (
     StateConflictError,
 )
 from src.db.models import (
+    Building,
     OtpPurpose,
     OwnershipVerificationStatus,
     Property,
@@ -34,11 +35,11 @@ from src.models.ownership import (
     OwnershipClaim,
     OwnershipOtpConfirm,
     OwnershipVerificationOut,
+    RedBookUnit,
 )
 from src.services import audit, otp_service
 
 # Seller statuses that a newly verified red book sends (back) to the operator's queue
-_AWAITING_EVIDENCE = {SellerVerificationStatus.UNVERIFIED, SellerVerificationStatus.REJECTED}
 
 
 def _same_name(a: str, b: str) -> bool:
@@ -130,16 +131,18 @@ def confirm(db: Session, actor: Actor, verification_id: int, data: OwnershipOtpC
     record.verified_at = now
     audit.record(db, actor, "ownership.verified", "ownership_verification", record.id, after={"user_id": actor.id})
 
-    # The red book is the seller's evidence; the operator still verifies the seller (spec §4.5, AC-04)
+    # The red book (holder + code in the investor's records, then the owner's OTP) verifies the seller too:
+    # no separate review by the operator (spec §4.5, AC-04)
     profile = db.get(SellerProfile, actor.id, with_for_update=True)
-    if profile is not None and profile.verification_status in _AWAITING_EVIDENCE:
+    if profile is not None and profile.verification_status != SellerVerificationStatus.VERIFIED:
         before = profile.verification_status
-        profile.verification_status = SellerVerificationStatus.PENDING
+        profile.verification_status = SellerVerificationStatus.VERIFIED
+        profile.verified_at = now
         profile.rejection_reason = None
         audit.record(
             db,
             actor,
-            "seller.submit_verification",
+            "seller.verified_by_red_book",
             "user",
             actor.id,
             before={"verification_status": before},
@@ -158,7 +161,7 @@ def list_own(db: Session, actor: Actor) -> list[OwnershipVerificationOut]:
     return [_out(db, r) for r in records]
 
 
-def require_usable(db: Session, actor: Actor, verification_id: int) -> None:
+def require_usable(db: Session, actor: Actor, verification_id: int) -> PropertyOwnershipVerification:
     """A new listing needs a red book the seller verified that no other listing uses yet."""
     record = db.get(PropertyOwnershipVerification, verification_id, with_for_update=True)
     if record is None or record.user_id != actor.id or record.status != OwnershipVerificationStatus.VERIFIED:
@@ -168,6 +171,7 @@ def require_usable(db: Session, actor: Actor, verification_id: int) -> None:
         )
     if _property_id(db, record.id) is not None:
         raise StateConflictError("This red book already backs another listing")
+    return record
 
 
 def _load(db: Session, verification_id: int) -> PropertyOwnershipVerification:
@@ -181,6 +185,28 @@ def _property_id(db: Session, verification_id: int) -> int | None:
     return db.scalar(select(Property.id).where(Property.verification_id == verification_id))
 
 
+def unit_of(db: Session, record: PropertyOwnershipVerification) -> RedBookUnit | None:
+    """The home on the red book, when the investor's record has all of it."""
+    facts = (record.building_id, record.unit_code, record.property_type, record.area_m2)
+    rooms = (record.bedrooms, record.bathrooms, record.floor, record.direction)
+    if any(v is None for v in (*facts, *rooms)):
+        return None
+    building = db.get(Building, record.building_id)
+    return RedBookUnit(
+        project_code=building.project.code,
+        project_name=building.project.name,
+        building_id=building.id,
+        building_name=building.name,
+        unit_code=record.unit_code,
+        property_type=record.property_type,
+        area_m2=record.area_m2,
+        bedrooms=record.bedrooms,
+        bathrooms=record.bathrooms,
+        floor=record.floor,
+        direction=record.direction,
+    )
+
+
 def _out(db: Session, record: PropertyOwnershipVerification) -> OwnershipVerificationOut:
     return OwnershipVerificationOut(
         id=record.id,
@@ -189,4 +215,6 @@ def _out(db: Session, record: PropertyOwnershipVerification) -> OwnershipVerific
         status=record.status,
         verified_at=record.verified_at,
         property_id=_property_id(db, record.id),
+        # The seller sees the home on their red book once they proved it is theirs
+        unit=unit_of(db, record) if record.status == OwnershipVerificationStatus.VERIFIED else None,
     )

@@ -52,7 +52,7 @@ def get_or_create_open(db: Session, actor: Actor, prop: Property) -> Deal:
     return deal
 
 
-def sync_status(db: Session, actor: Actor, deal: Deal) -> None:
+def sync_status(db: Session, actor: Actor | None, deal: Deal) -> None:
     """Move the deal to match its bookings (called in the same transaction as the booking change)."""
     if deal.status not in _BOOKING_DRIVEN:
         return

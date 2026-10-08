@@ -6,7 +6,6 @@ from src.models.auth import (
     OtpRequest,
     OtpRequestResponse,
     OtpVerifyRequest,
-    RegisterRequest,
     TokenResponse,
     UserOut,
 )
@@ -15,14 +14,9 @@ from src.services import auth_service
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=201)
-def register(data: RegisterRequest, db: DbSession) -> TokenResponse:
-    return auth_service.register(db, data)
-
-
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: DbSession) -> TokenResponse:
-    """Password login: operators (spec §4.17) and seeded demo accounts."""
+    """Password login: investor / operator accounts only. Buyers and sellers sign in with phone + OTP."""
     return auth_service.login(db, data)
 
 
