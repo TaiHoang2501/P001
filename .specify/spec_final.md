@@ -141,15 +141,15 @@ Khi hệ thống Trợ lý AI vận hành đồng bộ, sản phẩm kỳ vọng
 
 ## 2.2. Bảng chỉ số đánh giá thành công (KPIs)
 
-| Chỉ số đo lường | Mục tiêu trong bản thử nghiệm | Ý nghĩa và Phương pháp theo dõi |
+| Chỉ số đánh giá | Mục tiêu cần đạt | Ý nghĩa và Cách hiểu cụ thể |
 |---|:---:|---|
-| **Độ chính xác gợi ý Top 3 căn hộ** | ≥ 85% | Tỷ lệ người mua đánh giá các căn do AI đề xuất đúng với tầm tiền, vị trí và số phòng ngủ mong muốn. |
-| **Tỷ lệ đặt lịch xem nhà thành công** | ≥ 80% | Tỷ lệ các yêu cầu đặt lịch được Chủ nhà bấm đồng ý và buổi xem nhà diễn ra suôn sẻ. |
-| **Tỷ lệ trùng lịch xem (Double-booking)** | **0% (Tuyệt đối không có)** | Nhờ cơ chế tạm khóa căn nguyên tử trên cơ sở dữ liệu, không bao giờ xảy ra tình trạng 2 khách cùng xem một căn trong cùng một giờ. |
-| **Độ chính xác của lịch rảnh** | ≥ 95% | Thông tin về thời gian rảnh của căn hộ và chủ nhà khớp đúng với thực tế. |
-| **Thời gian AI phản hồi câu hỏi (p95)** | ≤ 5 giây | Đảm bảo tốc độ phản hồi nhanh chóng, mượt mà trong quá trình trò chuyện. |
-| **Tỷ lệ cuộc gọi làm phiền** | Giảm về 0 | Thông tin liên hệ chỉ được chia sẻ khi cả hai bên đã hoàn tất buổi xem và cùng đồng thuận tiếp tục. |
-| **Tỷ lệ chuyển sang Nhân viên hỗ trợ** | ≤ 15% | AI tự xử lý hầu hết các tác vụ thông thường; chỉ chuyển người thật khi phát sinh tranh chấp hoặc ngoại lệ phức tạp. |
+| **Độ chính xác gợi ý 3 căn đầu tiên** | **Từ 85% trở lên** | Trong 100 khách tìm nhà, ít nhất 85 người thấy 3 căn AI đề xuất đúng với ngân sách, số phòng ngủ và khu vực mình cần. |
+| **Tỷ lệ đặt lịch xem nhà thành công** | **Từ 80% trở lên** | Trong 100 yêu cầu đặt lịch gửi đi, ít nhất 80 lịch được chủ nhà bấm đồng ý và khách đến xem nhà thực tế. |
+| **Tỷ lệ bị trùng lịch xem nhà** | **0% (Tuyệt đối không có)** | Nhờ hệ thống tự động tạm khóa căn ngay khi chủ nhà duyệt, không bao giờ có chuyện 2 khách cùng đến xem 1 căn tại cùng 1 giờ. |
+| **Độ chính xác của lịch rảnh** | **Từ 95% trở lên** | Giờ rảnh của chủ nhà hiển thị trên hệ thống phải đúng với thực tế để khách không bị hẹn hụt. |
+| **Thời gian AI trả lời câu hỏi** | **Dưới 5 giây** | Khách nhắn tin hỏi là AI trả lời ngay trong vòng 5 giây, không để khách phải đợi lâu. *(Lưu ý: Không phải "Thứ hai")* |
+| **Cuộc gọi môi giới làm phiền** | **Giảm về 0 cuộc gọi** | Tuyệt đối không để lộ số điện thoại của người mua cho môi giới; chỉ hai bên gặp nhau xong mới mở liên lạc nếu đồng ý. |
+| **Tỷ lệ phải nhờ nhân viên hỗ trợ** | **Dưới 15%** | AI tự động xử lý tốt 85% trường hợp; chỉ những ca khó (tranh chấp, đổi lịch phức tạp) mới cần người thật can thiệp. |
 
 ## 2.3. Tám nguyên tắc sản phẩm bất di bất dịch
 
