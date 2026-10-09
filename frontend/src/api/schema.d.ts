@@ -1502,19 +1502,35 @@ export interface components {
             customer_note: string | null;
             /** Rejection Reason */
             rejection_reason: string | null;
+            /** Suggested Starts */
+            suggested_starts?: string[];
             /** Responded At */
             responded_at: string | null;
+            /**
+             * Closed By System
+             * @default false
+             */
+            closed_by_system: boolean;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Respond By */
+            respond_by?: string | null;
             deal_status?: components["schemas"]["DealStatus"] | null;
         };
         /** BookingRejectRequest */
         BookingRejectRequest: {
             /** Reason */
             reason: string;
+            /** Suggested Starts */
+            suggested_starts?: string[];
+            /**
+             * Close Time
+             * @default false
+             */
+            close_time: boolean;
         };
         /**
          * BookingStatus
@@ -2424,6 +2440,11 @@ export interface components {
              * @default true
              */
             is_free: boolean;
+            /**
+             * Requests
+             * @default 0
+             */
+            requests: number;
         };
         /** SupportSeller */
         SupportSeller: {

@@ -75,7 +75,7 @@ def request(db: Session, actor: Actor, data: OwnershipSupportCreate) -> Escalati
     esc = escalation_service.create(
         db,
         type=EscalationType.OWNERSHIP_SUPPORT,
-        summary=f"Hỗ trợ xác thực sổ đỏ {code}: {SUPPORT_REASON_LABEL[data.reason]}",
+        summary=f"Hỗ trợ xác thực sổ đỏ / sổ hồng {code}: {SUPPORT_REASON_LABEL[data.reason]}",
         raised_by=ActorType.USER,
         actor=actor,
         requester_id=actor.id,
@@ -163,7 +163,7 @@ def _close(db: Session, actor: Actor, esc: Escalation, resolution: str) -> None:
             db,
             esc.requester_id,
             "OWNERSHIP_SUPPORT_RESOLVED",
-            "Yêu cầu hỗ trợ xác thực sổ đỏ đã được xử lý",
+            "Yêu cầu hỗ trợ xác thực sổ đỏ / sổ hồng đã được xử lý",
             resolution,
             payload={"escalation_id": esc.id},
         )
@@ -209,7 +209,7 @@ def unlock(db: Session, actor: Actor, escalation_id: int, owner_phone: str | Non
             if owner_phone
             else f"Đã mở khóa sổ {record.red_book_code}. "
         )
-        + "Bạn vào “Xác thực sổ đỏ” và làm lại bước nhận mã OTP.",
+        + "Bạn vào “Xác thực sổ đỏ / sổ hồng” và làm lại bước nhận mã OTP.",
     )
     db.commit()
     return case(db, esc.id)
@@ -336,7 +336,7 @@ def revoke(db: Session, actor: Actor, escalation_id: int, reason: str) -> Owners
         db,
         holder_id,
         "OWNERSHIP_REVOKED",
-        "Xác thực sổ đỏ đã bị thu hồi",
+        "Xác thực sổ đỏ / sổ hồng đã bị thu hồi",
         f"Chủ đầu tư đã thu hồi xác thực sổ {record.red_book_code}: {reason}."
         + (" Tin đăng của căn này đã được gỡ." if listing is not None else ""),
     )

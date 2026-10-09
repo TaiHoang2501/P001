@@ -74,7 +74,7 @@ export function OwnershipCase({ escalation: e }: { escalation: Escalation }) {
       </section>
 
       <section>
-        <h4 className="font-semibold">Sổ đỏ trong dữ liệu Chủ đầu tư</h4>
+        <h4 className="font-semibold">Sổ đỏ / sổ hồng trong dữ liệu Chủ đầu tư</h4>
         {state.isPending && <Spinner />}
         {state.data && !book && (
           <p className="mt-1 text-muted">Mã này không có trong dữ liệu (ví dụ căn chưa có sổ). Xác thực thủ công sẽ thêm sổ cho người bán.</p>

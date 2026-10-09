@@ -24,7 +24,8 @@ export function progressOf(booking: Booking, deal?: Deal): number {
       break;
   }
   if (booking.status === "COMPLETED") return 4;
-  if (booking.status === "CONFIRMED") return 3;
+  // Asking for a new time keeps the confirmed viewing (and its QR) until the owner agrees
+  if (booking.status === "CONFIRMED" || booking.status === "RESCHEDULE_REQUESTED") return 3;
   return 1;
 }
 

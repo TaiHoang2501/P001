@@ -16,6 +16,10 @@ from src.db.models import (
 
 Priority = Literal["high", "normal", "low"]
 
+# A listing's price must be a real home price: 100 triệu to 1.000 tỷ (also checked in the listing form)
+MIN_PRICE_VND = 100_000_000
+MAX_PRICE_VND = 1_000_000_000_000
+
 
 class PropertyBase(BaseModel):
     building_id: int
@@ -25,7 +29,7 @@ class PropertyBase(BaseModel):
     bathrooms: int = Field(..., ge=0, le=20)
     area_m2: Decimal = Field(..., gt=0, le=10000)
     floor: int = Field(..., ge=-5, le=200)
-    price_vnd: int = Field(..., gt=0)
+    price_vnd: int = Field(..., ge=MIN_PRICE_VND, le=MAX_PRICE_VND)
     direction: Direction
     view: ViewType
     furnishing: Furnishing
@@ -49,7 +53,7 @@ class PropertyUpdate(BaseModel):
     bathrooms: int | None = Field(default=None, ge=0, le=20)
     area_m2: Decimal | None = Field(default=None, gt=0, le=10000)
     floor: int | None = Field(default=None, ge=-5, le=200)
-    price_vnd: int | None = Field(default=None, gt=0)
+    price_vnd: int | None = Field(default=None, ge=MIN_PRICE_VND, le=MAX_PRICE_VND)
     direction: Direction | None = None
     view: ViewType | None = None
     furnishing: Furnishing | None = None

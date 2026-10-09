@@ -37,7 +37,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TSTZRANGE, ExcludeConstraint
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSTZRANGE, ExcludeConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 NAMING_CONVENTION = {
@@ -663,6 +663,8 @@ class Booking(Base):
     created_via: Mapped[Channel] = mapped_column(_enum(Channel, "channel"), nullable=False, default=Channel.WEB)
     customer_note: Mapped[str | None] = mapped_column(Text)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # Times the owner offered instead when declining (the buyer can book one of them in a tap)
+    suggested_starts: Mapped[list[datetime] | None] = mapped_column(ARRAY(DateTime(timezone=True)))
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

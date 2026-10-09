@@ -91,6 +91,22 @@ def test_unanswered_request_is_escalated_once(db):
     assert db.query(Notification).filter_by(user_id=BUYER_ID, event_type="ESCALATION_OPENED").count() == 1
 
 
+def test_request_for_a_close_viewing_is_due_an_hour_before_it(db):
+    """Sent at 10:27 for a viewing at 14:00 next day: the seller cannot have 24 hours, only until 13:00."""
+    from src.services import booking_service
+
+    booking_id = _request(db)
+    booking = db.get(Booking, booking_id)
+    now = datetime.now(UTC)
+    booking.created_at = now - timedelta(hours=1)
+    booking.start_at, booking.end_at = now + timedelta(minutes=50), now + timedelta(minutes=80)
+    db.commit()
+    assert booking_service.respond_by(booking) == booking.start_at - timedelta(hours=1)
+
+    # Less than an hour before the viewing and still unanswered: the investor's staff step in now
+    assert escalation_service.escalate_unanswered_requests(db) == 1
+
+
 def test_recent_or_answered_requests_are_not_escalated(db):
     _request(db)  # created just now
     assert escalation_service.escalate_unanswered_requests(db) == 0
@@ -139,3 +155,20 @@ async def test_queue_is_operator_only_and_escalations_are_private(client, db):
     binh = await auth(client, CUSTOMER_BINH)
     assert (await client.get("/api/v1/escalations", headers=binh)).json() == []
     assert db.query(Escalation).filter_by(status=EscalationStatus.OPEN).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_can_still_answer_late_and_the_case_closes(client, db):
+    """Past the deadline the investor's staff are told, but the request stays the owner's to answer."""
+    booking_id = _request(db)
+    booking = db.get(Booking, booking_id)
+    booking.created_at = datetime.now(UTC) - timedelta(hours=25)
+    db.commit()
+    assert escalation_service.escalate_unanswered_requests(db) == 1
+
+    tuan = await auth(client, OWNER_TUAN)
+    r = await client.post(f"/api/v1/owner/bookings/{booking_id}/approve", headers=tuan)
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    esc = db.query(Escalation).filter_by(booking_id=booking_id).one()
+    assert esc.status.value == "RESOLVED" and "xác nhận" in esc.resolution

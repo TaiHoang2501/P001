@@ -39,7 +39,7 @@ export const FURNISHING: Record<Furnishing, string> = {
 };
 
 export const LEGAL: Record<LegalStatus, string> = {
-  PINK_BOOK: "Sổ hồng",
+  PINK_BOOK: "Sổ đỏ / sổ hồng",
   PENDING_BOOK: "Đang làm sổ",
   SALE_CONTRACT: "HĐMB",
 };
@@ -156,4 +156,13 @@ export function timeOf(iso: string): string {
 
 export function dateOf(iso: string): string {
   return new Date(iso).toLocaleDateString("vi-VN", { timeZone: TIMEZONE, day: "2-digit", month: "2-digit" });
+}
+
+/** A person's name as typed at sign-up, shown with capital initials ("nguyễn văn an" -> "Nguyễn Văn An"). */
+export function displayName(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toLocaleUpperCase("vi") + w.slice(1))
+    .join(" ");
 }

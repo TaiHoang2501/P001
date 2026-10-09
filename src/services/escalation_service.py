@@ -8,7 +8,7 @@ Operators take, resolve or dismiss them; the requester is told the outcome.
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -81,11 +81,20 @@ def create(
 def escalate_unanswered_requests(db: Session, now: datetime | None = None) -> int:
     """Periodic job: viewing requests the seller has not answered in time go to an operator (spec §4.8)."""
     now = now or datetime.now(UTC)
-    cutoff = now - timedelta(hours=get_settings().seller_response_hours)
+    s = get_settings()
+    cutoff = now - timedelta(hours=s.seller_response_hours)
     stale = db.scalars(
         select(Booking).where(
             Booking.status == BookingStatus.REQUESTED,
-            Booking.created_at <= cutoff,
+            # Past the answer deadline: 24 h after the request, or 1 h before the viewing if that comes first
+            or_(
+                Booking.created_at <= cutoff,
+                # (only viewings still ahead: long-past requests are not sent to the queue all at once)
+                and_(
+                    Booking.start_at > now,
+                    Booking.start_at <= now + timedelta(minutes=s.seller_response_lead_minutes),
+                ),
+            ),
             ~select(Escalation.id)
             .where(Escalation.booking_id == Booking.id, Escalation.type == EscalationType.SELLER_NO_RESPONSE)
             .exists(),
@@ -104,8 +113,8 @@ def escalate_unanswered_requests(db: Session, now: datetime | None = None) -> in
                 deal_id=booking.deal_id,
                 booking_id=booking.id,
                 property_id=booking.property_id,
-                summary=f"Chủ căn chưa phản hồi yêu cầu xem #{booking.id} sau "
-                f"{get_settings().seller_response_hours} giờ.",
+                summary=f"Chủ căn chưa phản hồi yêu cầu xem #{booking.id} trước hạn "
+                f"({s.seller_response_hours} giờ, hoặc {s.seller_response_lead_minutes} phút trước giờ xem).",
                 context={"requested_at": booking.created_at.isoformat(), "start_at": booking.start_at.isoformat()},
             )
             .on_conflict_do_nothing()
@@ -131,6 +140,36 @@ def escalate_unanswered_requests(db: Session, now: datetime | None = None) -> in
 
 
 # ---------- Operator ----------
+
+
+def settle_no_response(db: Session, actor: Actor | None, booking_id: int, outcome: str) -> int:
+    """The request a "seller did not answer" case is about has been dealt with (the owner answered late, the buyer
+    cancelled, another viewing took the time): close the case so nobody calls about it any more. No commit; the
+    people involved already hear about the booking itself. Returns how many cases were closed."""
+    cases = db.scalars(
+        select(Escalation)
+        .where(
+            Escalation.booking_id == booking_id,
+            Escalation.type == EscalationType.SELLER_NO_RESPONSE,
+            Escalation.status.in_(OPEN_ESCALATION_STATUSES),
+        )
+        .with_for_update()
+    ).all()
+    for esc in cases:
+        before = esc.status
+        esc.status = EscalationStatus.RESOLVED
+        esc.resolution = outcome
+        esc.resolved_at = datetime.now(UTC)
+        audit.record(
+            db,
+            actor,
+            "escalation.auto_resolve",
+            "escalation",
+            esc.id,
+            before={"status": before},
+            after={"status": esc.status, "resolution": outcome},
+        )
+    return len(cases)
 
 
 def _load(db: Session, escalation_id: int) -> Escalation:

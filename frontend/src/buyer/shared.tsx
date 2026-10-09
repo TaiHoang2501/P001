@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 
 import type { Media, Property } from "../api/types";
-import { homePathFor, useAuth } from "../auth/AuthContext";
+import { homePathFor, sessionExpired, useAuth } from "../auth/AuthContext";
 import { bedroomsLabel, formatArea, FURNISHING, ROLE, VIEW } from "../lib/format";
 import { isGuest } from "./guest";
 import { BuildingIcon } from "./icons";
@@ -21,6 +21,8 @@ export function RequireBuyerOrGuest({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   if (user?.role === "CUSTOMER" || (!user && isGuest())) return <>{children}</>;
   if (user) return <WrongAccount />;
+  // Signed out because the session expired: sign in again and come back to the same chat
+  if (sessionExpired("buyer")) return <Navigate to="/buyer/login" replace state={{ from: "/buyer/chat" }} />;
   return <Navigate to="/buyer/start" replace />;
 }
 

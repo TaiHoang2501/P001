@@ -16,7 +16,7 @@ const TYPE: Record<Escalation["type"], string> = {
   MULTI_BUYER: "Nhiều người mua cùng căn",
   SYSTEM_FAILURE: "Lỗi hệ thống",
   OTHER: "Khác",
-  OWNERSHIP_SUPPORT: "Hỗ trợ xác thực sổ đỏ",
+  OWNERSHIP_SUPPORT: "Hỗ trợ xác thực sổ đỏ / sổ hồng",
   VIEWING_DISPUTE: "Tranh chấp kết quả buổi xem",
 };
 
@@ -35,7 +35,7 @@ export function EscalationsPage() {
     <div>
       <PageHeader
         title="Hàng đợi ngoại lệ"
-        subtitle="Các trường hợp AI, hệ thống hoặc người dùng chuyển cho người xử lý (kể cả hỗ trợ xác thực sổ đỏ); người gửi được báo kết quả khi bạn đóng."
+        subtitle="Các trường hợp AI, hệ thống hoặc người dùng chuyển cho người xử lý (kể cả hỗ trợ xác thực sổ đỏ / sổ hồng); người gửi được báo kết quả khi bạn đóng."
         action={
           <button type="button" className="btn-secondary btn-sm" onClick={() => setShowClosed((v) => !v)}>
             {showClosed ? "Xem đang mở" : "Xem đã xử lý"}

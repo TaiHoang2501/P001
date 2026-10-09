@@ -227,8 +227,16 @@ export function PropertyFormPage({
     (e: { target: { value: string } }) =>
       setForm((f) => ({ ...f, [key]: e.target.value as FormState[K] }));
 
+  const priceError = priceProblem(form.price_ty);
+  const [showPriceError, setShowPriceError] = useState(false);
+  const perM2 = pricePerM2(form.price_ty, form.area_m2);
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (priceError) {
+      setShowPriceError(true);
+      return;
+    }
     save.mutate(toPayload(form));
   }
 
@@ -256,9 +264,9 @@ export function PropertyFormPage({
       )}
       {needsRedBook && (
         <Notice tone="warning">
-          Bạn cần xác thực sổ đỏ của căn trước khi đăng bán.{" "}
+          Bạn cần xác thực sổ đỏ / sổ hồng của căn trước khi đăng bán.{" "}
           <Link to="/owner/verify" className="font-medium underline">
-            Xác thực sổ đỏ
+            Xác thực sổ đỏ / sổ hồng
           </Link>
         </Notice>
       )}
@@ -269,9 +277,9 @@ export function PropertyFormPage({
 
         <fieldset disabled={locked} className="space-y-5">
           {editingId === null && usable.length > 0 && (
-            <Field label="Sổ đỏ đã xác thực" id="red-book">
+            <Field label="Sổ đỏ / sổ hồng đã xác thực" id="red-book">
               <select id="red-book" className="input" required value={form.verification_id} onChange={set("verification_id")}>
-                <option value="">Chọn sổ đỏ của căn</option>
+                <option value="">Chọn sổ đỏ / sổ hồng của căn</option>
                 {usable.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.red_book_code} · {b.red_book_holder_name}
@@ -282,9 +290,9 @@ export function PropertyFormPage({
             </Field>
           )}
           {fromBook ? (
-            <section className="rounded-2xl bg-leaf/60 p-4" aria-label="Thông tin căn theo sổ đỏ">
+            <section className="rounded-2xl bg-leaf/60 p-4" aria-label="Thông tin căn theo sổ đỏ / sổ hồng">
               <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-leaf-ink">
-                ✓ Thông tin căn theo sổ đỏ{book ? ` ${book.red_book_code}` : existing.data?.red_book_code ? ` ${existing.data.red_book_code}` : ""}
+                ✓ Thông tin căn theo sổ đỏ / sổ hồng{book ? ` ${book.red_book_code}` : existing.data?.red_book_code ? ` ${existing.data.red_book_code}` : ""}
                 <span className="font-normal text-muted">· dữ liệu của Chủ đầu tư, không cần nhập và không sửa được</span>
               </p>
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-5">
@@ -300,7 +308,7 @@ export function PropertyFormPage({
             editingId === null &&
             !book && (
               <p className="rounded-2xl bg-paper px-4 py-3 text-sm text-muted">
-                Chọn sổ đỏ ở trên: thông tin căn (dự án, tòa, diện tích, số phòng, hướng…) sẽ được điền theo dữ liệu
+                Chọn sổ đỏ / sổ hồng ở trên: thông tin căn (dự án, tòa, diện tích, số phòng, hướng…) sẽ được điền theo dữ liệu
                 của Chủ đầu tư.
               </p>
             )
@@ -370,7 +378,24 @@ export function PropertyFormPage({
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Giá bán (tỷ VNĐ)" id="price">
-              <input id="price" className="input" required inputMode="decimal" placeholder="3,2" value={form.price_ty} onChange={set("price_ty")} />
+              <input
+                id="price"
+                className="input"
+                inputMode="decimal"
+                placeholder="3,2"
+                aria-invalid={showPriceError && priceError !== null}
+                aria-describedby="price-note"
+                value={form.price_ty}
+                // Digits and one decimal comma only (no minus sign, no letters)
+                onChange={(e) => {
+                  setShowPriceError(false);
+                  setForm((f) => ({ ...f, price_ty: e.target.value.replace(/[^\d,.]/g, "") }));
+                }}
+                onBlur={() => setShowPriceError(form.price_ty.trim() !== "")}
+              />
+              <p id="price-note" className={`mt-1 text-xs ${showPriceError && priceError ? "font-medium text-red-700" : "text-muted"}`}>
+                {showPriceError && priceError ? priceError : perM2 ? `≈ ${perM2} triệu/m²` : "Ví dụ 3,2 = 3,2 tỷ"}
+              </p>
             </Field>
             <Field label="View" id="view">
               <Select id="view" value={form.view} onChange={set("view")} options={VIEW} />
@@ -411,6 +436,24 @@ export function PropertyFormPage({
       </form>
     </div>
   );
+}
+
+/** What is wrong with the price typed (in tỷ), or null when it is a sensible price. */
+function priceProblem(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return "Nhập giá bán, ví dụ 3,2 (tỷ).";
+  if (!/^\d+([.,]\d+)?$/.test(text)) return "Giá chỉ gồm số và một dấu phẩy thập phân, ví dụ 3,2.";
+  const ty = parseFloat(text.replace(",", "."));
+  if (ty < 0.1 || ty > 1000) return "Giá phải từ 0,1 đến 1.000 tỷ.";
+  return null;
+}
+
+/** "≈ 52,6" (million VND per m²) once both the price and the area are known. */
+function pricePerM2(priceTy: string, area: string): string | null {
+  const ty = parseFloat(priceTy.replace(",", "."));
+  const m2 = parseFloat(area.replace(",", "."));
+  if (!(ty > 0) || !(m2 > 0) || priceProblem(priceTy)) return null;
+  return ((ty * 1000) / m2).toLocaleString("vi-VN", { maximumFractionDigits: 1 });
 }
 
 function Field({ label, id, children }: { label: string; id: string; children: React.ReactNode }) {

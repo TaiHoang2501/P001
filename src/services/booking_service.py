@@ -41,7 +41,15 @@ from src.db.models import (
     UserRole,
 )
 from src.models.booking import ActivityOut, BookingCreate, BookingOut, RescheduleRequest
-from src.services import audit, deal_service, hold_service, notification_service, seller_service
+from src.services import (
+    audit,
+    availability_service,
+    deal_service,
+    escalation_service,
+    hold_service,
+    notification_service,
+    seller_service,
+)
 from src.services.availability_service import TimeConflictError, is_exclusion_violation, list_slots, owner_busy
 
 # Booking lifecycle (spec §4.12)
@@ -109,6 +117,16 @@ def _transition(booking: Booking, to: BookingStatus) -> BookingStatus:
     return before
 
 
+def respond_by(booking: Booking) -> datetime:
+    """When the seller must have answered a request: `seller_response_hours` after it was sent, but never later
+    than `seller_response_lead_minutes` before the viewing (a request for tomorrow cannot wait 24 hours)."""
+    s = get_settings()
+    return min(
+        booking.created_at + timedelta(hours=s.seller_response_hours),
+        booking.start_at - timedelta(minutes=s.seller_response_lead_minutes),
+    )
+
+
 def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None) -> BookingOut:
     prop = booking.property
     deal = booking.deal
@@ -139,8 +157,11 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
         created_via=booking.created_via,
         customer_note=booking.customer_note,
         rejection_reason=booking.rejection_reason,
+        suggested_starts=booking.suggested_starts or [],
+        closed_by_system=booking.status == BookingStatus.REJECTED and booking.rejection_reason == SUPERSEDED_REASON,
         responded_at=booking.responded_at,
         created_at=booking.created_at,
+        respond_by=respond_by(booking) if booking.status == BookingStatus.REQUESTED else None,
         deal_status=deal.status,
     )
 
@@ -260,6 +281,7 @@ def _close_overlapping(db: Session, confirmed: Booking) -> None:
             other.responded_at = _now()
             other.rejection_reason = SUPERSEDED_REASON
             _audit_transition(db, None, "booking.superseded", other, before, reason=SUPERSEDED_REASON)
+            escalation_service.settle_no_response(db, None, other.id, "Chủ căn đã nhận một lịch xem khác vào giờ này.")
             _sync_deal(db, None, other)
             free = [s.start_at for s in list_slots(db, other.property_id)[:3]]
             notification_service.viewing_superseded(db, other, free)
@@ -316,6 +338,11 @@ def _resolve_time(
             )
     if start_at <= _now():
         raise BusinessRuleViolationError("This viewing time has already started")
+    notice = get_settings().viewing_min_notice_minutes
+    if start_at < _now() + timedelta(minutes=notice):
+        raise BusinessRuleViolationError(
+            f"Book a viewing at least {notice} minutes ahead", details={"min_notice_minutes": notice}
+        )
     return slot, start_at, end_at
 
 
@@ -332,6 +359,7 @@ def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     booking.proposed_start_at = booking.proposed_end_at = None
     released = hold_service.release(db, actor, booking.id, "cancelled")
     _audit_transition(db, actor, "booking.cancel", booking, before)
+    escalation_service.settle_no_response(db, actor, booking.id, "Người mua đã hủy yêu cầu xem.")
     _sync_deal(db, actor, booking)
     notification_service.viewing_cancelled(db, booking, actor, hold_released=released)
     db.commit()
@@ -435,6 +463,7 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     except TimeConflictError as e:
         _raise_slot_taken(db, e, property_id)
     _audit_transition(db, actor, "booking.reschedule_approve" if rescheduling else "booking.approve", booking, before)
+    escalation_service.settle_no_response(db, actor, booking.id, "Chủ căn đã xác nhận lịch xem.")
     _sync_deal(db, actor, booking)
     notification_service.viewing_confirmed(db, booking, rescheduled=rescheduling)
     _close_overlapping(db, booking)
@@ -442,10 +471,22 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     return to_out(_load(db, booking.id), actor)
 
 
-def reject(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOut:
+def reject(
+    db: Session,
+    actor: Actor,
+    booking_id: int,
+    reason: str,
+    *,
+    suggested_starts: list[datetime] | None = None,
+    close_time: bool = False,
+) -> BookingOut:
+    """Decline a request (or a new time asked for). The owner may offer up to three other times of their own
+    (the buyer books one in a tap) and may close the declined time so nobody else asks for it."""
     if actor.role != UserRole.OWNER:
         raise ForbiddenError("Only the property owner can reject a viewing")
     booking = _load_for_owner(db, actor, booking_id)
+    if suggested_starts and booking.status != BookingStatus.REQUESTED:
+        raise BusinessRuleViolationError("Other times can be suggested for a new request only")
     if booking.status == BookingStatus.RESCHEDULE_REQUESTED:
         # Declining a new time keeps the viewing (and its hold) at the original time
         before = _transition(booking, BookingStatus.CONFIRMED)
@@ -456,12 +497,34 @@ def reject(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOu
         notification_service.reschedule_declined(db, booking, reason)
         db.commit()
         return to_out(booking, actor)
+    offered = (
+        availability_service.require_offerable(db, booking.property_id, suggested_starts) if suggested_starts else []
+    )
     before = _transition(booking, BookingStatus.REJECTED)
     booking.responded_at = _now()
     booking.rejection_reason = reason
-    _audit_transition(db, actor, "booking.reject", booking, before, reason=reason)
+    booking.suggested_starts = offered or None
+    db.flush()
+    closed = (
+        availability_service.close_time(db, actor, booking.property_id, booking.start_at, booking.end_at)
+        if close_time
+        else 0
+    )
+    _audit_transition(
+        db,
+        actor,
+        "booking.reject",
+        booking,
+        before,
+        reason=reason,
+        suggested_starts=[t.isoformat() for t in offered],
+        closed_slots=closed,
+    )
+    escalation_service.settle_no_response(
+        db, actor, booking.id, "Chủ căn đã trả lời: không nhận lịch" + (", đề xuất giờ khác." if offered else ".")
+    )
     _sync_deal(db, actor, booking)
-    notification_service.viewing_rejected(db, booking, reason)
+    notification_service.viewing_rejected(db, booking, reason, offered)
     db.commit()
     return to_out(booking, actor)
 

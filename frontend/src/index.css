@@ -95,6 +95,13 @@
   body {
     @apply bg-canvas text-ink antialiased;
   }
+  /* Tailwind v4 gives buttons the default arrow: show the pointing hand on everything that can be clicked */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-brand-500;
   }

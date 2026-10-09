@@ -2,7 +2,16 @@
 
 import pytest
 
-from tests.helpers import CUSTOMER_AN, OPERATOR, OWNER_LAN, OWNER_TUAN, TUAN_RED_BOOK, UNCLAIMED_RED_BOOK, auth
+from tests.helpers import (
+    CUSTOMER_AN,
+    OPERATOR,
+    OWNER_LAN,
+    OWNER_TUAN,
+    TUAN_RED_BOOK,
+    UNCLAIMED_RED_BOOK,
+    UNCLAIMED_RED_BOOK_PHONE,
+    auth,
+)
 
 CLAIM = {k: v for k, v in UNCLAIMED_RED_BOOK.items() if k != "id"}
 LISTING = {
@@ -21,7 +30,8 @@ LISTING = {
 }
 
 
-async def _new_seller(client, phone: str = "0966000077") -> dict:
+async def _new_seller(client, phone: str = UNCLAIMED_RED_BOOK_PHONE) -> dict:
+    """A new seller account; by default the owner of UNCLAIMED_RED_BOOK, signed in with the phone on it."""
     code = (await client.post("/api/v1/auth/otp/request", json={"target": phone})).json()["debug_code"]
     r = await client.post(
         "/api/v1/auth/otp/verify", json={"target": phone, "code": code, "full_name": "Người Bán Mới", "role": "OWNER"}
@@ -121,7 +131,8 @@ async def test_wrong_codes_lock_the_red_book(client):
 
 @pytest.mark.asyncio
 async def test_seeded_failed_red_book_is_locked(client):
-    seller = await _new_seller(client)
+    # Its owner (signed in with the phone on it) is told it is locked
+    seller = await _new_seller(client, "0933444555")
     r = await client.post(
         "/api/v1/owner/ownership/claim",
         json={"red_book_holder_name": "Trần Văn Đức", "red_book_code": "SD-2015-0110022"},
@@ -138,7 +149,8 @@ async def test_red_book_verified_by_another_seller_cannot_be_claimed(client):
         json={"red_book_holder_name": "Phạm Minh Tuấn", "red_book_code": "SD-2019-0456123"},
         headers=seller,
     )
-    assert r.status_code == 409
+    assert r.status_code == 422
+    assert r.json()["error"]["details"] == {"reason": "NOT_OWNER_PHONE"}
 
     # Its own owner just gets it back as already verified, without a new code
     tuan = await auth(client, OWNER_TUAN)
@@ -170,3 +182,61 @@ async def test_listing_needs_own_verified_red_book(client):
 async def test_buyers_cannot_use_ownership_endpoints(client):
     buyer = await auth(client, CUSTOMER_AN)
     assert (await client.post("/api/v1/owner/ownership/claim", json=CLAIM, headers=buyer)).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_someone_else_cannot_verify_a_red_book_even_knowing_its_details(client):
+    """Tuấn knows Hương's name and red book code: no code is sent, he is pointed to a support request."""
+    tuan = await auth(client, OWNER_TUAN)
+    r = await client.post("/api/v1/owner/ownership/claim", json=CLAIM, headers=tuan)
+    assert r.status_code == 422, r.text
+    error = r.json()["error"]
+    # Not a digit of the owner's phone is given away
+    assert error["details"] == {"reason": "NOT_OWNER_PHONE"}
+    assert "debug_code" not in r.json()
+    # The owner herself, signed in with the phone on the red book, still can
+    owner = await _new_seller(client)
+    assert (await _claim(client, owner))["status"] == "OTP_SENT"
+
+
+@pytest.mark.asyncio
+async def test_guessing_red_books_is_limited(client):
+    seller = await _new_seller(client, "0966000078")
+    for _ in range(5):
+        r = await client.post(
+            "/api/v1/owner/ownership/claim", json={**CLAIM, "red_book_code": "SD-0000-0000000"}, headers=seller
+        )
+        assert r.status_code == 422
+    r = await client.post("/api/v1/owner/ownership/claim", json=CLAIM, headers=seller)
+    assert r.status_code == 429
+    assert r.json()["error"]["code"] == "RATE_LIMITED"
+
+
+@pytest.mark.asyncio
+async def test_a_home_has_one_verified_red_book(client, db):
+    """A second red book for a home that already has a verified one goes to the investor, not to the seller."""
+    from src.db.models import PropertyOwnershipVerification
+
+    book = db.get(PropertyOwnershipVerification, UNCLAIMED_RED_BOOK["id"])
+    tuans = db.get(PropertyOwnershipVerification, TUAN_RED_BOOK)
+    book.building_id, book.unit_code = tuans.building_id, tuans.unit_code
+    db.commit()
+    r = await client.post("/api/v1/owner/ownership/claim", json=CLAIM, headers=await _new_seller(client))
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["details"]["reason"] == "UNIT_CLAIMED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "red_book",
+    [
+        {"red_book_holder_name": "Phạm Minh Tuấn", "red_book_code": "SD-2019-0456123"},  # verified by Tuấn
+        {"red_book_holder_name": "Trần Văn Đức", "red_book_code": "SD-2015-0110022"},  # locked
+        CLAIM,  # not verified yet
+    ],
+)
+async def test_someone_else_learns_nothing_about_a_red_book(client, red_book):
+    """Two owners with the same name: whatever state the other's red book is in, the answer is the same."""
+    stranger = await _new_seller(client, "0966000079")
+    r = await client.post("/api/v1/owner/ownership/claim", json=red_book, headers=stranger)
+    assert (r.status_code, r.json()["error"]["details"]) == (422, {"reason": "NOT_OWNER_PHONE"})

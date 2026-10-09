@@ -1,6 +1,7 @@
 import { Navigate, useLocation, useNavigate } from "react-router";
 
-import { useAuth } from "../auth/AuthContext";
+import { sessionExpired, useAuth } from "../auth/AuthContext";
+import { Notice } from "../components/ui";
 import { adoptGuestChat } from "./guest";
 import { AuthShell } from "../components/AuthShell";
 import { LoginPanel } from "../pages/LoginPage";
@@ -36,12 +37,24 @@ export function BuyerLoginPage() {
           },
           {
             title: "Số điện thoại của bạn được ẩn",
-            text: "Chủ căn chỉ thấy tên và khoảng ngân sách.",
+            text: "Chủ căn chỉ thấy tên và khoảng ngân sách của bạn.",
           },
         ]}
         title="Đăng nhập"
         subtitle="Chỉ cần số điện thoại, không cần email hay mật khẩu."
       >
+        {from.startsWith("/buyer/activity") && !sessionExpired("buyer") && (
+          <div className="mb-4">
+            <Notice>Đăng nhập để xem các lịch xem nhà bạn đã đặt và trạng thái của từng lịch.</Notice>
+          </div>
+        )}
+        {sessionExpired("buyer") && (
+          <div className="mb-4">
+            <Notice tone="warning">
+              Phiên đăng nhập đã hết hạn. Đăng nhập lại để tiếp tục; cuộc trò chuyện và câu hỏi bạn vừa gửi vẫn được giữ.
+            </Notice>
+          </div>
+        )}
         <LoginPanel
           audience="buyer"
           onDone={(u) => {

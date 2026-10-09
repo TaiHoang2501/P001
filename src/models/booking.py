@@ -57,6 +57,8 @@ class SlotOut(BaseModel):
     start_at: datetime
     end_at: datetime
     is_free: bool = True
+    # Unanswered viewing requests at this time (the slot stays open to other buyers until one is confirmed)
+    requests: int = 0
 
 
 class BookingCreate(BaseModel):
@@ -103,8 +105,14 @@ class BookingOut(BaseModel):
     created_via: Channel
     customer_note: str | None
     rejection_reason: str | None
+    # Times the owner offered instead (declined request): the buyer books one of them directly
+    suggested_starts: list[datetime] = Field(default_factory=list)
     responded_at: datetime | None
+    # Closed by the system (the owner confirmed someone else at that time), not answered by the owner
+    closed_by_system: bool = False
     created_at: datetime
+    # Unanswered request: the seller answers by then (24 h after it was sent, but at the latest 1 h before the viewing)
+    respond_by: datetime | None = None
     # Where the deal stands (VIEWED: the buyer has not said yet how they found the home)
     deal_status: DealStatus | None = None
 
@@ -183,6 +191,10 @@ class RescheduleRequest(BaseModel):
 
 class BookingRejectRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=1000)
+    # "Đề xuất giờ khác": up to three start times from the owner's own free times, sent to the buyer
+    suggested_starts: list[datetime] = Field(default_factory=list, max_length=3)
+    # The owner is busy at that time: take it out of their viewing times so nobody else asks for it
+    close_time: bool = False
 
 
 class ViewingPassOut(BaseModel):

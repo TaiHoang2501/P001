@@ -5,7 +5,8 @@ exists only if the change was committed. Delivery is in-app for now (the SMS/Zal
 is TBD, spec §10 Q18): an immediate notification is SENT when stored; a reminder is PENDING
 until the periodic job marks it SENT at its scheduled time.
 
-Privacy level 1 (spec §4.7): messages to the seller refer to the buyer only as "Buyer #id".
+Privacy level 1 (spec §4.7): messages to the seller name the buyer (product decision) but never give their
+phone or email.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -31,6 +32,11 @@ def _now() -> datetime:
 def _when(t: datetime) -> str:
     local = t.astimezone(ZoneInfo(get_settings().timezone))
     return f"{local:%H:%M} {_WEEKDAYS[local.weekday()]} {local:%d/%m/%Y}"
+
+
+def _buyer(booking: Booking) -> str:
+    """The buyer as the seller sees them everywhere (requests page and notices alike): their name."""
+    return booking.customer.full_name
 
 
 def _label(prop: Property) -> str:
@@ -74,7 +80,7 @@ def viewing_requested(db: Session, booking: Booking) -> None:
         booking.property.owner_id,
         "VIEWING_REQUESTED",
         "Yêu cầu xem nhà mới",
-        f"Buyer #{booking.customer_id} muốn xem {_label(booking.property)} lúc {_when(booking.start_at)}. "
+        f"{_buyer(booking)} muốn xem {_label(booking.property)} lúc {_when(booking.start_at)}. "
         f"Mã deal {booking.deal.code}. Vui lòng xác nhận hoặc từ chối.",
         booking=booking,
     )
@@ -103,13 +109,31 @@ def viewing_confirmed(db: Session, booking: Booking, *, rescheduled: bool = Fals
     schedule_reminders(db, booking)
 
 
-def viewing_rejected(db: Session, booking: Booking, reason: str) -> None:
+def viewing_rejected(db: Session, booking: Booking, reason: str, suggested: list[datetime] | None = None) -> None:
+    label = _label(booking.property)
+    if suggested:
+        # The owner offered other times: the chat shows them as buttons, the "Hoạt động" page books one in a tap
+        notify(
+            db,
+            booking.customer_id,
+            "VIEWING_TIMES_SUGGESTED",
+            "Chủ căn đề xuất giờ xem khác",
+            f"Chủ căn {label} không nhận được lịch lúc {_when(booking.start_at)} ({reason}) và đề xuất: "
+            f"{', '.join(_when(t) for t in suggested)}. Bạn chọn một giờ là yêu cầu được gửi lại cho chủ căn.",
+            booking=booking,
+            payload={
+                "property_id": booking.property_id,
+                "unit_code": booking.property.unit_code,
+                "suggested_starts": [t.isoformat() for t in suggested],
+            },
+        )
+        return
     notify(
         db,
         booking.customer_id,
         "VIEWING_REJECTED",
         "Chủ căn chưa thể nhận lịch xem",
-        f"Lịch xem {_label(booking.property)} lúc {_when(booking.start_at)} bị từ chối: {reason}. "
+        f"Lịch xem {label} lúc {_when(booking.start_at)} bị từ chối: {reason}. "
         "Trợ lý AI có thể giúp bạn chọn giờ khác hoặc căn khác.",
         booking=booking,
     )
@@ -157,7 +181,7 @@ def viewing_cancelled(db: Session, booking: Booking, actor: Actor, *, hold_relea
             booking.property.owner_id,
             "VIEWING_CANCELLED",
             "Lịch xem đã bị hủy",
-            f"Buyer #{booking.customer_id} đã hủy lịch xem {label} lúc {when}.",
+            f"{_buyer(booking)} đã hủy lịch xem {label} lúc {when}.",
             booking=booking,
         )
     if hold_released:
@@ -179,7 +203,7 @@ def reschedule_requested(db: Session, booking: Booking) -> None:
         booking.property.owner_id,
         "RESCHEDULE_REQUESTED",
         "Yêu cầu đổi lịch xem",
-        f"Buyer #{booking.customer_id} muốn đổi lịch xem {_label(booking.property)} từ {_when(booking.start_at)} "
+        f"{_buyer(booking)} muốn đổi lịch xem {_label(booking.property)} từ {_when(booking.start_at)} "
         f"sang {_when(booking.proposed_start_at)}.",
         booking=booking,
     )
@@ -192,7 +216,7 @@ def request_time_changed(db: Session, booking: Booking, old_start: datetime) -> 
         booking.property.owner_id,
         "VIEWING_REQUEST_UPDATED",
         "Khách đổi giờ yêu cầu xem nhà",
-        f"Buyer #{booking.customer_id} đổi giờ xem {_label(booking.property)} từ "
+        f"{_buyer(booking)} đổi giờ xem {_label(booking.property)} từ "
         f"{_when(old_start)} sang {_when(booking.start_at)} (deal {booking.deal.code}). "
         "Vui lòng xác nhận hoặc từ chối giờ mới.",
         booking=booking,

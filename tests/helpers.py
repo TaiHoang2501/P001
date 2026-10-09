@@ -17,6 +17,8 @@ BUYER_PHONES = {CUSTOMER_AN: "0901111222", CUSTOMER_BINH: "0902222333"}
 # Red books from data/property_ownership_verifications_seed.csv
 TUAN_RED_BOOK = 1  # verified by Tuấn, not yet backing a listing
 UNCLAIMED_RED_BOOK = {"id": 7, "red_book_holder_name": "Nguyễn Thị Hương", "red_book_code": "SD-2017-0332211"}
+# The owner's phone on that red book: only an account signed in with it verifies the red book on its own
+UNCLAIMED_RED_BOOK_PHONE = "0909888777"
 
 
 async def auth(client: AsyncClient, identifier: str, password: str = SEED_PASSWORD) -> dict[str, str]:

@@ -12,13 +12,13 @@ export type SupportReason = components["schemas"]["OwnershipSupportCreate"]["rea
 /** Why the automatic check (holder + code + OTP) cannot work, and what to attach for the investor to decide. */
 export const SUPPORT_REASONS: { value: SupportReason; label: string; attach: string }[] = [
   { value: "NO_OTP", label: "Không nhận được mã OTP (chủ sở hữu đã đổi số)", attach: "CCCD của chủ sở hữu và số điện thoại mới (ghi ở phần mô tả)" },
-  { value: "LOCKED", label: "Sổ đỏ bị khóa do nhập sai OTP", attach: "CCCD của chủ sở hữu" },
-  { value: "MISMATCH", label: "Thông tin đúng nhưng hệ thống báo không khớp", attach: "Ảnh trang đầu sổ đỏ và CCCD" },
+  { value: "LOCKED", label: "Sổ đỏ / sổ hồng bị khóa do nhập sai OTP", attach: "CCCD của chủ sở hữu" },
+  { value: "MISMATCH", label: "Thông tin đúng nhưng hệ thống báo không khớp", attach: "Ảnh trang đầu sổ đỏ / sổ hồng và CCCD" },
   { value: "PROXY", label: "Bán thay chủ sở hữu (có giấy ủy quyền)", attach: "Giấy ủy quyền có công chứng và CCCD hai bên" },
-  { value: "CO_OWNER", label: "Sổ đồng sở hữu", attach: "Ảnh sổ đỏ và văn bản đồng ý bán của người đồng sở hữu" },
+  { value: "CO_OWNER", label: "Sổ đồng sở hữu", attach: "Ảnh sổ đỏ / sổ hồng và văn bản đồng ý bán của người đồng sở hữu" },
   { value: "INHERITANCE", label: "Thừa kế, chưa sang tên", attach: "Văn bản thừa kế, giấy chứng tử và CCCD" },
-  { value: "NO_RED_BOOK", label: "Căn chưa có sổ đỏ (chỉ có hợp đồng mua bán)", attach: "Hợp đồng mua bán và biên bản bàn giao căn" },
-  { value: "CLAIMED_BY_OTHER", label: "Sổ đỏ đã bị một tài khoản khác xác thực", attach: "Ảnh sổ đỏ gốc và CCCD của chủ sở hữu" },
+  { value: "NO_RED_BOOK", label: "Căn chưa có sổ đỏ / sổ hồng (chỉ có hợp đồng mua bán)", attach: "Hợp đồng mua bán và biên bản bàn giao căn" },
+  { value: "CLAIMED_BY_OTHER", label: "Sổ đỏ / sổ hồng đã bị một tài khoản khác xác thực", attach: "Ảnh sổ đỏ / sổ hồng gốc và CCCD của chủ sở hữu" },
   { value: "OTHER", label: "Lý do khác", attach: "Giấy tờ liên quan" },
 ];
 
@@ -110,7 +110,7 @@ export function SupportForm({ prefill, onClose }: { prefill: SupportPrefill; onC
       </div>
       <div>
         <label htmlFor="sp-code" className="label">
-          {noBook ? "Số hợp đồng mua bán" : "Mã số sổ đỏ"}
+          {noBook ? "Số hợp đồng mua bán" : "Mã số sổ đỏ / sổ hồng"}
         </label>
         <input
           id="sp-code"

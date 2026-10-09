@@ -103,6 +103,26 @@ VIEW_TEXT = {
 FURNISH_TEXT = {Furnishing.NONE: "bàn giao thô", Furnishing.BASIC: "nội thất cơ bản", Furnishing.FULL: "full nội thất"}
 
 
+def _m2(area: Decimal | str) -> str:
+    """Area the Vietnamese way, with a decimal comma: 57.5 -> "57,5"."""
+    return str(area).replace(".", ",")
+
+
+# Older seeded descriptions wrote the area with a decimal point ("Căn 2PN 57.5 m² tầng 12, ...")
+_SEEDED_AREA = re.compile(r"^(Căn \S+ )(\d+)\.(\d+)( m² tầng )")
+
+
+# The listings waiting for review (and the hidden one of an unverified owner): real-looking units, not "X01"
+# (unit number suffix, bedrooms, area m², floor, price VND); older databases are updated by ensure_red_book_units
+EXTRA_UNITS = [
+    ("1206", 2, "68.5", 12, 3_650_000_000),
+    ("1803", 3, "92.0", 18, 5_200_000_000),
+    ("0911", 2, "55.3", 9, 2_850_000_000),
+    ("2104", 2, "74.0", 21, 4_100_000_000),
+]
+_PLACEHOLDER_UNIT = re.compile(r"^(.+)-X0([1-4])$")
+
+
 def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]:
     props: list[Property] = []
     # 32 approved listings across the two active owners
@@ -130,7 +150,7 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
                 view=view,
                 furnishing=furnishing,
                 legal_status=rng.choice([LegalStatus.PINK_BOOK, LegalStatus.PINK_BOOK, LegalStatus.SALE_CONTRACT]),
-                description=f"Căn {label} {area} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
+                description=f"Căn {label} {_m2(area)} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
                 status=PropertyStatus.AVAILABLE,
             )
         )
@@ -143,17 +163,18 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
     ]
     for j, (owner_id, status, desc) in enumerate(extra):
         building = buildings[j]
+        unit, beds, area, floor, price = EXTRA_UNITS[j]
         props.append(
             Property(
                 owner_id=owner_id,
                 building=building,
-                unit_code=f"{building.code}-X{j + 1:02d}",
+                unit_code=f"{building.code}-{unit}",
                 property_type=PropertyType.APARTMENT,
-                bedrooms=2,
+                bedrooms=beds,
                 bathrooms=2,
-                area_m2=Decimal("70.0"),
-                floor=10,
-                price_vnd=3_500_000_000,
+                area_m2=Decimal(area),
+                floor=floor,
+                price_vnd=price,
                 direction=Direction.SE,
                 view=ViewType.PARK,
                 furnishing=Furnishing.BASIC,
@@ -218,7 +239,7 @@ def ensure_listings(db: Session) -> int:
             view=view,
             furnishing=furnishing,
             legal_status=LegalStatus.PINK_BOOK,
-            description=f"Căn 2PN {area} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
+            description=f"Căn 2PN {_m2(area)} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
             status=PropertyStatus.AVAILABLE,
         )
         db.add(prop)
@@ -859,6 +880,28 @@ def ensure_red_book_units(db: Session) -> str:
         .where(Property.description == "Bản nháp, chưa gửi duyệt.")
         .values(description="Căn 2PN, chờ Ban quản trị duyệt.")
     )
+    # Listings of the old seed with placeholder units ("S1.08-X02", all 70 m² at 3,5 tỷ on floor 10)
+    taken = set(db.scalars(select(Property.unit_code)))
+    for prop in db.scalars(select(Property).where(Property.unit_code.like("%-X0_"))):
+        match = _PLACEHOLDER_UNIT.match(prop.unit_code)
+        if match is None:
+            continue
+        unit, beds, area, floor, price = EXTRA_UNITS[int(match.group(2)) - 1]
+        code = f"{match.group(1)}-{unit}"
+        if code in taken:
+            continue
+        taken.add(code)
+        prop.unit_code, prop.bedrooms, prop.area_m2, prop.floor, prop.price_vnd = (
+            code,
+            beds,
+            Decimal(area),
+            floor,
+            price,
+        )
+        if prop.verification is not None and _generated(prop.verification.red_book_code):
+            _copy_unit(prop.verification, prop)
+    for prop in db.scalars(select(Property).where(Property.description.like("Căn % m² tầng %"))):
+        prop.description = _SEEDED_AREA.sub(r",", prop.description)
     db.commit()
     return (
         f"{created} red book(s) added for older listings, {filled} given their home's facts, "

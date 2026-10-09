@@ -141,7 +141,11 @@ export function ActivityPage() {
           onBack={() => select(null)}
           onReschedule={setReschedule}
           onViewProperty={(id) => navigate(`/buyer/properties/${id}`)}
-          onChanged={refresh}
+          onChanged={(next) => {
+            refresh();
+            // Booked one of the owner's suggested times: show that new request
+            if (next.id !== selectedId) select(next.id);
+          }}
         />
       )}
     </div>

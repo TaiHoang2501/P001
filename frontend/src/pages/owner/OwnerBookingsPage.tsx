@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -20,8 +20,9 @@ import {
 } from "./ownerData";
 
 // Reasons a seller usually gives; one tap fills the box (the buyer sees it)
+const BUSY_REASON = "Khung giờ này tôi bận";
 const QUICK_REASONS = [
-  "Khung giờ này tôi bận",
+  BUSY_REASON,
   "Căn đang sửa chữa",
   "Tôi đã có lịch xem khác giờ này",
 ];
@@ -276,8 +277,8 @@ function Tiles({
       new Date(b.end_at).getTime() > now &&
       new Date(b.start_at).getTime() <= weekEnd,
   ).length;
-  // How fast the seller answers: from the request to their confirm / reject
-  const answered = bookings.filter((b) => b.responded_at);
+  // How fast the seller answers: from the request to their confirm / reject (not requests the system closed)
+  const answered = bookings.filter((b) => b.responded_at && !b.closed_by_system);
   const avg = answered.length
     ? answered.reduce(
         (sum, b) =>
@@ -299,7 +300,7 @@ function Tiles({
       label: "Chờ bạn xác nhận",
       value: String(pending),
       hint: responseHours
-        ? `Trả lời trong ${responseHours} giờ để giữ điểm uy tín`
+        ? `Trả lời trong ${responseHours} giờ (buổi xem gần thì trước giờ xem 1 tiếng) để giữ điểm uy tín`
         : "Yêu cầu đang chờ bạn",
       urgent: pending > 0,
     },
@@ -342,18 +343,21 @@ function Tiles({
   );
 }
 
-/** Time left before an unanswered request goes to the investor's staff. */
+/** Time left before an unanswered request goes to the investor's staff (24 h, but at the latest 1 h before the viewing). */
 function deadline(
   b: Booking,
   responseHours: number,
   now: number,
-): { text: string; late: boolean } {
-  const left =
-    new Date(b.created_at).getTime() + responseHours * 3_600_000 - now;
+): { text: string; late: boolean; overdue?: boolean } {
+  const due = b.respond_by
+    ? new Date(b.respond_by).getTime()
+    : new Date(b.created_at).getTime() + responseHours * 3_600_000;
+  const left = due - now;
   if (left <= 0)
     return {
-      text: "Quá hạn phản hồi — nhân viên Chủ đầu tư đang hỗ trợ",
+      text: "Đã quá hạn trả lời",
       late: true,
+      overdue: true,
     };
   const minutes = Math.ceil(left / 60_000);
   return {
@@ -377,10 +381,14 @@ function RequestDetail({
 }) {
   const queryClient = useQueryClient();
   const [rejecting, setRejecting] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [reason, setReason] = useState("");
+  // "Khung giờ này tôi bận": also close that time so other buyers are not offered it
+  const [closeTime, setCloseTime] = useState(true);
   const path = { params: { path: { booking_id: b.id } } };
   const onSuccess = () => {
     setRejecting(false);
+    setSuggesting(false);
     queryClient.invalidateQueries({ queryKey: ["owner-bookings"] });
     queryClient.invalidateQueries({ queryKey: ["owner-overview"] });
   };
@@ -394,7 +402,7 @@ function RequestDetail({
       call(
         api.POST("/api/v1/owner/bookings/{booking_id}/reject", {
           ...path,
-          body: { reason },
+          body: { reason, close_time: reason === BUSY_REASON && closeTime },
         }),
       ),
     onSuccess,
@@ -480,6 +488,15 @@ function RequestDetail({
               {due.text}
             </span>
           )}
+          {due?.overdue && (
+            // The request is still the seller's to answer; the investor's staff were only told and may call
+            <p className="basis-full text-sm text-ink/80">
+              Đã quá hạn trả lời
+              {b.respond_by ? ` (hạn: ${formatDateTime(b.respond_by)})` : ""}, nên nhân viên Chủ đầu tư đã được báo
+              và có thể gọi nhắc bạn. Yêu cầu vẫn là của bạn: bạn vẫn xác nhận, từ chối hoặc đề xuất giờ khác được tới
+              trước giờ xem.
+            </p>
+          )}
           {b.hold_status === "ACTIVE" && (
             <span className="rounded-full bg-leaf px-3 py-1 text-xs font-semibold text-leaf-ink">
               Căn được giữ cho buổi xem
@@ -549,6 +566,12 @@ function RequestDetail({
                 </button>
               ))}
             </div>
+            {reason === BUSY_REASON && !rescheduling && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={closeTime} onChange={(e) => setCloseTime(e.target.checked)} />
+                Đóng luôn khung giờ này để người mua khác không xin vào giờ đó
+              </label>
+            )}
             <div className="flex flex-wrap gap-2">
               <label htmlFor={`reason-${b.id}`} className="sr-only">
                 Lý do
@@ -582,16 +605,20 @@ function RequestDetail({
         )}
       </div>
 
-      {(answerable || canComplete) && !rejecting && (
+      {suggesting && (
+        <SuggestTimes booking={b} onDone={onSuccess} onCancel={() => setSuggesting(false)} />
+      )}
+
+      {(answerable || canComplete) && !rejecting && !suggesting && (
         <div className="flex flex-wrap items-center gap-3 border-t border-line bg-sand/60 px-6 py-4 md:px-8">
           {answerable && (
             <>
               {clashes.length > 0 && (
                 <p className="basis-full rounded-2xl bg-amber-50 px-4 py-2.5 text-sm text-amber-900 ring-1 ring-amber-200">
-                  <strong>Trùng giờ với {clashes.length} yêu cầu khác</strong> (
-                  {clashes.map((c) => `${buyerName(c)} · ${unitOf(c)}`).join("; ")}). Xác nhận người này sẽ tự
-                  đóng {clashes.length > 1 ? "các yêu cầu đó" : "yêu cầu đó"}, và Trợ lý AI sẽ báo người mua chọn giờ
-                  khác.
+                  <strong>Bạn có {clashes.length} yêu cầu khác cùng giờ</strong> (
+                  {clashes.map((c) => `${buyerName(c)} · ${unitOf(c)}`).join("; ")}). Bạn không thể tiếp hai khách
+                  cùng lúc, kể cả ở hai căn khác nhau: xác nhận người này sẽ tự đóng{" "}
+                  {clashes.length > 1 ? "các yêu cầu đó" : "yêu cầu đó"}, và Trợ lý AI sẽ mời người mua chọn giờ khác.
                 </p>
               )}
               <button
@@ -604,12 +631,26 @@ function RequestDetail({
               </button>
               <button
                 type="button"
-                className="rounded-full px-5 py-3 font-display text-base font-bold text-brand-700 hover:bg-paper"
+                className={
+                  rescheduling
+                    ? "rounded-full px-5 py-3 font-display text-base font-bold text-brand-700 hover:bg-paper"
+                    : "rounded-full bg-red-600 px-6 py-3 font-display text-base font-bold text-white shadow-sm hover:bg-red-700 disabled:opacity-50"
+                }
                 disabled={busy}
                 onClick={() => setRejecting(true)}
               >
                 {rescheduling ? "Giữ giờ cũ" : "Từ chối"}
               </button>
+              {!rescheduling && (
+                <button
+                  type="button"
+                  className="rounded-full border border-ink/15 bg-paper px-5 py-3 font-display text-base font-bold hover:bg-canvas"
+                  disabled={busy}
+                  onClick={() => setSuggesting(true)}
+                >
+                  Đề xuất giờ khác
+                </button>
+              )}
             </>
           )}
           {canComplete && (
@@ -638,6 +679,85 @@ function RequestDetail({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * "Đề xuất giờ khác": the seller cannot take this time and offers up to three of their own free times instead.
+ * The request closes; the buyer gets the times and books one in a tap.
+ */
+function SuggestTimes({ booking: b, onDone, onCancel }: { booking: Booking; onDone: () => void; onCancel: () => void }) {
+  const [picked, setPicked] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const slots = useQuery({
+    queryKey: ["owner-slots", b.property_id],
+    queryFn: () =>
+      call(api.GET("/api/v1/owner/properties/{property_id}/slots", { params: { path: { property_id: b.property_id } } })),
+  });
+  const send = useMutation({
+    mutationFn: () =>
+      call(
+        api.POST("/api/v1/owner/bookings/{booking_id}/reject", {
+          params: { path: { booking_id: b.id } },
+          body: { reason: note.trim() || "Giờ này tôi không tiếp được, mời bạn chọn giờ khác", suggested_starts: picked, close_time: false },
+        }),
+      ),
+    onSuccess: onDone,
+  });
+  // Free times of this home, far enough ahead (2 h, as for any booking), other than the one asked for
+  const earliest = Date.now() + 2 * 3_600_000;
+  const options = (slots.data ?? [])
+    .filter((s) => s.is_free && new Date(s.start_at).getTime() >= earliest && s.start_at !== b.start_at)
+    .slice(0, 12);
+  const toggle = (iso: string) =>
+    setPicked((p) => (p.includes(iso) ? p.filter((x) => x !== iso) : p.length < 3 ? [...p, iso] : p));
+
+  return (
+    <div className="space-y-3 border-t border-line bg-sand/60 px-6 py-4 md:px-8">
+      <p className="font-semibold">Chọn tối đa 3 giờ bạn tiếp được (người mua bấm một giờ là gửi lại yêu cầu)</p>
+      {slots.isPending && <Spinner />}
+      {send.error && <ErrorBox error={send.error} />}
+      {slots.data && options.length === 0 && (
+        <p className="text-sm text-muted">
+          Bạn chưa mở giờ trống nào sắp tới cho căn này. Thêm khung giờ ở “Căn của tôi → Thay đổi khung giờ” rồi quay lại.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {options.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            aria-pressed={picked.includes(s.start_at)}
+            onClick={() => toggle(s.start_at)}
+            className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold ${
+              picked.includes(s.start_at) ? "border-brand-600 bg-brand-600 text-canvas" : "border-ink/15 bg-paper"
+            }`}
+          >
+            {formatTimeRange(s.start_at, s.end_at)}
+          </button>
+        ))}
+      </div>
+      <input
+        className="w-full rounded-full border border-ink/10 bg-paper px-4 py-2 outline-none focus:border-brand-500"
+        placeholder="Lời nhắn cho người mua (không bắt buộc)"
+        maxLength={300}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+      />
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-full bg-brand-600 px-5 py-2.5 font-semibold text-canvas hover:bg-brand-700 disabled:opacity-50"
+          disabled={picked.length === 0 || send.isPending}
+          onClick={() => send.mutate()}
+        >
+          {send.isPending ? "Đang gửi..." : `Gửi ${picked.length || ""} giờ đề xuất`}
+        </button>
+        <button type="button" className="rounded-full px-4 py-2.5 font-semibold hover:bg-paper" onClick={onCancel}>
+          Thôi
+        </button>
+      </div>
     </div>
   );
 }

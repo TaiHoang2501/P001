@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { api, call, errorMessage, streamChat } from "../api/client";
+import { api, ApiError, call, errorMessage, streamChat } from "../api/client";
 import type { components } from "../api/schema";
 import type {
   Booking,
@@ -24,10 +24,13 @@ import { BookingBadge } from "../components/ui";
 import {
   CRITERION,
   dateOf,
+  displayName,
   formatTimeRange,
   formatVnd,
   timeOf,
+  VIEW,
 } from "../lib/format";
+import { useBooking } from "./BookingStatusCard";
 import { chatStorageKey } from "./guest";
 import { GuestSignup } from "./GuestSignup";
 import { BuildingIcon, PlusIcon, SendIcon, SparkleIcon, UserIcon } from "./icons";
@@ -81,7 +84,7 @@ interface Conversation {
 
 // Posted in the chat as the assistant's own messages. VIEWING_SUPERSEDED: the owner received someone else at the
 // time this buyer asked for, so the assistant offers other times
-const AGENT_EVENTS = new Set(["AGENT_FOLLOWUP", "AGENT_NEW_MATCH", "VIEWING_SUPERSEDED"]);
+const AGENT_EVENTS = new Set(["AGENT_FOLLOWUP", "AGENT_NEW_MATCH", "VIEWING_SUPERSEDED", "VIEWING_TIMES_SUGGESTED"]);
 
 // What the assistant is doing while it works, by the tool it called
 const TOOL_STATUS: Record<string, string> = {
@@ -100,7 +103,19 @@ const TOOL_STATUS: Record<string, string> = {
 };
 
 // Ways to refine a search, offered under the latest list of homes
-const REFINEMENTS = ["Ưu tiên view hồ", "Tầng cao hơn", "Rẻ hơn một chút"];
+/** Up to three refinements that fit these results: only criteria the buyer has not set, views these homes have. */
+function refinementsFor(recs: Recommendation[]): string[] {
+  const asked = new Set(recs.flatMap((r) => [...r.matched, ...r.unmatched].map((c) => c.criterion)));
+  const out = ["Rẻ hơn một chút"];
+  if (!asked.has("view")) {
+    const view = (["LAKE", "PARK", "RIVER", "POOL"] as const).find((v) => recs.some((r) => r.property.view === v));
+    if (view) out.push(`Ưu tiên view ${VIEW[view].toLowerCase()}`);
+  }
+  if (!asked.has("floor")) out.push("Tầng cao hơn");
+  if (out.length < 3 && !asked.has("area")) out.push("Diện tích rộng hơn");
+  if (out.length < 3 && !asked.has("direction")) out.push("Hướng Đông Nam");
+  return out.slice(0, 3);
+}
 
 const SUGGESTIONS = [
   { icon: BuildingIcon, title: "Theo dự án & ngân sách", text: "Tôi cần căn 2 phòng ngủ ở Ocean Park, dưới 3,5 tỷ" },
@@ -114,16 +129,17 @@ function newId(): string {
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function greeting(name: string): Message {
+// Same voice as the assistant's replies: it says "em" and calls the buyer "anh/chị"
+function greeting(name: string | null): Message {
   return {
     role: "assistant",
     text:
-      `Xin chào ${name}! Bạn đang tìm căn Vinhomes như thế nào? ` +
-      "Bạn có thể mô tả bằng ngôn ngữ tự nhiên: dự án, ngân sách, số phòng ngủ, tầng, view, mục đích mua...",
+      `Em chào anh/chị${name ? ` ${name}` : ""}! Anh/chị đang tìm căn Vinhomes như thế nào? ` +
+      "Anh/chị cứ mô tả tự nhiên: dự án, ngân sách, số phòng ngủ, tầng, view, mục đích mua...",
   };
 }
 
-function fresh(name: string): Conversation {
+function fresh(name: string | null): Conversation {
   return {
     id: newId(),
     messages: [greeting(name)],
@@ -133,7 +149,7 @@ function fresh(name: string): Conversation {
 
 // Kept per tab so opening a recommended property and coming back does not lose the chat.
 // userId null = guest (a new buyer without an account yet).
-function loadConversation(userId: number | null, name: string): Conversation {
+function loadConversation(userId: number | null, name: string | null): Conversation {
   try {
     const raw = sessionStorage.getItem(chatStorageKey(userId));
     if (raw) {
@@ -149,6 +165,27 @@ function loadConversation(userId: number | null, name: string): Conversation {
     // Storage blocked or corrupted: start over
   }
   return fresh(name);
+}
+
+// The question being sent, kept until it is answered: if the session expires meanwhile (the buyer is sent to sign
+// in), it goes back in the box afterwards instead of being lost
+const DRAFT_KEY = "bookingbot.chat.draft";
+
+function readDraft(): string {
+  try {
+    return sessionStorage.getItem(DRAFT_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function keepDraft(message: string | null) {
+  try {
+    if (message) sessionStorage.setItem(DRAFT_KEY, message);
+    else sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Storage blocked: an unanswered question is not kept
+  }
 }
 
 function saveConversation(userId: number | null, conversation: Conversation) {
@@ -216,11 +253,21 @@ export function BuyerChatPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const userId = user?.role === "CUSTOMER" ? user.id : null;
-  const name = userId !== null ? user!.full_name : "bạn";
-  const [conversation, setConversation] = useState<Conversation>(() =>
-    loadConversation(userId, name),
-  );
-  const [input, setInput] = useState("");
+  const name = userId !== null ? displayName(user!.full_name) : null;
+  const [draft] = useState(readDraft);
+  // Back in the box now; dropped from storage once shown (not while rendering: React may render twice)
+  useEffect(() => {
+    if (draft) keepDraft(null);
+  }, [draft]);
+  const [conversation, setConversation] = useState<Conversation>(() => {
+    const saved = loadConversation(userId, name);
+    // The unanswered question goes back in the box rather than staying in the chat without a reply
+    const last = saved.messages[saved.messages.length - 1];
+    return draft && last?.role === "user" && last.text === draft
+      ? { ...saved, messages: saved.messages.slice(0, -1) }
+      : saved;
+  });
+  const [input, setInput] = useState(draft);
   const [panel, setPanel] = useState<Panel | null>(null);
   // "Cuộc trò chuyện mới" asks once before clearing the chat
   const [confirmRestart, setConfirmRestart] = useState(false);
@@ -272,6 +319,7 @@ export function BuyerChatPage() {
           property_ids?: number[];
           property_id?: number;
           unit_code?: string;
+          suggested_starts?: string[];
         };
         return {
           id: newId(),
@@ -284,7 +332,12 @@ export function BuyerChatPage() {
           replies:
             n.event_type === "VIEWING_SUPERSEDED" && payload.unit_code
               ? [`Tìm giờ xem khác cho căn ${payload.unit_code}`, "Tìm căn tương tự"]
-              : undefined,
+              : n.event_type === "VIEWING_TIMES_SUGGESTED" && payload.unit_code
+                ? // The owner's own times: picking one asks the assistant to book exactly that
+                  (payload.suggested_starts ?? [])
+                    .filter((t) => Date.parse(t) > Date.now())
+                    .map((t) => `Đặt xem căn ${payload.unit_code} lúc ${timeOf(t)} ngày ${dateOf(t)}`)
+                : undefined,
         };
       });
       return {
@@ -320,12 +373,16 @@ export function BuyerChatPage() {
       });
     },
     onSuccess: (res) => {
+      keepDraft(null);
       // Let the typing-out finish first (StreamingText calls finishTurn); nothing typed -> show it now
       if (streamed.current) setLive((l) => (l ? { ...l, final: res } : l));
       else finishTurn(res);
     },
     onError: (err) => {
       setLive(null);
+      // Signed out (session expired): the buyer is sent to sign in, the question is kept for afterwards
+      if (err instanceof ApiError && err.status === 401) return;
+      keepDraft(null);
       append({ role: "error", text: errorMessage(err) });
     },
   });
@@ -527,6 +584,7 @@ export function BuyerChatPage() {
     if (!message || busy) return;
     append({ role: "user", text: message });
     setInput("");
+    keepDraft(message);
     send.mutate(message);
   }
 
@@ -678,15 +736,19 @@ export function BuyerChatPage() {
                   ? (iso) => submit(`Tôi chọn xem lúc ${timeOf(iso)} ngày ${dateOf(iso)}`)
                   : undefined
               }
-              onReply={busy ? undefined : submit}
+              // Quick replies of earlier turns no longer apply
+              onReply={busy || i !== conversation.messages.length - 1 ? undefined : submit}
               onOpenProperty={openProperty}
               onBook={openSchedule}
               onScheduled={onScheduled}
               onTrack={openStatus}
               onBack={() => goBack(i)}
               followUps={
-                // Under the latest list of homes: open the best one, or refine the search
-                m.recommendations?.length && m.recommendations === latest && topHome ? (
+                // Under the latest list of homes, while it is the last message: open the best one, or refine
+                m.recommendations?.length &&
+                m.recommendations === latest &&
+                topHome &&
+                i === conversation.messages.length - 1 ? (
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -695,7 +757,7 @@ export function BuyerChatPage() {
                     >
                       Xem {topHome.unit_code}
                     </button>
-                    {REFINEMENTS.map((r) => (
+                    {refinementsFor(latest).map((r) => (
                       <button
                         key={r}
                         type="button"
@@ -803,11 +865,11 @@ export function BuyerChatPage() {
       </section>
 
       {right && (
-        // Desktop: the panel beside the chat. Phones/tablets: home details / booking open full screen;
-        // the list of homes is shown inside the chat instead.
+        // Desktop: the panel beside the chat. Phones/tablets: home details / booking fill the screen below the
+        // site header (4.5rem, see BuyerLayout), so the navigation stays; the list of homes is shown in the chat.
         <section
           className={`animate-rise-in overflow-hidden bg-paper lg:static lg:block lg:h-[calc(100dvh-7rem)] lg:min-h-[30rem] lg:rounded-[28px] lg:shadow-xl lg:shadow-slate-900/5 lg:ring-1 lg:ring-line ${
-            panel ? "fixed inset-0 z-30" : "hidden"
+            panel ? "fixed inset-x-0 bottom-0 top-[4.5rem] z-30" : "hidden"
           }`}
           aria-label={panel ? (panel.kind === "property" ? "Chi tiết căn" : "Chọn lịch xem nhà") : "Kết quả đề xuất"}
         >
@@ -996,26 +1058,7 @@ function MessageView({
           </div>
         )}
 
-        {m.bookings?.map((b) => (
-          <div
-            key={b.id}
-            className="card w-full max-w-md space-y-1 p-4 text-sm"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-semibold">Deal {b.deal_code}</span>
-              <BookingBadge status={b.status} />
-            </div>
-            <p className="text-muted">{b.property_label}</p>
-            <p>{formatTimeRange(b.start_at, b.end_at)}</p>
-            <button
-              type="button"
-              className="font-medium text-brand-700 hover:underline"
-              onClick={() => onTrack(b.id)}
-            >
-              Theo dõi trong Hoạt động →
-            </button>
-          </div>
-        ))}
+        {m.bookings?.map((b) => <ChatBookingCard key={b.id} booking={b} onTrack={onTrack} />)}
 
         {(!!m.propertyIds?.length ||
           !!m.trackBookingId ||
@@ -1073,5 +1116,23 @@ function PropertyChip({
       Xem căn {code ?? `#${propertyId}`}
       {property.data && ` · ${formatVnd(property.data.price_vnd)}`}
     </button>
+  );
+}
+
+/** A viewing request the assistant made, shown as it stands now (not as it was when the message was written). */
+function ChatBookingCard({ booking, onTrack }: { booking: Booking; onTrack: (id: number) => void }) {
+  const b = useBooking(booking.id).data ?? booking;
+  return (
+    <div className="card w-full max-w-md space-y-1 p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">Deal {b.deal_code}</span>
+        <BookingBadge status={b.status} />
+      </div>
+      <p className="text-muted">{b.property_label}</p>
+      <p>{formatTimeRange(b.start_at, b.end_at)}</p>
+      <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => onTrack(b.id)}>
+        Theo dõi trong Hoạt động →
+      </button>
+    </div>
   );
 }

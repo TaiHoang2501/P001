@@ -43,7 +43,15 @@ from src.models.property import (
     SearchCriteria,
     SearchResult,
 )
-from src.services import audit, media_service, notification_service, ownership_service, seller_service, storage_service
+from src.services import (
+    audit,
+    availability_service,
+    media_service,
+    notification_service,
+    ownership_service,
+    seller_service,
+    storage_service,
+)
 
 # Listing lifecycle (spec §4.11). SOLD is terminal; a WITHDRAWN listing can be re-submitted.
 _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
@@ -248,6 +256,8 @@ def owner_overview(db: Session, actor: Actor) -> OwnerOverview:
                 AvailabilitySlot.property_id.in_(ids),
                 AvailabilitySlot.start_at > now,
                 AvailabilitySlot.start_at <= now + timedelta(days=7),
+                # Only times still open: not already given to a confirmed viewing
+                ~availability_service.slot_taken(),
             )
             .group_by(AvailabilitySlot.property_id)
         ).all()

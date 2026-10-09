@@ -68,13 +68,13 @@ SupportReason = Literal[
 
 SUPPORT_REASON_LABEL: dict[str, str] = {
     "NO_OTP": "Không nhận được mã OTP (chủ sở hữu đã đổi số điện thoại)",
-    "LOCKED": "Sổ đỏ bị khóa do nhập sai OTP",
+    "LOCKED": "Sổ đỏ / sổ hồng bị khóa do nhập sai OTP",
     "MISMATCH": "Thông tin đúng nhưng hệ thống báo không khớp",
     "PROXY": "Bán thay chủ sở hữu (có giấy ủy quyền)",
     "CO_OWNER": "Sổ đồng sở hữu",
     "INHERITANCE": "Thừa kế, chưa sang tên",
-    "NO_RED_BOOK": "Căn chưa có sổ đỏ (chỉ có hợp đồng mua bán)",
-    "CLAIMED_BY_OTHER": "Sổ đỏ đã bị một tài khoản khác xác thực",
+    "NO_RED_BOOK": "Căn chưa có sổ đỏ / sổ hồng (chỉ có hợp đồng mua bán)",
+    "CLAIMED_BY_OTHER": "Sổ đỏ / sổ hồng đã bị một tài khoản khác xác thực",
     "OTHER": "Lý do khác",
 }
 
