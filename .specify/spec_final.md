@@ -141,15 +141,14 @@ Khi hệ thống Trợ lý AI vận hành đồng bộ, sản phẩm kỳ vọng
 
 ## 2.2. Bảng chỉ số đánh giá thành công (KPIs)
 
-| Chỉ số đánh giá | Mục tiêu cần đạt | Ý nghĩa và Cách hiểu cụ thể |
+| Chỉ số đánh giá | Mục tiêu cần đạt | Ý nghĩa và Cách đo thực tế trên hệ thống |
 |---|:---:|---|
-| **Độ chính xác gợi ý 3 căn đầu tiên** | **Từ 85% trở lên** | Trong 100 khách tìm nhà, ít nhất 85 người thấy 3 căn AI đề xuất đúng với ngân sách, số phòng ngủ và khu vực mình cần. |
-| **Tỷ lệ đặt lịch xem nhà thành công** | **Từ 80% trở lên** | Trong 100 yêu cầu đặt lịch gửi đi, ít nhất 80 lịch được chủ nhà bấm đồng ý và khách đến xem nhà thực tế. |
-| **Tỷ lệ bị trùng lịch xem nhà** | **0% (Tuyệt đối không có)** | Nhờ hệ thống tự động tạm khóa căn ngay khi chủ nhà duyệt, không bao giờ có chuyện 2 khách cùng đến xem 1 căn tại cùng 1 giờ. |
-| **Độ chính xác của lịch rảnh** | **Từ 95% trở lên** | Giờ rảnh của chủ nhà hiển thị trên hệ thống phải đúng với thực tế để khách không bị hẹn hụt. |
-| **Thời gian AI trả lời câu hỏi** | **Dưới 5 giây** | Khách nhắn tin hỏi là AI trả lời ngay trong vòng 5 giây, không để khách phải đợi lâu. *(Lưu ý: Không phải "Thứ hai")* |
-| **Cuộc gọi môi giới làm phiền** | **Giảm về 0 cuộc gọi** | Tuyệt đối không để lộ số điện thoại của người mua cho môi giới; chỉ hai bên gặp nhau xong mới mở liên lạc nếu đồng ý. |
-| **Tỷ lệ phải nhờ nhân viên hỗ trợ** | **Dưới 15%** | AI tự động xử lý tốt 85% trường hợp; chỉ những ca khó (tranh chấp, đổi lịch phức tạp) mới cần người thật can thiệp. |
+| **Độ chính xác gợi ý 3 căn đầu tiên** | **Từ 85% trở lên** | Đánh giá qua bộ kịch bản kiểm thử chuẩn vàng (Golden Set): AI lọc và gợi ý đúng ngân sách, số phòng ngủ và phân khu mong muốn. |
+| **Tỷ lệ Chủ nhà phê duyệt lịch hẹn** | **Từ 80% trở lên** | Trong 100 yêu cầu đặt lịch gửi đi, ít nhất 80 yêu cầu được chủ nhà bấm "Đồng ý" (hệ thống đo tự động: số lịch `CONFIRMED` / tổng yêu cầu `REQUESTED`). |
+| **Thời gian Chủ nhà phản hồi** | **Dưới 2 giờ** | Hệ thống tự đo khoảng thời gian từ lúc khách gửi yêu cầu đến khi chủ nhà bấm Đồng ý hoặc Từ chối. |
+| **Tỷ lệ bị trùng lịch xem nhà** | **0% (Tuyệt đối không có)** | Ràng buộc loại trừ trên cơ sở dữ liệu khóa tự động ngay khi chủ nhà duyệt, bảo đảm 100% không bao giờ bị trùng lịch. |
+| **Thời gian AI trả lời tin nhắn** | **Dưới 5 giây** | Hệ thống đo thời gian phản hồi (p95) của AI trong mỗi lượt trò chuyện, đảm bảo khách không phải chờ lâu. |
+| **Tỷ lệ phải nhờ nhân viên hỗ trợ** | **Dưới 15%** | Hệ thống tự đếm số phiên phát sinh ngoại lệ cần chuyển người thật; AI tự động điều phối thành công ít nhất 85% trường hợp. |
 
 ## 2.3. Tám nguyên tắc sản phẩm bất di bất dịch
 
