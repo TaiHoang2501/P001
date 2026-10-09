@@ -57,13 +57,12 @@ async def test_new_seller_verifies_red_book_then_lists(client):
     assert r.json()["status"] == "VERIFIED"
     assert r.json()["property_id"] is None
 
-    # The red book is evidence; the operator still reviews the seller, and sees the red book in the queue
+    # The verified red book verifies the seller too: no separate review by the operator
     profile = (await client.get("/api/v1/owner/verification", headers=seller)).json()
-    assert profile["verification_status"] == "PENDING"
+    assert profile["verification_status"] == "VERIFIED"
     operator = await auth(client, OPERATOR)
     queue = (await client.get("/api/v1/operator/sellers", headers=operator)).json()
-    item = next(s for s in queue if s["user_id"] == profile["user_id"])
-    assert item["red_book_codes"] == [CLAIM["red_book_code"]]
+    assert profile["user_id"] not in [s["user_id"] for s in queue]
     assert [b["red_book_code"] for b in (await client.get("/api/v1/owner/ownership", headers=seller)).json()] == [
         CLAIM["red_book_code"]
     ]

@@ -22,9 +22,11 @@ from sqlalchemy import (
     Computed,
     DateTime,
     Enum,
+    FetchedValue,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     Numeric,
     SmallInteger,
@@ -161,12 +163,24 @@ class BookingStatus(StrEnum):
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
+    # The buyer did not come (recorded by the owner, or by the operator after a dispute)
     NO_SHOW = "NO_SHOW"
+    # The owner was not there (found by the operator after the buyer's dispute)
+    OWNER_ABSENT = "OWNER_ABSENT"
+    # Nobody recorded the outcome in time: closed without blaming anyone
+    UNREPORTED = "UNREPORTED"
 
 
-# Statuses that occupy a property's time window
+# Statuses of a viewing that is still going on (asked for or confirmed)
 ACTIVE_BOOKING_STATUSES = (
     BookingStatus.REQUESTED,
+    BookingStatus.CONFIRMED,
+    BookingStatus.RESCHEDULE_REQUESTED,
+)
+
+# Statuses that take the owner's time. Unanswered requests do not: several buyers may ask for the same
+# time and the owner chooses whom to receive; confirming one closes the others that overlap.
+OWNER_BUSY_STATUSES = (
     BookingStatus.CONFIRMED,
     BookingStatus.RESCHEDULE_REQUESTED,
 )
@@ -226,6 +240,10 @@ class EscalationType(StrEnum):
     MULTI_BUYER = "MULTI_BUYER"
     SYSTEM_FAILURE = "SYSTEM_FAILURE"
     OTHER = "OTHER"
+    # A seller cannot verify a red book on their own (no OTP, locked, mismatch, proxy, dispute...)
+    OWNERSHIP_SUPPORT = "OWNERSHIP_SUPPORT"
+    # The buyer disagrees with the recorded outcome of a viewing (came / the owner was not there)
+    VIEWING_DISPUTE = "VIEWING_DISPUTE"
 
 
 class EscalationStatus(StrEnum):
@@ -375,6 +393,16 @@ class PropertyOwnershipVerification(Base):
     )
     otp_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The investor's own record of the home behind this red book: a listing takes these facts from here,
+    # so the seller cannot list them wrong
+    building_id: Mapped[int | None] = mapped_column(ForeignKey("buildings.id", ondelete="RESTRICT"))
+    unit_code: Mapped[str | None] = mapped_column(String(50))
+    property_type: Mapped[PropertyType | None] = mapped_column(_enum(PropertyType, "property_type"))
+    area_m2: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
+    bedrooms: Mapped[int | None] = mapped_column(Integer)
+    bathrooms: Mapped[int | None] = mapped_column(Integer)
+    floor: Mapped[int | None] = mapped_column(Integer)
+    direction: Mapped[Direction | None] = mapped_column(_enum(Direction, "direction"))
     created_at: Mapped[datetime] = _now_column()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -428,7 +456,7 @@ class Property(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     building_id: Mapped[int] = mapped_column(ForeignKey("buildings.id", ondelete="RESTRICT"), nullable=False)
-    # Red book proving ownership; required for new listings (legacy seed listings carry an ownership document instead)
+    # Red book proving ownership (verified by the seller: red book + OTP); the home's facts come from it
     verification_id: Mapped[int | None] = mapped_column(
         ForeignKey("property_ownership_verifications.id", ondelete="RESTRICT"), unique=True
     )
@@ -457,6 +485,7 @@ class Property(Base):
 
     owner: Mapped[User] = relationship(foreign_keys=[owner_id])
     building: Mapped[Building] = relationship()
+    verification: Mapped["PropertyOwnershipVerification | None"] = relationship()
     media: Mapped[list["PropertyMedia"]] = relationship(
         order_by="(PropertyMedia.sort_order, PropertyMedia.id)", cascade="all, delete-orphan"
     )
@@ -475,6 +504,22 @@ class PropertyMedia(Base):
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = _now_column()
+
+
+class MediaFile(Base):
+    """A photo a seller uploaded from their device (bytes kept here; see media_service)."""
+
+    __tablename__ = "media_files"
+    __table_args__ = (Index("ix_media_files_owner", "owner_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # Identity / authorisation documents: only the uploader and the investor can open them
+    is_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at: Mapped[datetime] = _now_column()
 
 
@@ -582,15 +627,17 @@ class Booking(Base):
             " AND (proposed_end_at IS NULL OR proposed_end_at > proposed_start_at)",
             name="proposed_time_order",
         ),
-        # The anti-double-booking guarantee: at most one active booking per property per time window
+        # The anti-double-booking guarantee: an owner never has two confirmed viewings at overlapping times,
+        # on any of their homes (pending requests may overlap: the owner picks whom to receive)
         ExcludeConstraint(
-            (column("property_id"), "="),
+            (column("owner_id"), "="),
             (column("period"), "&&"),
             using="gist",
-            name="ex_bookings_no_overlap",
-            where=text("status IN ('REQUESTED', 'CONFIRMED', 'RESCHEDULE_REQUESTED')"),
+            name="ex_bookings_owner_no_overlap",
+            where=text("status IN ('CONFIRMED', 'RESCHEDULE_REQUESTED')"),
         ),
         Index("ix_bookings_customer", "customer_id"),
+        Index("ix_bookings_owner", "owner_id"),
         Index("ix_bookings_status_start", "status", "start_at"),
         Index("ix_bookings_deal", "deal_id"),
     )
@@ -599,6 +646,10 @@ class Booking(Base):
     deal_id: Mapped[int] = mapped_column(ForeignKey("deals.id", ondelete="RESTRICT"), nullable=False)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    # The home's owner, copied by a trigger (trg_bookings_set_owner) for the owner-level overlap constraint
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, server_default=FetchedValue()
+    )
     slot_id: Mapped[int | None] = mapped_column(ForeignKey("availability_slots.id", ondelete="SET NULL"))
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

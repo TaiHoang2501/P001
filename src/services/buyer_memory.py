@@ -28,6 +28,7 @@ _REMEMBERED = (
     "property_types",
     "budget_min",
     "budget_max",
+    "bedrooms",
     "bedrooms_min",
     "area_min",
     "preferred_bedrooms",

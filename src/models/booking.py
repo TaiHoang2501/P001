@@ -1,8 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.db.models import BookingStatus, Channel, HoldStatus
+from src.db.models import BookingStatus, Channel, DealStatus, HoldStatus
 
 
 class SlotCreate(BaseModel):
@@ -104,6 +105,70 @@ class BookingOut(BaseModel):
     rejection_reason: str | None
     responded_at: datetime | None
     created_at: datetime
+    # Where the deal stands (VIEWED: the buyer has not said yet how they found the home)
+    deal_status: DealStatus | None = None
+
+
+ActivityKind = Literal[
+    "REQUESTED",
+    "TIME_CHANGED",
+    "RESCHEDULE_REQUESTED",
+    "CONFIRMED",
+    "REJECTED",
+    "RESCHEDULE_APPROVED",
+    "RESCHEDULE_DECLINED",
+    "CANCELLED",
+    "COMPLETED",
+    # The owner confirmed another buyer at an overlapping time, so this request was closed
+    "SUPERSEDED",
+    # After the viewing time: the buyer did not come / the owner was not there / nobody recorded it
+    "NO_SHOW",
+    "OWNER_ABSENT",
+    "UNREPORTED",
+    # The buyer's answer after the viewing, and a disagreement sent to the operator
+    "INTERESTED",
+    "NOT_SUITABLE",
+    "DISPUTED",
+]
+
+
+class ActivityOut(BaseModel):
+    """One important event in a buyer's viewing history (kept server-side, so a new chat does not lose it)."""
+
+    id: int
+    at: datetime
+    kind: ActivityKind
+    # Who did it: the buyer themselves, the home's owner, or BookingBot (operator / system)
+    by: Literal["BUYER", "OWNER", "BOOKINGBOT"]
+    booking_id: int
+    property_id: int
+    property_label: str
+    deal_code: str
+    # The viewing time this event is about (the new time for a time change); None when not recorded
+    start_at: datetime | None = None
+    reason: str | None = None
+    # Where the viewing stands now
+    booking_status: BookingStatus
+    booking_start_at: datetime
+    booking_end_at: datetime
+
+
+class ViewingFeedback(BaseModel):
+    interest: Literal["INTERESTED", "NOT_SUITABLE"]
+    note: str = Field(default="", max_length=1000)
+
+
+class ViewingDispute(BaseModel):
+    # I_CAME: recorded as a no-show but the buyer came; OWNER_ABSENT: the owner was not there
+    claim: Literal["I_CAME", "OWNER_ABSENT"]
+    note: str = Field(default="", max_length=1000)
+
+
+class ViewingOutcome(BaseModel):
+    """What the operator found after calling both sides."""
+
+    outcome: Literal["VIEWED", "BUYER_NO_SHOW", "OWNER_ABSENT"]
+    note: str = Field(..., min_length=3, max_length=1000)
 
 
 class RescheduleRequest(BaseModel):
@@ -118,3 +183,27 @@ class RescheduleRequest(BaseModel):
 
 class BookingRejectRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=1000)
+
+
+class ViewingPassOut(BaseModel):
+    """The buyer's entry pass: the QR links to /pass/{token}."""
+
+    token: str
+    valid_from: datetime = Field(description="The guard can let the buyer in from this time...")
+    valid_until: datetime = Field(description="...until this time")
+
+
+class PassCheckOut(BaseModel):
+    """What the guard / reception sees after scanning a pass (no phone numbers)."""
+
+    result: Literal["valid", "too_early", "expired", "cancelled", "invalid"]
+    message: str
+    deal_code: str | None = None
+    unit_code: str | None = None
+    building: str | None = None
+    project: str | None = None
+    floor: int | None = None
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    buyer_name: str | None = None
+    seller_name: str | None = None

@@ -11,6 +11,7 @@ from src.core.actor import Actor
 from src.core.errors import AlreadyExistsError, BusinessRuleViolationError, NotFoundError, StateConflictError
 from src.db.models import (
     ACTIVE_BOOKING_STATUSES,
+    OWNER_BUSY_STATUSES,
     AvailabilitySlot,
     Booking,
     HoldStatus,
@@ -39,8 +40,8 @@ def is_exclusion_violation(err: DBAPIError) -> bool:
     return getattr(err.orig, "sqlstate", None) in (EXCLUSION_VIOLATION, DEADLOCK_DETECTED)
 
 
-def _slot_taken():
-    """SQL condition: an active booking overlaps this slot's window."""
+def _slot_has_bookings():
+    """SQL condition: a viewing (asked for or confirmed) on this home overlaps the slot."""
     return exists().where(
         and_(
             Booking.property_id == AvailabilitySlot.property_id,
@@ -48,6 +49,36 @@ def _slot_taken():
             Booking.period.op("&&")(AvailabilitySlot.period),
         )
     )
+
+
+def _slot_taken():
+    """SQL condition: the slot's owner already has a confirmed viewing at that time, on any of their homes.
+
+    Unanswered requests leave the slot free: other buyers may still ask, the owner chooses.
+    """
+    return exists().where(
+        and_(
+            Property.id == AvailabilitySlot.property_id,
+            Booking.owner_id == Property.owner_id,
+            Booking.status.in_(OWNER_BUSY_STATUSES),
+            Booking.period.op("&&")(AvailabilitySlot.period),
+        )
+    )
+
+
+def owner_busy(
+    db: Session, owner_id: int, start_at: datetime, end_at: datetime, *, except_booking: int | None = None
+) -> bool:
+    """Does the owner already have a confirmed viewing overlapping [start_at, end_at)?"""
+    stmt = select(Booking.id).where(
+        Booking.owner_id == owner_id,
+        Booking.status.in_(OWNER_BUSY_STATUSES),
+        Booking.start_at < end_at,
+        Booking.end_at > start_at,
+    )
+    if except_booking is not None:
+        stmt = stmt.where(Booking.id != except_booking)
+    return db.scalar(stmt.limit(1)) is not None
 
 
 def add_slot(db: Session, actor: Actor, property_id: int, data: SlotCreate) -> SlotOut:
@@ -87,7 +118,7 @@ def delete_slot(db: Session, actor: Actor, slot_id: int) -> None:
     prop = db.get(Property, slot.property_id)
     if prop is None or prop.owner_id != actor.id:
         raise NotFoundError(f"Slot {slot_id} not found")
-    taken = db.scalar(select(_slot_taken()).where(AvailabilitySlot.id == slot_id))
+    taken = db.scalar(select(_slot_has_bookings()).where(AvailabilitySlot.id == slot_id))
     if taken:
         raise StateConflictError("Slot has an active booking; reject or wait for it to finish first")
     audit.record(db, actor, "slot.delete", "slot", slot.id, before={"start_at": slot.start_at.isoformat()})
@@ -129,17 +160,23 @@ def check_availability(db: Session, property_id: int, slot_id: int | None = None
 
 
 def busy_windows(db: Session, property_id: int, *, since: datetime) -> list[Window]:
-    """Times the property is already taken: active bookings and active viewing holds."""
+    """Times the owner is already taken: confirmed viewings and active holds on any of their homes.
+
+    Unanswered requests do not count: another buyer may still ask for that time.
+    """
+    owner_id = db.scalar(select(Property.owner_id).where(Property.id == property_id))
     bookings = db.execute(
         select(Booking.start_at, Booking.end_at).where(
-            Booking.property_id == property_id,
-            Booking.status.in_(ACTIVE_BOOKING_STATUSES),
+            Booking.owner_id == owner_id,
+            Booking.status.in_(OWNER_BUSY_STATUSES),
             Booking.end_at > since,
         )
     ).all()
     holds = db.execute(
-        select(PropertyHold.start_at, PropertyHold.end_at).where(
-            PropertyHold.property_id == property_id,
+        select(PropertyHold.start_at, PropertyHold.end_at)
+        .join(Property, Property.id == PropertyHold.property_id)
+        .where(
+            Property.owner_id == owner_id,
             PropertyHold.status == HoldStatus.ACTIVE,
             PropertyHold.end_at > since,
         )

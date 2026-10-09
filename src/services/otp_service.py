@@ -1,13 +1,15 @@
 """One-time login codes (spec §4.17: Buyer phone + OTP, Seller phone/email + OTP).
 
 Only a keyed hash of each code is stored. A code expires after `otp_ttl_seconds`, is burned
-after `otp_max_attempts` wrong guesses, and each target may request at most `otp_max_requests`
-codes per `otp_rate_window_minutes`.
+after `otp_max_attempts` wrong guesses, and each target may have at most `otp_max_requests` unused
+codes per `otp_rate_window_minutes`. Codes that signed someone in do not count: a buyer who signs out
+and back in a few times is not locked out, while repeated requests nobody completes still are.
 """
 
 import hashlib
 import hmac
 import logging
+import math
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -43,12 +45,15 @@ def request_code(db: Session, target: str, purpose: OtpPurpose = OtpPurpose.LOGI
     target = normalize_target(target)
     now = datetime.now(UTC)
 
-    window_start = now - timedelta(minutes=settings.otp_rate_window_minutes)
-    recent = db.scalar(select(func.count()).where(OtpCode.target == target, OtpCode.created_at >= window_start))
+    window = timedelta(minutes=settings.otp_rate_window_minutes)
+    unused = (OtpCode.target == target, OtpCode.created_at >= now - window, OtpCode.consumed_at.is_(None))
+    recent, oldest = db.execute(select(func.count(), func.min(OtpCode.created_at)).where(*unused)).one()
     if recent >= settings.otp_max_requests:
+        # Free again once the oldest unused code leaves the window
+        wait = max(1, math.ceil((oldest + window - now).total_seconds() / 60))
         raise RateLimitedError(
             "Too many codes requested; try again later",
-            details={"retry_after_minutes": settings.otp_rate_window_minutes},
+            details={"retry_after_minutes": wait},
         )
 
     code = f"{secrets.randbelow(10**CODE_LENGTH):0{CODE_LENGTH}d}"

@@ -1,71 +1,37 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
 import { api, ApiError, call } from "../../api/client";
 import type { OwnershipChallenge, OwnershipVerification } from "../../api/types";
-import { ErrorBox, Notice, PageHeader, Spinner } from "../../components/ui";
-import { formatDateTime } from "../../lib/format";
-
-/** Red books the seller has verified; each one can back one listing. */
-export function useRedBooks() {
-  return useQuery({ queryKey: ["owner-ownership"], queryFn: () => call(api.GET("/api/v1/owner/ownership")) });
-}
-
-/** Unused verified red books, i.e. homes the seller may list now. */
-export function usableRedBooks(books: OwnershipVerification[] | undefined): OwnershipVerification[] {
-  return (books ?? []).filter((b) => b.status === "VERIFIED" && b.property_id == null);
-}
+import { ErrorBox, Notice } from "../../components/ui";
+import { SupportForm, SupportList, type SupportPrefill } from "./OwnershipSupport";
+import { RedBookList } from "./RedBooks";
 
 /**
  * Proving ownership before selling: the seller types the holder name + red book code exactly as in the
  * investor's records, then the OTP sent to the owner's phone on record.
  */
 export function OwnershipVerifyPage() {
-  const books = useRedBooks();
-
+  // A red book the automatic check cannot handle goes to the investor (support request)
+  const [help, setHelp] = useState<SupportPrefill | null>(null);
   return (
-    <div className="mx-auto max-w-3xl">
-      <PageHeader
-        title="Xác thực sổ đỏ"
-        subtitle="Bạn chỉ đăng bán được căn có sổ đỏ đã xác thực. Mỗi sổ đỏ dùng cho một tin đăng."
-      />
-      <div className="grid gap-6 md:grid-cols-[1fr_1fr]">
-        <VerifyForm />
-        <section className="space-y-3" aria-labelledby="books-title">
-          <h2 id="books-title" className="font-semibold">
-            Sổ đỏ đã xác thực
-          </h2>
-          {books.isPending && <Spinner />}
-          {books.isError && <ErrorBox error={books.error} onRetry={() => books.refetch()} />}
-          {books.data?.length === 0 && <p className="text-sm text-muted">Chưa có sổ đỏ nào.</p>}
-          <ul className="space-y-2">
-            {books.data?.map((b) => (
-              <li key={b.id} className="card p-4 text-sm">
-                <p className="font-medium">{b.red_book_holder_name}</p>
-                <p className="font-mono text-xs text-muted">{b.red_book_code}</p>
-                {b.verified_at && <p className="mt-1 text-xs text-muted">Xác thực lúc {formatDateTime(b.verified_at)}</p>}
-                <div className="mt-2">
-                  {b.property_id == null ? (
-                    <Link to={`/owner/properties/new?verification=${b.id}`} className="btn-primary btn-sm">
-                      Đăng bán căn này
-                    </Link>
-                  ) : (
-                    <Link to={`/owner/properties/${b.property_id}/edit`} className="text-brand-700 hover:underline">
-                      Đã dùng cho tin #{b.property_id}
-                    </Link>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+    <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
+      <div className="space-y-6">
+        {help ? <SupportForm prefill={help} onClose={() => setHelp(null)} /> : <VerifyForm onNeedHelp={setHelp} />}
+        <SupportList />
       </div>
+      <section aria-labelledby="books-title">
+        <h2 id="books-title" className="mb-4 font-display text-2xl font-bold">
+          Sổ đỏ đã xác thực
+        </h2>
+        <RedBookList />
+      </section>
     </div>
   );
 }
 
-function VerifyForm() {
+function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => void }) {
   const queryClient = useQueryClient();
   const [holder, setHolder] = useState("");
   const [code, setCode] = useState("");
@@ -114,22 +80,22 @@ function VerifyForm() {
 
   if (done) {
     return (
-      <div className="card h-fit space-y-4 p-5">
+      <div className="h-fit space-y-4 rounded-[28px] bg-sand p-6">
         <Notice tone="success">
-          Đã xác thực sổ đỏ <strong className="font-mono">{done.red_book_code}</strong> của {done.red_book_holder_name}. Hồ sơ của bạn
-          được gửi tới Chủ đầu tư để duyệt; bạn có thể soạn tin đăng ngay trong lúc chờ.
+          Đã xác thực sổ đỏ <strong className="font-mono">{done.red_book_code}</strong> của {done.red_book_holder_name}. Tài khoản
+          người bán của bạn đã được xác thực, bạn có thể đăng bán ngay.
         </Notice>
         <div className="flex flex-wrap gap-2">
           {done.property_id == null ? (
-            <Link to={`/owner/properties/new?verification=${done.id}`} className="btn-primary">
+            <Link to={`/owner/properties/new?verification=${done.id}`} className="btn-primary rounded-full px-5">
               Đăng bán căn này
             </Link>
           ) : (
-            <Link to={`/owner/properties/${done.property_id}/edit`} className="btn-primary">
+            <Link to={`/owner/properties/${done.property_id}/edit`} className="btn-primary rounded-full px-5">
               Xem tin đăng
             </Link>
           )}
-          <button type="button" className="btn-secondary" onClick={reset}>
+          <button type="button" className="btn-secondary rounded-full px-5" onClick={reset}>
             Xác thực sổ khác
           </button>
         </div>
@@ -142,13 +108,13 @@ function VerifyForm() {
     const locked = confirm.error instanceof ApiError && confirm.error.details.status === "FAILED";
     return (
       <form
-        className="card h-fit space-y-4 p-5"
+        className="h-fit space-y-4 rounded-[28px] bg-sand p-6"
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
           confirm.mutate();
         }}
       >
-        <h2 className="font-semibold">Bước 2 · Nhập mã OTP</h2>
+        <h2 className="font-display text-2xl font-bold">Nhập mã OTP</h2>
         <p className="text-sm">
           Đã gửi mã tới số điện thoại của chủ sở hữu trên sổ: <strong className="font-mono">{challenge.masked_phone}</strong>.
         </p>
@@ -161,7 +127,12 @@ function VerifyForm() {
           <>
             <ErrorBox error={confirm.error} />
             {locked ? (
-              <Notice tone="warning">Sổ đỏ đã bị khóa do nhập sai quá nhiều lần. Vui lòng liên hệ Chủ đầu tư để mở khóa.</Notice>
+              <Notice tone="warning">
+                Sổ đỏ đã bị khóa do nhập sai quá nhiều lần.{" "}
+                <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "LOCKED", holder, code })}>
+              Gửi yêu cầu mở khóa tới Chủ đầu tư
+            </button>
+              </Notice>
             ) : (
               attemptsLeft !== undefined && <p className="text-xs text-muted">Còn {attemptsLeft} lần thử.</p>
             )}
@@ -173,7 +144,7 @@ function VerifyForm() {
           </label>
           <input
             id="rb-otp"
-            className="input font-mono tracking-widest"
+            className="input rounded-full bg-paper px-4 py-2.5 font-mono tracking-widest"
             inputMode="numeric"
             autoComplete="one-time-code"
             pattern="\d{6}"
@@ -185,14 +156,20 @@ function VerifyForm() {
             onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
           />
         </div>
+        <p className="text-xs text-muted">
+          Không nhận được mã vì chủ sở hữu đã đổi số?{" "}
+          <button type="button" className="font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "NO_OTP", holder, code })}>
+            Nhờ Chủ đầu tư cập nhật
+          </button>
+        </p>
         <div className="flex flex-wrap gap-2">
-          <button type="submit" className="btn-primary" disabled={otp.length !== 6 || confirm.isPending || locked}>
+          <button type="submit" className="btn-primary rounded-full px-5" disabled={otp.length !== 6 || confirm.isPending || locked}>
             {confirm.isPending ? "Đang xác thực..." : "Xác thực"}
           </button>
-          <button type="button" className="btn-secondary" disabled={claim.isPending || locked} onClick={() => claim.mutate()}>
+          <button type="button" className="btn-secondary rounded-full px-5" disabled={claim.isPending || locked} onClick={() => claim.mutate()}>
             Gửi lại mã
           </button>
-          <button type="button" className="btn-secondary" onClick={reset}>
+          <button type="button" className="btn-secondary rounded-full px-5" onClick={reset}>
             Nhập lại thông tin sổ
           </button>
         </div>
@@ -203,20 +180,43 @@ function VerifyForm() {
   const conflict = claim.error instanceof ApiError && claim.error.code === "STATE_CONFLICT" ? claim.error.details.reason : undefined;
   return (
     <form
-      className="card h-fit space-y-4 p-5"
+      className="h-fit space-y-4 rounded-[28px] bg-sand p-6"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         claim.mutate();
       }}
     >
-      <h2 className="font-semibold">Bước 1 · Thông tin trên sổ đỏ</h2>
+      <div>
+        <h2 className="font-display text-2xl font-bold">Xác thực sổ đỏ mới</h2>
+        <p className="mt-1 text-sm text-muted">Đối chiếu với dữ liệu của Chủ đầu tư. Mỗi sổ đỏ dùng cho một tin đăng.</p>
+      </div>
       {claim.isError &&
         (conflict === "CLAIMED" ? (
-          <Notice tone="warning">Sổ đỏ này đã được xác thực bởi một tài khoản khác. Nếu bạn là chủ sở hữu, hãy liên hệ Chủ đầu tư.</Notice>
+          <Notice tone="warning">
+            Sổ đỏ này đã được xác thực bởi một tài khoản khác. Nếu bạn là chủ sở hữu:{" "}
+            <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "CLAIMED_BY_OTHER", holder, code })}>
+              gửi giấy tờ để Chủ đầu tư xử lý
+            </button>
+          </Notice>
         ) : conflict === "LOCKED" ? (
-          <Notice tone="warning">Sổ đỏ này đang bị khóa do nhập sai OTP quá nhiều lần. Vui lòng liên hệ Chủ đầu tư.</Notice>
+          <Notice tone="warning">
+            Sổ đỏ này đang bị khóa do nhập sai OTP quá nhiều lần.{" "}
+            <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "LOCKED", holder, code })}>
+              Gửi yêu cầu mở khóa
+            </button>
+          </Notice>
         ) : (
-          <ErrorBox error={claim.error} />
+          <>
+            <ErrorBox error={claim.error} />
+            {claim.error instanceof ApiError && claim.error.code === "OWNERSHIP_NOT_MATCHED" && (
+              <p className="text-xs text-muted">
+                Chắc chắn đã nhập đúng như trên sổ?{" "}
+                <button type="button" className="font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "MISMATCH", holder, code })}>
+                  Nhờ Chủ đầu tư kiểm tra
+                </button>
+              </p>
+            )}
+          </>
         ))}
       <div>
         <label htmlFor="rb-holder" className="label">
@@ -224,7 +224,7 @@ function VerifyForm() {
         </label>
         <input
           id="rb-holder"
-          className="input"
+          className="input rounded-full bg-paper px-4 py-2.5"
           required
           minLength={2}
           maxLength={255}
@@ -240,7 +240,7 @@ function VerifyForm() {
         </label>
         <input
           id="rb-code"
-          className="input font-mono uppercase"
+          className="input rounded-full bg-paper px-4 py-2.5 font-mono uppercase"
           required
           minLength={3}
           maxLength={100}
@@ -256,6 +256,13 @@ function VerifyForm() {
         Họ tên (có dấu) và mã số phải khớp với dữ liệu sổ đỏ của Chủ đầu tư. Mã OTP được gửi tới số điện thoại của chủ sở hữu đã đăng
         ký trên sổ.
       </p>
+      <div className="rounded-2xl bg-paper/70 px-4 py-3 text-sm">
+        <p className="font-semibold">Không tự xác thực được?</p>
+        <p className="mt-0.5 text-xs text-muted">Bán thay có ủy quyền, sổ đồng sở hữu, thừa kế, căn chưa có sổ…</p>
+        <button type="button" className="mt-1.5 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "PROXY", holder, code })}>
+          Gửi yêu cầu hỗ trợ tới Chủ đầu tư
+        </button>
+      </div>
     </form>
   );
 }
