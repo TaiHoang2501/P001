@@ -36,11 +36,11 @@ Khách hàng có nhu cầu mua nhà tại các đại đô thị Vinhomes thư�
 
 **BookingBot AI Agent** là trợ lý thông minh ứng dụng trí tuệ nhân tạo (AI-first) giúp kết nối trực tiếp Người mua và Chủ nhà:
 
-> **Người mua nhập nhu cầu bằng ngôn ngữ tự nhiên → Trợ lý AI thấu hiểu & tìm kiếm căn phù hợp → Gợi ý các căn hộ chính chủ đã kiểm duyệt → Người mua yêu cầu xem nhà → AI tự động tính toán khung giờ rảnh chung → Chủ nhà bấm duyệt → Hệ thống tạm khóa căn trong khung giờ xem (chống trùng lịch) → Buổi xem nhà diễn ra → Tạo hồ sơ kết nối (Mã giao dịch) → Chuyển sang quy trình thủ tục của Chủ đầu tư khi hai bên chốt mua.**
+> **Người mua nhập nhu cầu bằng ngôn ngữ tự nhiên → Trợ lý AI thấu hiểu & tìm kiếm căn phù hợp → Gợi ý các căn hộ chính chủ kèm giờ rảnh do chủ nhà chọn từ trước và giải thích lý do → Người mua chọn căn ưng ý và gửi yêu cầu đặt lịch xem → Khởi tạo Mã giao dịch (Deal ID) → Chủ nhà nhận thông báo yêu cầu xem nhà → Chủ nhà bấm "Đồng ý" → Hệ thống Tạm khóa căn trong đúng giờ hẹn (chống trùng lịch) → Buổi xem nhà diễn ra đúng hẹn → Hai bên trao đổi trực tiếp và tiến tới giao dịch.**
 
 Mô hình vận hành cốt lõi:
 
-> **Người mua (Buyer)** ── *(Tương tác tự nhiên)* ──► **Trợ lý AI (BookingBot)** ── *(Khớp lịch & Kết nối)* ──► **Chủ nhà (Owner)**
+> **Người mua (Buyer)** ── *(Tương tác tự nhiên)* ──► **Trợ lý AI (BookingBot)** ── *(Kết nối & Đặt lịch)* ──► **Chủ nhà (Owner)**
 
 Trong mô hình này:
 > **Chủ đầu tư đóng vai trò là Lớp bảo chứng Pháp lý và Giao dịch (Trust & Transaction Layer).**
@@ -192,27 +192,25 @@ BookingBot AI Agent được định vị rõ ràng:
 ## 4.1. Luồng trải nghiệm cốt lõi
 
 ```text
-Người mua nhắn nhu cầu
-         ↓
-Trợ lý AI phân tích & tìm kiếm căn hộ phù hợp
-         ↓
-Hệ thống đối soát căn hộ chính chủ đã kiểm duyệt
-         ↓
-Người mua chọn căn và bấm "Tôi muốn xem căn này"
-         ↓
-Tạo Hồ sơ kết nối (Mã giao dịch - Deal ID)
-         ↓
+Khách mua trò chuyện cùng Trợ lý AI
+       ↓
+AI thấu hiểu nhu cầu và tìm kiếm căn hộ
+       ↓
+AI gợi ý danh sách căn hộ phù hợp kèm giờ rảnh do chủ nhà chọn từ trước và giải thích lý do
+       ↓
+Khách chọn căn ưng ý và gửi yêu cầu đặt lịch xem
+       ↓
+Khởi tạo Mã giao dịch (Deal ID)
+       ↓
 Chủ nhà nhận thông báo yêu cầu xem nhà
-         ↓
-AI tính toán khung giờ rảnh chung giữa hai bên
-         ↓
+       ↓
 Chủ nhà bấm "Đồng ý"
-         ↓
-Hệ thống Tạm khóa căn trong khung giờ hẹn (Viewing Hold)
-         ↓
-Hai bên gặp mặt xem nhà thực tế
-         ↓
-Hỗ trợ thủ tục giao dịch chính thức cùng Chủ đầu tư
+       ↓
+Hệ thống Tạm khóa căn trong đúng giờ hẹn (chống trùng lịch)
+       ↓
+Khách đến xem nhà thực tế đúng hẹn
+       ↓
+Hai bên trao đổi trực tiếp và tiến tới giao dịch
 ```
 
 ## 4.2. Sơ đồ phối hợp tổng thể giữa các bên
@@ -225,36 +223,34 @@ TRỢ LÝ AI (BOOKINGBOT)
        │
        ├── Bóc tách nhu cầu (ngân sách, số phòng, phân khu)
        ├── Tra cứu kho căn hộ đã kiểm duyệt
+       ├── Gợi ý căn hộ kèm các khung giờ rảnh chủ nhà đã cài đặt trước
        ├── Chấm điểm phù hợp & giải thích lý do đề xuất
        │
        ▼
-DANH SÁCH CĂN HỘ CHÍNH CHỦ
+DANH SÁCH CĂN HỘ KÈM LỊCH RẢNH CÓ SẴN
        │
        ▼
-Người mua bấm: "Tôi muốn đặt lịch xem căn này"
+Người mua chọn căn & chọn giờ hẹn: "Tôi muốn đặt lịch xem căn này"
        │
        ▼
 KHỞI TẠO MÃ GIAO DỊCH (DEAL ID)
        │
        ▼
-CHỦ NHÀ (OWNER) nhận thông báo có khách muốn xem
+CHỦ NHÀ (OWNER) nhận thông báo yêu cầu xem nhà đúng khung giờ khách chọn
        │
-       ▼
-AI TÍNH TOÁN & GỢI Ý CÁC MỐC GIỜ RẢNH CHUNG
-       │
-       ├── Tìm được khung giờ trùng khớp
-       │       ↓
-       │   Chủ nhà bấm "Đồng ý"
+       ├── Chủ nhà bấm "Đồng ý"
        │       ↓
        │   TẠM KHÓA CĂN CHỐNG TRÙNG LỊCH (VIEWING HOLD)
        │       ↓
        │   Gửi thông báo nhắc lịch trước 24h và 2h
+       │       ↓
+       │   Hai bên gặp mặt xem nhà đúng hẹn ➔ Trao đổi trực tiếp & Tiến tới giao dịch
        │
-       └── Không tìm được giờ trùng / Chủ nhà bận
+       └── Chủ nhà bận đột xuất / Bấm "Từ chối"
                ↓
            CHUYỂN CHO NHÂN VIÊN HỖ TRỢ (HUMAN OPERATOR)
                ↓
-           Đề xuất khung giờ khác hoặc giới thiệu căn tương tự
+           Gợi ý khung giờ rảnh khác của chủ nhà hoặc giới thiệu căn tương tự
 ```
 
 ## 4.3. Phân định: Tự động hóa / Hỗ trợ / Con người trực tiếp xử lý
@@ -560,7 +556,7 @@ Khách mua trò chuyện cùng Trợ lý AI
        ↓
 AI thấu hiểu nhu cầu và tìm kiếm căn hộ
        ↓
-AI gợi ý danh sách căn hộ phù hợp kèm giải thích lý do
+AI gợi ý danh sách căn hộ phù hợp kèm giờ rảnh do chủ nhà chọn từ trước và giải thích lý do
        ↓
 Khách chọn căn ưng ý và gửi yêu cầu đặt lịch xem
        ↓
@@ -568,15 +564,13 @@ Khởi tạo Mã giao dịch (Deal ID)
        ↓
 Chủ nhà nhận thông báo yêu cầu xem nhà
        ↓
-AI tính toán khớp khung giờ rảnh chung
-       ↓
 Chủ nhà bấm "Đồng ý"
        ↓
 Hệ thống Tạm khóa căn trong đúng giờ hẹn (chống trùng lịch)
        ↓
 Khách đến xem nhà thực tế đúng hẹn
        ↓
-Hai bên trao đổi trực tiếp và tiến tới giao dịch cùng Chủ đầu tư
+Hai bên trao đổi trực tiếp và tiến tới giao dịch
 ```
 
 ## 6.2. Kịch bản Điều chỉnh Nhu cầu (Correction Path)
@@ -990,19 +984,16 @@ Nhắn câu tự nhiên: "Anh cần tìm căn 2 ngủ bên Ocean Park tầm 4 t�
 TRỢ LÝ AI HIỂU NHU CẦU & CHẤM ĐIỂM
    │
    ▼
-HIỂN THỊ 3 THẺ CĂN HỘ PHÙ HỢP NHẤT KÈM LÝ DO ĐỀ XUẤT
+HIỂN THỊ CÁC CĂN HỘ KÈM GIỜ RẢNH DO CHỦ NHÀ CHỌN TỪ TRƯỚC VÀ LÝ DO ĐỀ XUẤT
    │
    ▼
-Người mua chọn căn ưng ý và bấm "Tôi muốn xem căn này"
+Người mua chọn căn ưng ý & chọn giờ xem
    │
    ▼
 CẤP MÃ GIAO DỊCH (DEAL ID)
    │
    ▼
 CHỦ NHÀ ĐÃ XÁC THỰC SỔ ĐỎ NHẬN ĐƯỢC YÊU CẦU
-   │
-   ▼
-AI TÍNH TOÁN KHỚP KHUNG GIỜ RẢNH CHUNG
    │
    ▼
 CHỦ NHÀ BẤM "ĐỒNG Ý"
@@ -1014,7 +1005,7 @@ TẠM KHÓA CĂN CHỐNG TRÙNG LỊCH (VIEWING HOLD)
 HAI BÊN ĐẾN XEM NHÀ THỰC TẾ ĐÚNG HẸN
    │
    ▼
-HOÀN TẤT BUỔI XEM NHÀ THÀNH CÔNG (KẾT THÚC DEMO MVP)
+TRAO ĐỔI TRỰC TIẾP & TIẾN TỚI GIAO DỊCH (KẾT THÚC DEMO MVP)
 ```
 
 ## Định vị Giá trị Cốt lõi:
