@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router";
 
 import { api, call } from "../../api/client";
+import { useJumpFlash } from "../../lib/jump";
 import type { Property } from "../../api/types";
 import { ErrorBox, Notice, Spinner } from "../../components/ui";
 import { formatArea, formatVnd, PROPERTY_STATUS } from "../../lib/format";
@@ -211,12 +212,15 @@ function ListingCard({
   const images = imagesOf(p);
   const [viewer, setViewer] = useState<number | null>(null);
   const rejected = p.status === "REJECTED";
+  // Opened from a notification: the card lights up (and is scrolled to)
+  const flash = useJumpFlash(highlighted);
   // Fixing the listing happens right here, under its card
   const [editing, setEditing] = useState(false);
   return (
     <li
       ref={(el) => {
         if (el && highlighted) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        flash(el);
       }}
       className={`rounded-[28px] bg-paper p-4 ${highlighted ? "ring-2 ring-brand-500" : ""} ${rejected ? "ring-2 ring-red-200" : ""}`}
     >

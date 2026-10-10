@@ -169,6 +169,8 @@ class BookingStatus(StrEnum):
     OWNER_ABSENT = "OWNER_ABSENT"
     # Nobody recorded the outcome in time: closed without blaming anyone
     UNREPORTED = "UNREPORTED"
+    # The viewing time passed before the owner answered the request: closed by itself
+    EXPIRED = "EXPIRED"
 
 
 # Statuses of a viewing that is still going on (asked for or confirmed)
@@ -716,7 +718,7 @@ class PropertyHold(Base):
 
 
 class AiConversation(Base):
-    """One buyer chat thread with the AI agent (spec §4.16)."""
+    """One chat thread with the AI agent (spec §4.16): a signed-in buyer's, or a guest's (no buyer yet)."""
 
     __tablename__ = "ai_conversations"
     __table_args__ = (
@@ -725,8 +727,9 @@ class AiConversation(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    # Id chosen by the web client; the LangGraph thread is "<buyer_id>:<client_id>"
+    # Null while a guest chats; set when the guest signs up and the conversation is claimed
+    buyer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # Id chosen by the web client; the LangGraph thread is "<buyer_id>:<client_id>" ("guest:<client_id>")
     client_id: Mapped[str] = mapped_column(String(64), nullable=False)
     thread_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     status: Mapped[ConversationStatus] = mapped_column(
@@ -746,6 +749,8 @@ class AiMessage(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     conversation_id: Mapped[int] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False)
+    # The turn (trace) this message belongs to
+    turn_id: Mapped[int | None] = mapped_column(ForeignKey("ai_turns.id", ondelete="SET NULL"))
     role: Mapped[MessageRole] = mapped_column(_enum(MessageRole, "message_role"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # Assistant: requested tool calls. Tool: the call it answers.
@@ -763,6 +768,36 @@ class AiMessage(Base):
     created_at: Mapped[datetime] = _now_column()
 
 
+class AiTurn(Base):
+    """Developer trace of one chat turn: who (buyer or guest), what was asked, how it went (ok / error), and each
+    step with its timing — every model call and tool call. Not shown to buyers, sellers or operators."""
+
+    __tablename__ = "ai_turns"
+    __table_args__ = (Index("ix_ai_turns_created", "created_at"), Index("ix_ai_turns_status", "status", "created_at"))
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    # Also in the server logs and the chat response, so a reported problem leads straight here
+    trace_id: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("ai_conversations.id", ondelete="SET NULL"))
+    buyer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    guest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    streamed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # OK, or ERROR (the turn failed: model unavailable, timeout, ...)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="OK")
+    error_type: Mapped[str | None] = mapped_column(String(128))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(64))
+    llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tool_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # [{"kind": "llm"|"tool", "name", "at_ms", "ms", "ok", "error"?, "prompt_tokens"?, ...}] in start order
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = _now_column()
+
+
 class Recommendation(Base):
     """A property the agent showed the buyer, with why (explainability + Precision@5)."""
 
@@ -775,7 +810,8 @@ class Recommendation(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     conversation_id: Mapped[int] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False)
     ai_message_id: Mapped[int] = mapped_column(ForeignKey("ai_messages.id", ondelete="CASCADE"), nullable=False)
-    buyer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Null for a guest's conversation (until it is claimed at sign-up)
+    buyer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
     rank: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     match_score: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)

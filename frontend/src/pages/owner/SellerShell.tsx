@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
 import { useAuth } from "../../auth/AuthContext";
+import { BrandLogo } from "../../components/Brand";
 import { NotificationBell } from "../../components/NotificationBell";
 import { needsAnswer, useOwnerBookings } from "./ownerData";
 
@@ -31,14 +32,9 @@ export function SellerShell() {
       <header className="sticky top-0 z-20 bg-canvas/95 backdrop-blur">
         {/* Narrower than a laptop: the three places get their own row instead of being cut off */}
         <div className="mx-auto flex min-h-[4.5rem] w-full max-w-[96rem] flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 md:gap-x-6 md:px-6 lg:flex-nowrap lg:py-0">
-          <Link to="/owner/bookings" className="flex items-center gap-2.5">
-            <span className="grid size-10 place-items-center rounded-full bg-brand-600 font-display text-lg font-bold text-canvas">
-              B
-            </span>
-            <span className="leading-tight">
-              <span className="block font-display text-lg font-bold">BookingBot</span>
-              <span className="hidden text-xs font-semibold text-muted sm:block">Dành cho chủ căn</span>
-            </span>
+          {/* The same BookingBot logo as the buyer area, on the seller area's own terracotta tile */}
+          <Link to="/owner/bookings">
+            <BrandLogo compact tagline="Dành cho chủ căn" tone="seller" />
           </Link>
 
           <nav

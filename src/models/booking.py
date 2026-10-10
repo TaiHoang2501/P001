@@ -133,6 +133,10 @@ ActivityKind = Literal[
     "NO_SHOW",
     "OWNER_ABSENT",
     "UNREPORTED",
+    # The viewing time passed before the owner answered (the request closed by itself); a new time asked for on a
+    # confirmed viewing passed unanswered (the confirmed viewing stays)
+    "EXPIRED",
+    "RESCHEDULE_LAPSED",
     # The buyer's answer after the viewing, and a disagreement sent to the operator
     "INTERESTED",
     "NOT_SUITABLE",

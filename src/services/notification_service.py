@@ -139,6 +139,32 @@ def viewing_rejected(db: Session, booking: Booking, reason: str, suggested: list
     )
 
 
+def viewing_expired(db: Session, booking: Booking) -> None:
+    """The viewing time came before the owner answered. Shown in the buyer's chat, with a way to find another time."""
+    notify(
+        db,
+        booking.customer_id,
+        "VIEWING_EXPIRED",
+        "Yêu cầu xem nhà đã hết hạn",
+        f"Chủ căn {_label(booking.property)} chưa trả lời trước giờ xem {_when(booking.start_at)}, nên yêu cầu "
+        "này đã tự đóng. Bạn muốn mình tìm giờ khác cho căn này, hoặc căn tương tự không?",
+        booking=booking,
+        payload={"property_id": booking.property_id, "unit_code": booking.property.unit_code},
+    )
+
+
+def reschedule_lapsed(db: Session, booking: Booking) -> None:
+    notify(
+        db,
+        booking.customer_id,
+        "RESCHEDULE_LAPSED",
+        "Giờ mới bạn xin chưa được chủ căn trả lời",
+        f"Giờ mới bạn xin cho {_label(booking.property)} đã qua mà chủ căn chưa đồng ý; lịch xem vẫn giữ giờ cũ "
+        f"{_when(booking.start_at)}.",
+        booking=booking,
+    )
+
+
 def viewing_superseded(db: Session, booking: Booking, alternatives: list[datetime]) -> None:
     """The owner confirmed another buyer at an overlapping time: this request can no longer happen.
 

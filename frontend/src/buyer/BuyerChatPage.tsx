@@ -31,6 +31,8 @@ import {
   VIEW,
 } from "../lib/format";
 import { useBooking } from "./BookingStatusCard";
+import { useJumpFlash } from "../lib/jump";
+import { CHAT_EVENTS } from "../lib/notifications";
 import { chatStorageKey } from "./guest";
 import { GuestSignup } from "./GuestSignup";
 import { BuildingIcon, PlusIcon, SendIcon, SparkleIcon, UserIcon } from "./icons";
@@ -72,6 +74,8 @@ interface Message {
   propertyIds?: number[];
   trackBookingId?: number;
   replies?: string[];
+  // The notification this message came from (opening it from the bell jumps here)
+  noteId?: number;
 }
 
 interface Conversation {
@@ -84,7 +88,8 @@ interface Conversation {
 
 // Posted in the chat as the assistant's own messages. VIEWING_SUPERSEDED: the owner received someone else at the
 // time this buyer asked for, so the assistant offers other times
-const AGENT_EVENTS = new Set(["AGENT_FOLLOWUP", "AGENT_NEW_MATCH", "VIEWING_SUPERSEDED", "VIEWING_TIMES_SUGGESTED"]);
+// The assistant's own messages that arrive as notifications (see lib/notifications)
+const AGENT_EVENTS = CHAT_EVENTS;
 
 // What the assistant is doing while it works, by the tool it called
 const TOOL_STATUS: Record<string, string> = {
@@ -298,19 +303,22 @@ export function BuyerChatPage() {
     enabled: userId !== null,
     refetchInterval: 30_000,
   });
+  // Opened from the bell (?note=ID): that message is shown (even if older than this chat) and flashes
+  const openedNote = Number(searchParams.get("note")) || null;
+  const noteFlash = useJumpFlash(true);
   useEffect(() => {
     const list = notes.data;
     if (!list) return;
     setConversation((c) => {
       const seen = new Set(c.seenNotes ?? []);
       const since = c.since ? Date.parse(c.since) : 0;
+      const shown = new Set(c.messages.map((m) => m.noteId));
       const unseen = list
         .filter(
           (n) =>
             AGENT_EVENTS.has(n.event_type) &&
-            !seen.has(n.id) &&
-            n.sent_at &&
-            Date.parse(n.sent_at) > since,
+            ((!seen.has(n.id) && n.sent_at && Date.parse(n.sent_at) > since) ||
+              (n.id === openedNote && !shown.has(n.id))),
         )
         .reverse();
       if (unseen.length === 0) return c;
@@ -323,6 +331,7 @@ export function BuyerChatPage() {
         };
         return {
           id: newId(),
+          noteId: n.id,
           role: "assistant",
           text: `**${n.title}**\n${n.body}`,
           propertyIds:
@@ -330,7 +339,7 @@ export function BuyerChatPage() {
             (payload.property_id ? [payload.property_id] : []),
           trackBookingId: n.booking_id ?? undefined,
           replies:
-            n.event_type === "VIEWING_SUPERSEDED" && payload.unit_code
+            (n.event_type === "VIEWING_SUPERSEDED" || n.event_type === "VIEWING_EXPIRED") && payload.unit_code
               ? [`Tìm giờ xem khác cho căn ${payload.unit_code}`, "Tìm căn tương tự"]
               : n.event_type === "VIEWING_TIMES_SUGGESTED" && payload.unit_code
                 ? // The owner's own times: picking one asks the assistant to book exactly that
@@ -342,11 +351,11 @@ export function BuyerChatPage() {
       });
       return {
         ...c,
-        seenNotes: [...seen, ...unseen.map((n) => n.id)],
+        seenNotes: [...new Set([...seen, ...unseen.map((n) => n.id)])],
         messages: [...c.messages, ...news],
       };
     });
-  }, [notes.data]);
+  }, [notes.data, openedNote]);
 
   const send = useMutation({
     mutationFn: (message: string) => {
@@ -561,6 +570,8 @@ export function BuyerChatPage() {
       navigate("/buyer/activity");
       return;
     }
+    // Opened from a notification: keep ?note= so that message is shown and lights up
+    if (searchParams.get("note")) return;
     setSearchParams({}, { replace: true });
   }, [searchParams]);
 
@@ -727,8 +738,8 @@ export function BuyerChatPage() {
 
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5" aria-live="polite">
           {conversation.messages.map((m, i) => (
+            <div key={m.id ?? i} ref={m.noteId !== undefined && m.noteId === openedNote ? noteFlash : undefined} className="rounded-3xl">
             <MessageView
-              key={m.id ?? i}
               anchor={`msg-${i}`}
               message={m}
               onPickTime={
@@ -779,6 +790,7 @@ export function BuyerChatPage() {
                 ) : undefined
               }
             />
+            </div>
           ))}
           {sendPending.isPending && <p className="pl-12 text-sm text-muted">Đang gửi yêu cầu xem nhà...</p>}
           {live &&

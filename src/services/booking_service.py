@@ -13,7 +13,7 @@ Safety rules enforced here (not in the UI or the prompt):
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -54,7 +54,12 @@ from src.services.availability_service import TimeConflictError, is_exclusion_vi
 
 # Booking lifecycle (spec §4.12)
 _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
-    BookingStatus.REQUESTED: {BookingStatus.CONFIRMED, BookingStatus.REJECTED, BookingStatus.CANCELLED},
+    BookingStatus.REQUESTED: {
+        BookingStatus.CONFIRMED,
+        BookingStatus.REJECTED,
+        BookingStatus.CANCELLED,
+        BookingStatus.EXPIRED,
+    },
     BookingStatus.CONFIRMED: {
         BookingStatus.COMPLETED,
         BookingStatus.CANCELLED,
@@ -69,6 +74,7 @@ _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.NO_SHOW: set(),
     BookingStatus.OWNER_ABSENT: set(),
     BookingStatus.UNREPORTED: set(),
+    BookingStatus.EXPIRED: set(),
 }
 # Spec §4.7: the seller gets buyer contact details only from level 3 (continue transaction) on
 _CONTACT_LEVEL = 3
@@ -115,6 +121,46 @@ def _transition(booking: Booking, to: BookingStatus) -> BookingStatus:
     before = booking.status
     booking.status = to
     return before
+
+
+def expire_unanswered(db: Session, now: datetime | None = None) -> int:
+    """Periodic job: what the owner did not answer before the viewing time can no longer happen.
+
+    - A request whose viewing time has come -> EXPIRED; the buyer is told (in the chat, with a way to find
+      another time) and a "seller did not answer" case, if any, closes.
+    - A new time asked for on a confirmed viewing, now passed -> the request lapses; the confirmed viewing stays.
+    Returns how many were closed.
+    """
+    now = now or _now()
+    rows = db.scalars(
+        select(Booking)
+        .where(
+            or_(
+                and_(Booking.status == BookingStatus.REQUESTED, Booking.start_at <= now),
+                and_(Booking.status == BookingStatus.RESCHEDULE_REQUESTED, Booking.proposed_start_at <= now),
+            )
+        )
+        .with_for_update(skip_locked=True)
+    ).all()
+    for booking in rows:
+        if booking.status == BookingStatus.REQUESTED:
+            before = _transition(booking, BookingStatus.EXPIRED)
+            _audit_transition(db, None, "booking.expired", booking, before)
+            escalation_service.settle_no_response(
+                db, None, booking.id, "Giờ xem đã qua mà chủ căn chưa trả lời: yêu cầu tự hết hạn."
+            )
+            notification_service.viewing_expired(db, booking)
+        else:
+            before = _transition(booking, BookingStatus.CONFIRMED)
+            lapsed = booking.proposed_start_at
+            booking.proposed_start_at = booking.proposed_end_at = None
+            _audit_transition(
+                db, None, "booking.reschedule_lapsed", booking, before, lapsed=lapsed.isoformat() if lapsed else None
+            )
+            notification_service.reschedule_lapsed(db, booking)
+        _sync_deal(db, None, booking)
+    db.commit()
+    return len(rows)
 
 
 def respond_by(booking: Booking) -> datetime:
@@ -604,6 +650,8 @@ _ACTIVITY_KIND = {
     "booking.superseded": "SUPERSEDED",
     "booking.no_show": "NO_SHOW",
     "booking.unreported": "UNREPORTED",
+    "booking.expired": "EXPIRED",
+    "booking.reschedule_lapsed": "RESCHEDULE_LAPSED",
     "booking.dispute": "DISPUTED",
     "booking.feedback": "FEEDBACK",
     "booking.outcome_by_operator": "OUTCOME",

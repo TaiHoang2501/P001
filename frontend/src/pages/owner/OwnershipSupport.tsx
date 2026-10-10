@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
+import { useSearchParams } from "react-router";
+
 import { api, call } from "../../api/client";
+import { useJumpFlash } from "../../lib/jump";
 import type { components } from "../../api/schema";
 import { PhotoPicker, type Photo } from "../../components/PhotoPicker";
 import { ErrorBox, Notice } from "../../components/ui";
@@ -166,6 +169,10 @@ const STATUS: Record<string, { label: string; tone: string }> = {
 
 /** The seller's support requests and what the investor did. */
 export function SupportList() {
+  // Opened from a notification (?case=ID): that case lights up
+  const [params] = useSearchParams();
+  const opened = Number(params.get("case")) || null;
+  const flash = useJumpFlash(true);
   const list = useQuery({
     queryKey: ["ownership-support"],
     queryFn: () => call(api.GET("/api/v1/owner/ownership/support")),
@@ -182,7 +189,7 @@ export function SupportList() {
           const reason = SUPPORT_REASONS.find((r) => r.value === e.context.reason);
           const status = STATUS[e.status];
           return (
-            <li key={e.id} className="rounded-2xl bg-canvas/60 p-3 text-sm">
+            <li key={e.id} ref={e.id === opened ? flash : undefined} className="rounded-2xl bg-canvas/60 p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-mono font-semibold">{String(e.context.red_book_code ?? "")}</span>
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${status.tone}`}>{status.label}</span>

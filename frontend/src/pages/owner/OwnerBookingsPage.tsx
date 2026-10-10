@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { api, call } from "../../api/client";
+import { useJumpFlash } from "../../lib/jump";
 import type { Booking } from "../../api/types";
 import { ErrorBox, Spinner } from "../../components/ui";
 import {
@@ -152,6 +153,9 @@ export function OwnerBookingsPage() {
     (lists.pending.length > 0 || !bookings.data ? "pending" : "upcoming");
   const shown = lists[view];
   const selected = shown.find((b) => b.id === target) ?? shown[0];
+  // Opened from a notification (?jump=): the request lights up in the list and in the detail
+  const rowFlash = useJumpFlash(true);
+  const detailFlash = useJumpFlash(selected !== undefined && selected.id === target);
 
   if (bookings.isPending) return <Spinner />;
   if (bookings.isError)
@@ -203,7 +207,7 @@ export function OwnerBookingsPage() {
               const chip = statusChip(b, now);
               const active = b.id === selected?.id;
               return (
-                <li key={b.id}>
+                <li key={b.id} ref={b.id === target ? rowFlash : undefined} className="rounded-2xl">
                   <button
                     type="button"
                     onClick={() => setParams({ view, booking: String(b.id) })}
@@ -236,7 +240,10 @@ export function OwnerBookingsPage() {
           </ul>
         </aside>
 
-        <section className="relative overflow-hidden rounded-[28px] bg-paper lg:h-[calc(100dvh-16rem)] lg:min-h-[28rem]">
+        <section
+          ref={detailFlash}
+          className="relative overflow-hidden rounded-[28px] bg-paper lg:h-[calc(100dvh-16rem)] lg:min-h-[28rem]"
+        >
           {selected ? (
             <RequestDetail
               key={selected.id}

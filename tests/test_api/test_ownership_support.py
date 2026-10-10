@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.helpers import CUSTOMER_AN, OPERATOR, OWNER_TUAN, TUAN_RED_BOOK, auth
+from tests.helpers import CUSTOMER_AN, OPERATOR, OWNER_LAN, OWNER_TUAN, TUAN_RED_BOOK, auth
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\0" * 64
 LOCKED_BOOK = {"red_book_holder_name": "Trần Văn Đức", "red_book_code": "SD-2015-0110022"}  # seeded FAILED
@@ -89,7 +89,11 @@ async def test_locked_red_book_unlocked_with_new_phone_then_seller_verifies_by_o
 async def test_home_without_red_book_verified_by_hand(client):
     seller = await _new_seller(client, "0966000102")
     case = await _ask(
-        client, seller, "NO_RED_BOOK", {"red_book_holder_name": "Người Bán Mới", "red_book_code": "HDMB-2026-0042"}
+        client,
+        seller,
+        "NO_RED_BOOK",
+        {"red_book_holder_name": "Người Bán Mới", "red_book_code": "HDMB-2026-0042"},
+        [await _document(client, seller)],
     )
     op = await auth(client, OPERATOR)
     assert (await client.get(f"/api/v1/operator/escalations/{case['id']}/ownership", headers=op)).json()[
@@ -126,7 +130,7 @@ async def test_red_book_claimed_by_someone_else_is_revoked_then_given_to_its_own
     book = {"red_book_holder_name": tuans["red_book_holder_name"], "red_book_code": tuans["red_book_code"]}
 
     real_owner = await _new_seller(client, "0966000103")
-    case = await _ask(client, real_owner, "CLAIMED_BY_OTHER", book)
+    case = await _ask(client, real_owner, "CLAIMED_BY_OTHER", book, [await _document(client, real_owner)])
     op = await auth(client, OPERATOR)
     # Cannot hand it over while someone else holds it
     r = await client.post(
@@ -180,3 +184,20 @@ async def test_only_the_investor_handles_cases(client):
             f"/api/v1/operator/escalations/{case['id']}/{path}", json={"note": "tự xác thực"}, headers=seller
         )
         assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_no_manual_verification_without_documents_and_a_warning_for_someone_else(client):
+    """Lan asks to unlock a red book in Trần Văn Đức's name, with no papers: the operator is warned, and cannot
+    hand the red book to her by hand."""
+    lan = await auth(client, OWNER_LAN)
+    case = await _ask(client, lan, "LOCKED", LOCKED_BOOK)
+    op = await auth(client, OPERATOR)
+    info = (await client.get(f"/api/v1/operator/escalations/{case['id']}/ownership", headers=op)).json()
+    assert (info["sender_is_holder"], info["holder_name"], info["has_documents"]) == (False, "Trần Văn Đức", False)
+
+    r = await client.post(
+        f"/api/v1/operator/escalations/{case['id']}/ownership/verify", json={"note": "Tin lời khách"}, headers=op
+    )
+    assert r.status_code == 422
+    assert r.json()["error"]["details"]["missing"] == "DOCUMENTS"

@@ -13,7 +13,6 @@ as the non-streaming endpoints, so cards and bookings still come only from tool 
 """
 
 import logging
-import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -27,7 +26,8 @@ from src.db.session import get_sessionmaker
 from src.models.booking import BookingOut, ViewingTimesOut
 from src.models.property import Recommendation
 from src.models.schemas import ChatRequest, ChatResponse, PendingViewingRequest
-from src.services import buyer_memory, conversation_service
+from src.services import ai_trace, buyer_memory, conversation_service
+from src.services.ai_trace import TurnTracer
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +113,15 @@ def _guest_config(request: ChatRequest) -> RunnableConfig:
 
 async def chat(actor: Actor, request: ChatRequest) -> ChatResponse:
     config = _buyer_config(actor, request)
-    new_messages, latency_ms = await _run_turn(config, request.message)
-    _record(actor, request.conversation_id, config["configurable"]["thread_id"], new_messages, latency_ms)
-    return _response(request.conversation_id, new_messages)
+    thread_id = config["configurable"]["thread_id"]
+    tracer = TurnTracer()
+    try:
+        new_messages = await _run_turn(config, request.message, tracer)
+    except AgentUnavailableError as e:
+        _record(tracer, actor, request, thread_id, [], streamed=False, error=e.__cause__ or e)
+        raise
+    _record(tracer, actor, request, thread_id, new_messages, streamed=False)
+    return _response(request.conversation_id, new_messages, tracer.trace_id)
 
 
 def _memory(user_id: int) -> str | None:
@@ -129,13 +135,20 @@ def _memory(user_id: int) -> str | None:
 
 
 async def guest_chat(request: ChatRequest) -> ChatResponse:
-    """A turn for a buyer without an account."""
-    new_messages, _ = await _run_turn(_guest_config(request), request.message)
-    return _guest_response(request.conversation_id, new_messages)
+    """A turn for a buyer without an account (stored and traced too; claimed when the guest signs up)."""
+    thread_id = _guest_thread(request.conversation_id)
+    tracer = TurnTracer()
+    try:
+        new_messages = await _run_turn(_guest_config(request), request.message, tracer)
+    except AgentUnavailableError as e:
+        _record(tracer, None, request, thread_id, [], streamed=False, error=e.__cause__ or e)
+        raise
+    _record(tracer, None, request, thread_id, new_messages, streamed=False)
+    return _guest_response(request.conversation_id, new_messages, tracer.trace_id)
 
 
-def _guest_response(conversation_id: str, new_messages: list[BaseMessage]) -> ChatResponse:
-    response = _response(conversation_id, new_messages)
+def _guest_response(conversation_id: str, new_messages: list[BaseMessage], trace_id: str) -> ChatResponse:
+    response = _response(conversation_id, new_messages, trace_id)
     response.needs_account = any(isinstance(m, ToolMessage) and _needs_account(m) for m in new_messages)
     response.pending_viewing = _pending_viewing(new_messages)
     return response
@@ -154,27 +167,37 @@ def ensure_agent() -> None:
 async def chat_stream(actor: Actor, request: ChatRequest) -> AsyncIterator[ChatEvent]:
     config = _buyer_config(actor, request)
     thread_id = config["configurable"]["thread_id"]
-    async for name, data in _stream_turn(config, request.message):
-        if name != "_final":
+    tracer = TurnTracer()
+    async for name, data in _stream_turn(config, request.message, tracer):
+        if name == "_failed":
+            _record(tracer, actor, request, thread_id, [], streamed=True, error=data["error"])
+        elif name == "_final":
+            _record(tracer, actor, request, thread_id, data["messages"], streamed=True)
+            yield "done", _response(request.conversation_id, data["messages"], tracer.trace_id).model_dump(mode="json")
+        else:
             yield name, data
-            continue
-        _record(actor, request.conversation_id, thread_id, data["messages"], data["latency_ms"])
-        yield "done", _response(request.conversation_id, data["messages"]).model_dump(mode="json")
 
 
 async def guest_chat_stream(request: ChatRequest) -> AsyncIterator[ChatEvent]:
-    async for name, data in _stream_turn(_guest_config(request), request.message):
-        if name != "_final":
+    thread_id = _guest_thread(request.conversation_id)
+    tracer = TurnTracer()
+    async for name, data in _stream_turn(_guest_config(request), request.message, tracer):
+        if name == "_failed":
+            _record(tracer, None, request, thread_id, [], streamed=True, error=data["error"])
+        elif name == "_final":
+            _record(tracer, None, request, thread_id, data["messages"], streamed=True)
+            response = _guest_response(request.conversation_id, data["messages"], tracer.trace_id)
+            yield "done", response.model_dump(mode="json")
+        else:
             yield name, data
-            continue
-        yield "done", _guest_response(request.conversation_id, data["messages"]).model_dump(mode="json")
 
 
-async def _stream_turn(config: RunnableConfig, message: str) -> AsyncIterator[ChatEvent]:
+async def _stream_turn(config: RunnableConfig, message: str, tracer: TurnTracer) -> AsyncIterator[ChatEvent]:
     """Events of one turn: `token` (a piece of the reply being written), `tools` (the agent is calling tools;
-    text streamed before it was only a preface), `error`; then an internal `_final` with the new messages."""
+    text streamed before it was only a preface), `error`; then an internal `_final` with the new messages
+    (or `_failed` with the error, before `error`)."""
     agent = agent_graph.get_agent()
-    started = time.perf_counter()
+    config = {**config, "callbacks": [tracer]}
     try:
         before = len((await agent.aget_state(config)).values.get("messages", []))
         async for mode, payload in agent.astream(
@@ -194,43 +217,58 @@ async def _stream_turn(config: RunnableConfig, message: str) -> AsyncIterator[Ch
                     if calls:
                         yield "tools", {"names": calls}
         messages = (await agent.aget_state(config)).values["messages"][before:]
-    except Exception:
+    except Exception as e:
         # The response has already started: report the failure as an event, the client shows it in the chat
-        logger.exception("agent turn failed (stream)")
+        logger.exception("agent turn failed (stream, trace=%s)", tracer.trace_id)
+        yield "_failed", {"error": e}
         yield (
             "error",
-            {"code": "AGENT_UNAVAILABLE", "message": "AI assistant is temporarily unavailable, please try again"},
+            {
+                "code": "AGENT_UNAVAILABLE",
+                "message": "AI assistant is temporarily unavailable, please try again",
+                "trace_id": tracer.trace_id,
+            },
         )
         return
-    yield "_final", {"messages": messages, "latency_ms": int((time.perf_counter() - started) * 1000)}
+    yield "_final", {"messages": messages}
 
 
 async def claim_guest(actor: Actor, conversation_id: str) -> bool:
-    """After a guest signs up, move the guest conversation into the new account's thread so the agent keeps context."""
+    """After a guest signs up, move the guest conversation into the new account's thread so the agent keeps context
+    (and the stored conversation, with its traces, becomes the new account's)."""
     agent = agent_graph.get_agent()
-    guest = (await agent.aget_state({"configurable": {"thread_id": _guest_thread(conversation_id)}})).values
+    guest_thread = _guest_thread(conversation_id)
+    guest = (await agent.aget_state({"configurable": {"thread_id": guest_thread}})).values
     messages = guest.get("messages", [])
-    target: RunnableConfig = {"configurable": {"thread_id": f"{actor.id}:{conversation_id}"}}
+    thread_id = f"{actor.id}:{conversation_id}"
+    target: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     if not messages or (await agent.aget_state(target)).values.get("messages"):
         return False
     await agent.aupdate_state(target, {"messages": messages}, as_node="agent")
-    await agent.checkpointer.adelete_thread(_guest_thread(conversation_id))
+    await agent.checkpointer.adelete_thread(guest_thread)
+    try:
+        with get_sessionmaker()() as db:
+            conversation_service.claim_guest(db, actor, guest_thread, thread_id)
+    except Exception:
+        logger.exception("could not attach the guest conversation to user %s", actor.id)
     return True
 
 
-async def _run_turn(config: RunnableConfig, message: str) -> tuple[list[BaseMessage], int]:
+async def _run_turn(config: RunnableConfig, message: str, tracer: TurnTracer) -> list[BaseMessage]:
     agent = agent_graph.get_agent()  # raises AgentUnavailableError when no API key is configured
-    started = time.perf_counter()
+    config = {**config, "callbacks": [tracer]}
     try:
         before = len((await agent.aget_state(config)).values.get("messages", []))
         result = await agent.ainvoke({"messages": [HumanMessage(message)]}, config)
     except Exception as e:
-        logger.exception("agent turn failed")
-        raise AgentUnavailableError("AI assistant is temporarily unavailable, please try again") from e
-    return result["messages"][before:], int((time.perf_counter() - started) * 1000)
+        logger.exception("agent turn failed (trace=%s)", tracer.trace_id)
+        raise AgentUnavailableError(
+            "AI assistant is temporarily unavailable, please try again", details={"trace_id": tracer.trace_id}
+        ) from e
+    return result["messages"][before:]
 
 
-def _response(conversation_id: str, new_messages: list[BaseMessage]) -> ChatResponse:
+def _response(conversation_id: str, new_messages: list[BaseMessage], trace_id: str | None = None) -> ChatResponse:
     last = new_messages[-1]
     reply = last.text if isinstance(last, AIMessage) else ""
     recommendations, viewing_times, bookings = _extract(new_messages)
@@ -240,15 +278,45 @@ def _response(conversation_id: str, new_messages: list[BaseMessage]) -> ChatResp
         recommendations=recommendations,
         viewing_times=viewing_times,
         bookings=bookings,
+        trace_id=trace_id,
     )
 
 
-def _record(actor: Actor, client_id: str, thread_id: str, messages: list[BaseMessage], latency_ms: int) -> None:
-    # Tool actions are already committed by the services; a logging failure must not hide the reply
+def _record(
+    tracer: TurnTracer,
+    actor: Actor | None,
+    request: ChatRequest,
+    thread_id: str,
+    messages: list[BaseMessage],
+    *,
+    streamed: bool,
+    error: BaseException | None = None,
+) -> None:
+    """Store the turn: its trace (always, failed turns too) and its messages (when it produced any).
+    Tool actions are already committed by the services; a logging failure must not hide the reply."""
     try:
         with get_sessionmaker()() as db:
-            conversation_service.record_turn(
-                db, actor, client_id=client_id, thread_id=thread_id, messages=messages, latency_ms=latency_ms
+            conv = conversation_service.get_or_create(db, actor, request.conversation_id, thread_id)
+            turn = ai_trace.save(
+                db,
+                tracer,
+                message=request.message,
+                buyer_id=actor.id if actor is not None else None,
+                conversation=conv,
+                streamed=streamed,
+                error=error,
             )
+            if messages:
+                conversation_service.record_turn(
+                    db,
+                    actor,
+                    client_id=request.conversation_id,
+                    thread_id=thread_id,
+                    messages=messages,
+                    latency_ms=turn.latency_ms,
+                    turn_id=turn.id,
+                    conv=conv,
+                )
+            db.commit()
     except Exception:
-        logger.exception("failed to record chat turn")
+        logger.exception("failed to record chat turn (trace=%s)", tracer.trace_id)

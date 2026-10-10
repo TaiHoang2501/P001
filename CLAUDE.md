@@ -43,7 +43,7 @@
    - AI không tự thu thập PII từ bên ngoài, không tự chia sẻ PII, không truy cập PII ngoài quyền.
 7. **Atomic Viewing Hold** — Hold = **tạm khóa căn để phục vụ buổi xem, KHÔNG phải giữ căn để mua**. Chỉ hold sau Owner confirmation; gắn với Deal + Buyer + time window; không hold ngoài viewing window; hết window → release. Atomic (`SELECT ... FOR UPDATE` + exclusion constraint) — không quá một hold cho cùng Property/time, và **một chủ căn không có 2 lịch xem đã xác nhận trùng giờ, kể cả ở 2 căn khác nhau** (AC-08). Yêu cầu chưa xác nhận (`REQUESTED`) được phép trùng giờ — chủ căn chọn tiếp ai; khi chủ xác nhận một lịch, các yêu cầu khác của chủ đó bị trùng giờ tự đóng và AI báo người mua kèm giờ khác.
 8. **Never Hallucinate Tool Success / Property** — Không coi Tool call là đã thành công; chỉ thông báo sau khi Backend commit. DB không có căn phù hợp → AI không được tự tạo căn (AC-01).
-9. **Fail Safely & Human Escalation** — AI không chắc chắn → hỏi lại hoặc chuyển Human. Human can thiệp khi: Seller không phản hồi, không có slot chung, lịch conflict, Seller đổi lịch, Property đổi trạng thái, nhiều Buyer cùng yêu cầu một Property, lỗi hệ thống (API/DB/LLM). Fallback: dừng action không an toàn → giữ context → tạo escalation → Human xử lý → Buyer nhận trạng thái.
+9. **Fail Safely & Human Escalation** — AI không chắc chắn → hỏi lại hoặc chuyển Human. Human can thiệp khi: Seller không phản hồi, không có slot chung, lịch conflict, Seller đổi lịch, Property đổi trạng thái, nhiều Buyer cùng yêu cầu một Property, lỗi hệ thống (API/DB/LLM). Fallback: dừng action không an toàn → giữ context → tạo escalation → Human xử lý → Buyer nhận trạng thái. Mỗi ca trong hàng chờ hiện cho Operator bằng lời dễ đọc (`GET /operator/escalations/{id}/context`): tên + SĐT người mua / chủ căn, căn, lịch xem, và với ca do AI chuyển là đoạn chat gần nhất của khách với Trợ lý (chỉ tin nhắn, không có chi tiết kỹ thuật — Operator không phải người làm IT; trace AI là việc của dev, xem §7 `ai_turns`).
 10. **Strict Non-Goals (MUST NOT HAVE)**:
     - Không thanh toán / đặt cọc / mortgage.
     - Không ký hợp đồng điện tử.
@@ -151,6 +151,7 @@ AI Agent Tool Call
 REQUESTED ──(Owner confirm)──> CONFIRMED ──(xem xong)──> COMPLETED
     │                              │
     ├─> REJECTED (Owner)           ├─> CANCELLED (Buyer / Operator)
+    ├─> EXPIRED (tới giờ xem mà Owner chưa trả lời)
     ├─> CANCELLED (Buyer)          └─> RESCHEDULE_REQUESTED ──(Owner confirm)──> CONFIRMED
     └─> REQUESTED (Buyer đổi giờ, Owner chưa trả lời: chuyển thẳng sang giờ mới, vẫn chờ Owner xác nhận)
 ```
@@ -158,6 +159,7 @@ REQUESTED ──(Owner confirm)──> CONFIRMED ──(xem xong)──> COMPLET
 - `REJECTED` cũng xảy ra tự động khi Owner xác nhận một người khác trùng giờ (yêu cầu bị đóng, AI báo người mua kèm giờ khác). Owner không có nút hủy lịch đã xác nhận; hủy là của Buyer, hoặc Operator khi xử lý ngoại lệ (vd. thu hồi xác thực sổ đỏ).
 - Đổi giờ khi `REQUESTED` (mở rộng so với spec §4.12): chưa có hold nên Booking chuyển ngay sang giờ mới, giữ nguyên Deal; Seller được báo (`VIEWING_REQUEST_UPDATED`) và vẫn phải xác nhận. Đổi giờ khi `CONFIRMED` giữ giờ cũ + hold cho tới khi Owner đồng ý giờ mới.
 - Giờ xem được đề xuất / đặt sớm nhất sau `VIEWING_MIN_NOTICE_MINUTES` (mặc định 120 phút) kể từ hiện tại; AI, trang chi tiết căn và màn đặt lịch dùng chung một nguồn (`propose_viewing_times`) và đều tính từ hôm nay.
+- Tới giờ xem mà Owner vẫn chưa trả lời → yêu cầu tự **`EXPIRED`** (job nền; Buyer được báo trong chat kèm gợi ý tìm giờ khác; ca `SELLER_NO_RESPONSE` tự đóng). Giờ mới Buyer xin (`RESCHEDULE_REQUESTED`) đã qua mà chưa được đồng ý → lịch giữ giờ cũ. Giao diện chỉ hiện giờ bắt đầu buổi xem (vd. "14:00"); rê chuột vào nhãn trạng thái để xem giải thích.
 - Hạn Owner trả lời yêu cầu (`respond_by`) = sớm hơn giữa gửi + `SELLER_RESPONSE_HOURS` (24h) và giờ xem − `SELLER_RESPONSE_LEAD_MINUTES` (60 phút); quá hạn → escalation `SELLER_NO_RESPONSE`.
 - `OWNER_CONFIRMED` trong spec = `CONFIRMED`; `VIEWING_HELD` = Booking `CONFIRMED` có `property_hold` `ACTIVE`.
 - Owner confirm → tạo Viewing Hold (cùng transaction) → nhắc lịch T-24h & T-2h → xem nhà → `COMPLETED`.
@@ -174,14 +176,14 @@ MATCHED → VIEWING_REQUESTED → VIEWING_CONFIRMED → VIEWED → INTERESTED �
 ---
 
 ## 7. Data Model (spec §4.16, mở rộng)
-Bản đầy đủ gồm 24 bảng:
+Bản đầy đủ gồm 25 bảng:
 - **Identity & Auth:** `users`, `otp_codes`, `buyer_profiles`, `seller_profiles`
 - **Ownership:** `property_ownership_verifications` (dữ liệu sổ đỏ của Chủ đầu tư + thông tin căn gốc; mỗi sổ gắn tối đa một tin qua `properties.verification_id`)
 - **Inventory:** `projects`, `buildings`, `properties`, `property_media`, `media_files` (ảnh / giấy tờ tải lên)
 - **Scheduling:** `availability_slots` (lịch trống Seller), `buyer_availability`
 - **Deal & Viewing:** `deals`, `bookings`, `property_holds`
 - **Post-viewing (post-MVP):** `purchase_requests`, `chats`, `messages`
-- **AI:** `ai_conversations`, `ai_messages`, `recommendations`
+- **AI:** `ai_conversations`, `ai_messages`, `recommendations`, `ai_turns` (trace cho dev: mỗi lượt chat — cả khách chưa đăng nhập và lượt lỗi — kèm từng bước gọi model/công cụ, thời gian, token; xem bằng `python scripts/ai_traces.py`; tự xóa sau `AI_TRACE_RETENTION_DAYS`. Chỉ dành cho dev, không hiển thị cho Buyer/Seller/Operator)
 - **Operations:** `escalations`, `notifications`, `audit_logs`
 
 Quan hệ chính: Seller 1─N Property · Buyer 1─N Deal · Property 1─N Deal · Deal 1─N Booking · Booking 1─0..1 PropertyHold · Deal 1─0..1 PurchaseRequest · Deal 1─0..1 Chat.

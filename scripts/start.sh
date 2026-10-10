@@ -7,7 +7,7 @@ set -e
 alembic upgrade head
 
 if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
-  python -m src.db.seed --if-empty --ensure-red-books --ensure-listings --ensure-seller-story --ensure-red-book-units --ensure-sellers-verified --ensure-photos --ensure-slots 7 --ensure-requests --ensure-showcase
+  python -m src.db.seed --if-empty --ensure-red-books --ensure-listings --ensure-seller-story --ensure-red-book-units --ensure-sellers-verified --ensure-photos --ensure-slots 14 --ensure-requests --ensure-showcase --ensure-rich-demo
 fi
 
 exec uvicorn src.main:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers --forwarded-allow-ips="*"

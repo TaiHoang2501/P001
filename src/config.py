@@ -21,11 +21,13 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     timezone: str = "Asia/Ho_Chi_Minh"
 
-    # LLM (spec §9.1: Gemini or OpenAI)
-    llm_provider: Literal["openai", "google"] = "openai"
+    # LLM (spec §9.1: Gemini or OpenAI; also any model through OpenRouter, an OpenAI-compatible gateway)
+    llm_provider: Literal["openai", "google", "openrouter"] = "openai"
     openai_api_key: str = ""
     google_api_key: str = ""
-    # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest)
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest / openai/gpt-4o-mini on OpenRouter)
     model_name: str = ""
     # Used when the main model fails (e.g. Gemini "high demand" 503). Empty = provider default, "none" = off
     model_fallback_name: str = ""
@@ -40,11 +42,15 @@ class Settings(BaseSettings):
 
     @property
     def llm_api_key(self) -> str:
-        return self.google_api_key if self.llm_provider == "google" else self.openai_api_key
+        return {
+            "google": self.google_api_key,
+            "openrouter": self.openrouter_api_key,
+        }.get(self.llm_provider, self.openai_api_key)
 
     @property
     def llm_model(self) -> str:
-        return self.model_name or ("gemini-flash-latest" if self.llm_provider == "google" else "gpt-4o-mini")
+        defaults = {"google": "gemini-flash-latest", "openrouter": "openai/gpt-4o-mini"}
+        return self.model_name or defaults.get(self.llm_provider, "gpt-4o-mini")
 
     @property
     def llm_fallback_model(self) -> str | None:
@@ -128,6 +134,8 @@ class Settings(BaseSettings):
     otp_expose_code: bool | None = None
     # Wrong holder name / red book code attempts one seller account may make per hour (stops guessing codes)
     ownership_claim_failures_per_hour: int = Field(default=5, ge=1)
+    # Developer traces of chat turns (ai_turns) and unclaimed guest conversations are kept this many days
+    ai_trace_retention_days: int = Field(default=180, ge=1)
 
     # Recommendation scoring weights (spec §4.6: TBD, calibrate with real data)
     score_weight_price: float = 0.25

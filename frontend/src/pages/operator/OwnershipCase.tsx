@@ -58,9 +58,17 @@ export function OwnershipCase({ escalation: e }: { escalation: Escalation }) {
   const book = state.data?.red_book;
   const seller = state.data?.seller;
   const heldByOther = book?.status === "VERIFIED" && book.verified_by_id !== seller?.id;
+  const notHolder = state.data?.sender_is_holder === false;
+  const noDocuments = state.data?.has_documents === false;
 
   return (
     <div className="grid gap-3 rounded-xl bg-stone-50 p-3 text-sm md:grid-cols-2">
+      {notHolder && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 font-medium text-red-800 ring-1 ring-red-200 md:col-span-2">
+          Người gửi ({seller?.full_name}) không phải người đứng tên sổ ({state.data?.holder_name}). Chỉ xác thực khi có
+          giấy ủy quyền công chứng của người đứng tên sổ; nếu không, đóng ca bằng “Bỏ qua” và ghi lý do.
+        </p>
+      )}
       <section>
         <h4 className="font-semibold">Yêu cầu của người bán</h4>
         <dl className="mt-1 space-y-0.5">
@@ -124,13 +132,25 @@ export function OwnershipCase({ escalation: e }: { escalation: Escalation }) {
             <button
               type="button"
               className="btn-primary btn-sm"
-              disabled={busy || heldByOther || note.trim().length < 3}
-              title={heldByOther ? "Sổ đang thuộc tài khoản khác: thu hồi trước" : undefined}
+              disabled={busy || heldByOther || noDocuments || note.trim().length < 3}
+              title={
+                noDocuments
+                  ? "Không có giấy tờ kèm theo: chưa thể xác thực thủ công"
+                  : heldByOther
+                    ? "Sổ đang thuộc tài khoản khác: thu hồi trước"
+                    : undefined
+              }
               onClick={() => verify.mutate()}
             >
               Xác thực thủ công
             </button>
           </div>
+          {noDocuments && (
+            <p className="text-xs text-muted">
+              Ca này không kèm giấy tờ nên chưa xác thực thủ công được. Nhắn người bán gửi lại yêu cầu kèm CCCD và giấy
+              tờ chứng minh (VD giấy ủy quyền công chứng).
+            </p>
+          )}
           {book?.status === "VERIFIED" && book.verified_by_id !== null && (
             <div className="flex flex-wrap items-center gap-2">
               <input

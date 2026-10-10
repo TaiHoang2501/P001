@@ -117,6 +117,13 @@ class OwnershipCaseOut(BaseModel):
     seller: SupportSeller | None
     # None: the code is not in the investor's records (e.g. no red book yet)
     red_book: RedBookState | None
+    # The holder's name on the red book (investor's records, or as the seller typed it when there is no record)
+    holder_name: str | None = None
+    # False: whoever sent the case is not the person on the red book (selling for someone else: needs a power of
+    # attorney); the operator is warned
+    sender_is_holder: bool = True
+    # Documents attached to the case: verifying by hand is only possible with them
+    has_documents: bool = False
 
 
 class UnlockRequest(BaseModel):

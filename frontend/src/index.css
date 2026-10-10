@@ -278,3 +278,30 @@
     animation: none;
   }
 }
+
+/* Opened from a notification: the item lights up a few times, like jumping to a pinned message (see lib/jump.ts) */
+@keyframes jump-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  15%,
+  45%,
+  75% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-brand-500) 55%, transparent);
+    background-color: color-mix(in srgb, var(--color-brand-100) 70%, transparent);
+  }
+  30%,
+  60% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand-500) 25%, transparent);
+  }
+}
+.jump-flash {
+  animation: jump-flash 2.6s ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jump-flash {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--color-brand-500);
+  }
+}

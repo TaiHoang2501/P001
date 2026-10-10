@@ -18,16 +18,33 @@ from src.core.errors import NotFoundError, StateConflictError
 from src.db.models import (
     OPEN_ESCALATION_STATUSES,
     ActorType,
+    AiConversation,
+    AiMessage,
     Booking,
     BookingStatus,
     Escalation,
     EscalationStatus,
     EscalationType,
+    MessageRole,
+    Property,
     User,
     UserRole,
 )
-from src.models.escalation import EscalationOut
+from src.models.escalation import CaseContext, CaseMessage, EscalationOut
 from src.services import audit, notification_service
+
+# The kind of case in plain words, for the operators' notifications (same wording as their queue)
+ESCALATION_LABELS = {
+    EscalationType.SELLER_NO_RESPONSE: "Chủ căn chưa phản hồi",
+    EscalationType.NO_COMMON_SLOT: "Không có giờ xem chung",
+    EscalationType.SCHEDULE_CONFLICT: "Xung đột lịch",
+    EscalationType.PROPERTY_ISSUE: "Vấn đề về căn",
+    EscalationType.MULTI_BUYER: "Nhiều người mua cùng căn",
+    EscalationType.SYSTEM_FAILURE: "Lỗi hệ thống",
+    EscalationType.OTHER: "Khách cần hỗ trợ",
+    EscalationType.OWNERSHIP_SUPPORT: "Hỗ trợ xác thực sổ đỏ / sổ hồng",
+    EscalationType.VIEWING_DISPUTE: "Tranh chấp kết quả buổi xem",
+}
 
 
 def _notify_operators(db: Session, esc: Escalation) -> None:
@@ -37,9 +54,10 @@ def _notify_operators(db: Session, esc: Escalation) -> None:
             db,
             operator_id,
             "ESCALATION_OPENED",
-            f"Cần xử lý: {esc.type.value}",
+            f"Ca mới: {ESCALATION_LABELS.get(esc.type, esc.type.value)}",
             esc.summary,
-            payload={"escalation_id": esc.id},
+            # The kind of case: the bell groups the operator's notifications by it
+            payload={"escalation_id": esc.id, "escalation_type": esc.type.value},
         )
 
 
@@ -172,6 +190,87 @@ def settle_no_response(db: Session, actor: Actor | None, booking_id: int, outcom
     return len(cases)
 
 
+def _out(db: Session, esc: Escalation) -> EscalationOut:
+    out = EscalationOut.model_validate(esc)
+    if esc.assigned_to is not None:
+        staff = db.get(User, esc.assigned_to)
+        out.assigned_to_name = staff.full_name if staff else None
+    return out
+
+
+# Who hears the outcome of a case by default (the operator can change it when closing). The person who raised
+# the case always does; these add the other side when the case is about both of them.
+_TELL_BUYER = {
+    EscalationType.SELLER_NO_RESPONSE,
+    EscalationType.NO_COMMON_SLOT,
+    EscalationType.SCHEDULE_CONFLICT,
+    EscalationType.PROPERTY_ISSUE,
+    EscalationType.MULTI_BUYER,
+    EscalationType.SYSTEM_FAILURE,
+    EscalationType.OTHER,
+    EscalationType.VIEWING_DISPUTE,
+}
+_TELL_SELLER = {
+    EscalationType.SELLER_NO_RESPONSE,
+    EscalationType.NO_COMMON_SLOT,
+    EscalationType.SCHEDULE_CONFLICT,
+    EscalationType.OWNERSHIP_SUPPORT,
+    EscalationType.VIEWING_DISPUTE,
+}
+
+
+def _parties(db: Session, esc: Escalation) -> tuple[User | None, User | None, Booking | None, Property | None]:
+    """The buyer and the seller a case is about (either may be missing), with its viewing and home."""
+    requester = db.get(User, esc.requester_id) if esc.requester_id else None
+    booking = db.get(Booking, esc.booking_id) if esc.booking_id else None
+    prop = db.get(Property, esc.property_id) if esc.property_id else (booking.property if booking else None)
+    buyer = requester if requester and requester.role == UserRole.CUSTOMER else (booking.customer if booking else None)
+    seller = requester if requester and requester.role == UserRole.OWNER else None
+    if seller is None and prop is not None:
+        seller = db.get(User, prop.owner_id)
+    return buyer, seller, booking, prop
+
+
+# How much of the buyer's chat an operator sees on a case the assistant raised
+CASE_CHAT_MESSAGES = 12
+
+
+def case_context(db: Session, escalation_id: int) -> CaseContext:
+    """The case in plain words for the operator: names and phones (operators may see them), the home, the viewing,
+    and the last messages of the buyer's chat with the assistant (text only: no tool calls or other internals)."""
+    esc = _load(db, escalation_id)
+    buyer, seller, booking, prop = _parties(db, esc)
+    ctx = CaseContext(
+        buyer_name=buyer.full_name if buyer else None,
+        buyer_phone=buyer.phone if buyer else None,
+        seller_name=seller.full_name if seller else None,
+        seller_phone=seller.phone if seller else None,
+        property_label=(
+            f"{prop.unit_code} · {prop.building.name} · {prop.building.project.name}" if prop is not None else None
+        ),
+        deal_code=booking.deal.code if booking else None,
+        viewing_time=booking.start_at if booking else None,
+        viewing_status=booking.status.value if booking else None,
+        notify_buyer_default=buyer is not None and (esc.type in _TELL_BUYER or buyer.id == esc.requester_id),
+        notify_seller_default=seller is not None and (esc.type in _TELL_SELLER or seller.id == esc.requester_id),
+    )
+
+    conv_id = esc.conversation_id
+    if conv_id is None and (thread := (esc.context or {}).get("thread_id")):
+        conv_id = db.scalar(select(AiConversation.id).where(AiConversation.thread_id == thread))
+    if conv_id is not None:
+        shown = (AiMessage.conversation_id == conv_id, AiMessage.role.in_([MessageRole.USER, MessageRole.ASSISTANT]))
+        rows = db.scalars(
+            select(AiMessage).where(*shown, AiMessage.content != "").order_by(AiMessage.id.desc()).limit(200)
+        ).all()
+        ctx.messages = [
+            CaseMessage(role=m.role, content=m.content, created_at=m.created_at)
+            for m in reversed(rows[:CASE_CHAT_MESSAGES])
+        ]
+        ctx.earlier_messages = max(0, len(rows) - CASE_CHAT_MESSAGES)
+    return ctx
+
+
 def _load(db: Session, escalation_id: int) -> Escalation:
     esc = db.get(Escalation, escalation_id, with_for_update=True)
     if esc is None:
@@ -187,7 +286,7 @@ def list_queue(db: Session, status: EscalationStatus | None = None) -> list[Esca
         if status
         else stmt.where(Escalation.status.in_(OPEN_ESCALATION_STATUSES))
     )
-    return [EscalationOut.model_validate(e) for e in db.scalars(stmt.order_by(Escalation.created_at))]
+    return [_out(db, e) for e in db.scalars(stmt.order_by(Escalation.created_at))]
 
 
 def assign(db: Session, actor: Actor, escalation_id: int) -> EscalationOut:
@@ -201,10 +300,21 @@ def assign(db: Session, actor: Actor, escalation_id: int) -> EscalationOut:
         db, actor, "escalation.assign", "escalation", esc.id, before={"status": before}, after={"status": esc.status}
     )
     db.commit()
-    return EscalationOut.model_validate(esc)
+    return _out(db, esc)
 
 
-def close(db: Session, actor: Actor, escalation_id: int, resolution: str, *, dismissed: bool = False) -> EscalationOut:
+def close(
+    db: Session,
+    actor: Actor,
+    escalation_id: int,
+    resolution: str,
+    *,
+    dismissed: bool = False,
+    notify_buyer: bool | None = None,
+    notify_seller: bool | None = None,
+) -> EscalationOut:
+    """Close a case with what was done. The buyer and/or the seller it is about are told (default by the kind of
+    case, see _TELL_BUYER / _TELL_SELLER; the operator may change it). Each sees only the operator's words."""
     esc = _load(db, escalation_id)
     if esc.status not in OPEN_ESCALATION_STATUSES:
         raise StateConflictError(f"Escalation is already {esc.status.value}")
@@ -222,17 +332,28 @@ def close(db: Session, actor: Actor, escalation_id: int, resolution: str, *, dis
         before={"status": before},
         after={"status": esc.status, "resolution": resolution},
     )
-    if esc.requester_id is not None:
+    buyer, seller, booking, prop = _parties(db, esc)
+    if notify_buyer is None:
+        notify_buyer = buyer is not None and (esc.type in _TELL_BUYER or buyer.id == esc.requester_id)
+    if notify_seller is None:
+        notify_seller = seller is not None and (esc.type in _TELL_SELLER or seller.id == esc.requester_id)
+    told = {u.id: u for u, yes in ((buyer, notify_buyer), (seller, notify_seller)) if u is not None and yes}
+    for user_id in told:
         notification_service.notify(
             db,
-            esc.requester_id,
+            user_id,
             "ESCALATION_RESOLVED",
-            "Yêu cầu hỗ trợ đã được xử lý",
+            "Yêu cầu hỗ trợ đã được xử lý"
+            if user_id == esc.requester_id
+            else f"Cập nhật từ nhân viên Chủ đầu tư{f' về căn {prop.unit_code}' if prop else ''}",
             resolution,
+            # Linked to the viewing it is about, so opening the notice leads there
+            booking=booking,
             payload={"escalation_id": esc.id},
         )
+    audit.record(db, actor, "escalation.notify", "escalation", esc.id, after={"told": sorted(told)})
     db.commit()
-    return EscalationOut.model_validate(esc)
+    return _out(db, esc)
 
 
 # ---------- Requester ----------

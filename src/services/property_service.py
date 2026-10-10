@@ -244,7 +244,8 @@ def owner_overview(db: Session, actor: Actor) -> OwnerOverview:
     shown = dict(
         db.execute(
             select(Suggested.property_id, func.count())
-            .where(Suggested.property_id.in_(ids))
+            # Signed-in buyers only (as the stat says); guests' chats are stored too, for developers
+            .where(Suggested.property_id.in_(ids), Suggested.buyer_id.is_not(None))
             .group_by(Suggested.property_id)
         ).all()
     )

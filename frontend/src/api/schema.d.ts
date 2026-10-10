@@ -1140,6 +1140,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/escalations/{escalation_id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Case Context
+         * @description The case in plain words: who, which home and viewing, and the end of the buyer's chat with the assistant.
+         */
+        get: operations["case_context_api_v1_operator_escalations__escalation_id__context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/escalations/{escalation_id}/assign": {
         parameters: {
             query?: never;
@@ -1381,7 +1401,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED" | "SUPERSEDED" | "NO_SHOW" | "OWNER_ABSENT" | "UNREPORTED" | "INTERESTED" | "NOT_SUITABLE" | "DISPUTED";
+            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED" | "SUPERSEDED" | "NO_SHOW" | "OWNER_ABSENT" | "UNREPORTED" | "EXPIRED" | "RESCHEDULE_LAPSED" | "INTERESTED" | "NOT_SUITABLE" | "DISPUTED";
             /**
              * By
              * @enum {string}
@@ -1536,7 +1556,7 @@ export interface components {
          * BookingStatus
          * @enum {string}
          */
-        BookingStatus: "REQUESTED" | "CONFIRMED" | "RESCHEDULE_REQUESTED" | "REJECTED" | "CANCELLED" | "COMPLETED" | "NO_SHOW" | "OWNER_ABSENT" | "UNREPORTED";
+        BookingStatus: "REQUESTED" | "CONFIRMED" | "RESCHEDULE_REQUESTED" | "REJECTED" | "CANCELLED" | "COMPLETED" | "NO_SHOW" | "OWNER_ABSENT" | "UNREPORTED" | "EXPIRED";
         /** BuildingOut */
         BuildingOut: {
             /** Id */
@@ -1545,6 +1565,60 @@ export interface components {
             code: string;
             /** Name */
             name: string;
+        };
+        /**
+         * CaseContext
+         * @description What an operator needs to handle a case, in plain words: who, which home, which viewing, and (when the
+         *     assistant raised it) the end of the buyer's chat with the assistant.
+         */
+        CaseContext: {
+            /** Buyer Name */
+            buyer_name?: string | null;
+            /** Buyer Phone */
+            buyer_phone?: string | null;
+            /** Seller Name */
+            seller_name?: string | null;
+            /** Seller Phone */
+            seller_phone?: string | null;
+            /** Property Label */
+            property_label?: string | null;
+            /** Deal Code */
+            deal_code?: string | null;
+            /** Viewing Time */
+            viewing_time?: string | null;
+            /** Viewing Status */
+            viewing_status?: string | null;
+            /** Messages */
+            messages?: components["schemas"]["CaseMessage"][];
+            /**
+             * Notify Buyer Default
+             * @default false
+             */
+            notify_buyer_default: boolean;
+            /**
+             * Notify Seller Default
+             * @default false
+             */
+            notify_seller_default: boolean;
+            /**
+             * Earlier Messages
+             * @default 0
+             */
+            earlier_messages: number;
+        };
+        /**
+         * CaseMessage
+         * @description One message of the buyer's chat with the assistant, as the buyer saw it (no technical details).
+         */
+        CaseMessage: {
+            role: components["schemas"]["MessageRole"];
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * Channel
@@ -1602,6 +1676,11 @@ export interface components {
              * @default false
              */
             needs_account: boolean;
+            /**
+             * Trace Id
+             * @description Developer trace of this turn (table ai_turns)
+             */
+            trace_id?: string | null;
             /** @description Guest chat only: the viewing request to send after the guest signs up */
             pending_viewing?: components["schemas"]["PendingViewingRequest"] | null;
         };
@@ -1705,6 +1784,8 @@ export interface components {
             };
             /** Assigned To */
             assigned_to: number | null;
+            /** Assigned To Name */
+            assigned_to_name?: string | null;
             /** Resolution */
             resolution: string | null;
             /** Resolved At */
@@ -1930,6 +2011,18 @@ export interface components {
             escalation_id: number;
             seller: components["schemas"]["SupportSeller"] | null;
             red_book: components["schemas"]["RedBookState"] | null;
+            /** Holder Name */
+            holder_name?: string | null;
+            /**
+             * Sender Is Holder
+             * @default true
+             */
+            sender_is_holder: boolean;
+            /**
+             * Has Documents
+             * @default false
+             */
+            has_documents: boolean;
         };
         /**
          * OwnershipChallengeOut
@@ -2272,9 +2365,13 @@ export interface components {
         ResolveRequest: {
             /**
              * Resolution
-             * @description What was done / told to the buyer
+             * @description What was done / what the people are told
              */
             resolution: string;
+            /** Notify Buyer */
+            notify_buyer?: boolean | null;
+            /** Notify Seller */
+            notify_seller?: boolean | null;
         };
         /**
          * SearchCriteria
@@ -4632,6 +4729,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EscalationOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    case_context_api_v1_operator_escalations__escalation_id__context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                escalation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaseContext"];
                 };
             };
             /** @description Validation Error */
