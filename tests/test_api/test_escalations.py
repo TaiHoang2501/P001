@@ -91,6 +91,22 @@ def test_unanswered_request_is_escalated_once(db):
     assert db.query(Notification).filter_by(user_id=BUYER_ID, event_type="ESCALATION_OPENED").count() == 1
 
 
+def test_request_for_a_close_viewing_is_due_an_hour_before_it(db):
+    """Sent at 10:27 for a viewing at 14:00 next day: the seller cannot have 24 hours, only until 13:00."""
+    from src.services import booking_service
+
+    booking_id = _request(db)
+    booking = db.get(Booking, booking_id)
+    now = datetime.now(UTC)
+    booking.created_at = now - timedelta(hours=1)
+    booking.start_at, booking.end_at = now + timedelta(minutes=50), now + timedelta(minutes=80)
+    db.commit()
+    assert booking_service.respond_by(booking) == booking.start_at - timedelta(hours=1)
+
+    # Less than an hour before the viewing and still unanswered: the investor's staff step in now
+    assert escalation_service.escalate_unanswered_requests(db) == 1
+
+
 def test_recent_or_answered_requests_are_not_escalated(db):
     _request(db)  # created just now
     assert escalation_service.escalate_unanswered_requests(db) == 0
@@ -139,3 +155,93 @@ async def test_queue_is_operator_only_and_escalations_are_private(client, db):
     binh = await auth(client, CUSTOMER_BINH)
     assert (await client.get("/api/v1/escalations", headers=binh)).json() == []
     assert db.query(Escalation).filter_by(status=EscalationStatus.OPEN).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_can_still_answer_late_and_the_case_closes(client, db):
+    """Past the deadline the investor's staff are told, but the request stays the owner's to answer."""
+    booking_id = _request(db)
+    booking = db.get(Booking, booking_id)
+    booking.created_at = datetime.now(UTC) - timedelta(hours=25)
+    db.commit()
+    assert escalation_service.escalate_unanswered_requests(db) == 1
+
+    tuan = await auth(client, OWNER_TUAN)
+    r = await client.post(f"/api/v1/owner/bookings/{booking_id}/approve", headers=tuan)
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    esc = db.query(Escalation).filter_by(booking_id=booking_id).one()
+    assert esc.status.value == "RESOLVED" and "xác nhận" in esc.resolution
+
+
+@pytest.mark.asyncio
+async def test_operator_name_on_a_taken_case_and_both_sides_told_the_outcome(client, db):
+    """A request the seller left unanswered is about both: when closed, the buyer and the seller hear the outcome
+    (unless the operator unticks one); the case shows who took it."""
+    booking_id = _request(db)
+    booking = db.get(Booking, booking_id)
+    booking.created_at = datetime.now(UTC) - timedelta(hours=25)
+    db.commit()
+    escalation_service.escalate_unanswered_requests(db)
+    esc = db.query(Escalation).one()
+
+    op = await auth(client, OPERATOR)
+    r = await client.post(f"/api/v1/operator/escalations/{esc.id}/assign", headers=op)
+    assert (r.json()["status"], r.json()["assigned_to_name"]) == ("IN_PROGRESS", "Nguyễn Quang Dũng")
+    ctx = (await client.get(f"/api/v1/operator/escalations/{esc.id}/context", headers=op)).json()
+    assert (ctx["notify_buyer_default"], ctx["notify_seller_default"]) == (True, True)
+
+    r = await client.post(
+        f"/api/v1/operator/escalations/{esc.id}/resolve",
+        json={"resolution": "Đã gọi chủ căn, chủ căn sẽ trả lời trong hôm nay"},
+        headers=op,
+    )
+    assert r.status_code == 200, r.text
+    told = {
+        n.user_id
+        for n in db.query(Notification).filter_by(event_type="ESCALATION_RESOLVED")
+        if n.payload.get("escalation_id") == esc.id
+    }
+    assert told == {BUYER_ID, OWNER_ID}
+
+
+@pytest.mark.asyncio
+async def test_operator_can_tell_only_one_side(client, db):
+    booking_id = _request(db)
+    db.get(Booking, booking_id).created_at = datetime.now(UTC) - timedelta(hours=25)
+    db.commit()
+    escalation_service.escalate_unanswered_requests(db)
+    esc = db.query(Escalation).one()
+    op = await auth(client, OPERATOR)
+    r = await client.post(
+        f"/api/v1/operator/escalations/{esc.id}/resolve",
+        json={"resolution": "Nhắc chủ căn trả lời sớm", "notify_buyer": False, "notify_seller": True},
+        headers=op,
+    )
+    assert r.status_code == 200, r.text
+    told = {n.user_id for n in db.query(Notification).filter_by(event_type="ESCALATION_RESOLVED")}
+    assert told == {OWNER_ID}
+
+
+def test_request_left_unanswered_past_its_time_expires(db):
+    """The viewing time came and the owner never answered: the request closes by itself, the buyer is told."""
+    from src.db.models import BookingStatus, Deal, DealStatus
+    from src.services import booking_service
+
+    booking_id = _request(db)
+    booking = db.get(Booking, booking_id)
+    booking.created_at = datetime.now(UTC) - timedelta(days=2)
+    db.commit()
+    escalation_service.escalate_unanswered_requests(db)
+    booking.start_at = datetime.now(UTC) - timedelta(minutes=5)
+    booking.end_at = booking.start_at + timedelta(minutes=30)
+    db.commit()
+
+    assert booking_service.expire_unanswered(db) == 1
+    db.expire_all()
+    booking = db.get(Booking, booking_id)
+    assert booking.status == BookingStatus.EXPIRED
+    assert db.get(Deal, booking.deal_id).status == DealStatus.MATCHED
+    assert db.query(Notification).filter_by(user_id=BUYER_ID, event_type="VIEWING_EXPIRED").count() == 1
+    assert db.query(Escalation).one().status.value == "RESOLVED"
+    assert booking_service.expire_unanswered(db) == 0  # once

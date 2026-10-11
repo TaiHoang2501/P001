@@ -5,7 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.db.models import UserRole, UserStatus
 
-PHONE_PATTERN = r"^0\d{9,10}$"
+# 0 + a non-zero digit + 8-9 more ("0012345678" is not a phone number)
+PHONE_PATTERN = r"^0[1-9]\d{8,9}$"
 _PHONE_RE = re.compile(PHONE_PATTERN)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -17,8 +18,18 @@ def is_phone(target: str) -> bool:
     return _PHONE_RE.fullmatch(target) is not None
 
 
+def normalize_phone(value: str) -> str:
+    """ "0912 345 678", "0912.345.678", "+84 912 345 678", "84912345678" -> "0912345678"; other text unchanged."""
+    if not re.fullmatch(r"[+\d\s.\-()]+", value):
+        return value
+    digits = re.sub(r"\D", "", value)
+    if digits.startswith("84") and len(digits) in (11, 12):
+        digits = "0" + digits[2:]
+    return digits
+
+
 def _phone_or_email(value: str) -> str:
-    value = value.strip().lower()
+    value = normalize_phone(value.strip().lower())
     if not (is_phone(value) or _EMAIL_RE.fullmatch(value)):
         raise ValueError("must be a Vietnamese phone number (e.g. 09xxxxxxxx) or an email")
     return value

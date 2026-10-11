@@ -13,11 +13,15 @@ import { ArrowLeftIcon, ArrowRightIcon, CalendarIcon, CheckCircleIcon, SparkleIc
 export function BuyerStartPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [phase, setPhase] = useState<IntroPhase>("in");
+  // The slogan plays once per browser tab, not every time the buyer comes back to this page
+  const [phase, setPhase] = useState<IntroPhase>(() => (introSeen() ? "done" : "in"));
 
   // Slogan grows in (2.6s), fades out (0.7s), then the question
   useEffect(() => {
-    if (phase === "done") return;
+    if (phase === "done") {
+      markIntroSeen();
+      return;
+    }
     const t = setTimeout(() => setPhase(phase === "in" ? "out" : "done"), phase === "in" ? INTRO_MS : OUTRO_MS);
     return () => clearTimeout(t);
   }, [phase]);
@@ -129,6 +133,24 @@ export function BuyerStartPage() {
 }
 
 type IntroPhase = "in" | "out" | "done";
+
+const INTRO_KEY = "bookingbot.intro.seen";
+
+function introSeen(): boolean {
+  try {
+    return sessionStorage.getItem(INTRO_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markIntroSeen() {
+  try {
+    sessionStorage.setItem(INTRO_KEY, "1");
+  } catch {
+    // Storage blocked: the intro plays again next time
+  }
+}
 const INTRO_MS = 2600;
 const OUTRO_MS = 700;
 

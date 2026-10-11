@@ -170,7 +170,9 @@ def approve_booking(booking_id: int, actor: OwnerActor, db: DbSession) -> Bookin
 
 @router.post("/bookings/{booking_id}/reject", response_model=BookingOut)
 def reject_booking(booking_id: int, data: BookingRejectRequest, actor: OwnerActor, db: DbSession) -> BookingOut:
-    return booking_service.reject(db, actor, booking_id, data.reason)
+    return booking_service.reject(
+        db, actor, booking_id, data.reason, suggested_starts=data.suggested_starts, close_time=data.close_time
+    )
 
 
 @router.post("/bookings/{booking_id}/no-show", response_model=BookingOut)

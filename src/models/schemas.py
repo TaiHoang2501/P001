@@ -43,6 +43,7 @@ class ChatResponse(BaseModel):
     needs_account: bool = Field(
         default=False, description="Guest chat only: the buyer asked for something that needs an account (booking)"
     )
+    trace_id: str | None = Field(default=None, description="Developer trace of this turn (table ai_turns)")
     pending_viewing: PendingViewingRequest | None = Field(
         default=None, description="Guest chat only: the viewing request to send after the guest signs up"
     )

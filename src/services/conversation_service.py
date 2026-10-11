@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from src.core.actor import Actor
@@ -17,6 +17,7 @@ from src.core.errors import NotFoundError
 from src.db.models import (
     AiConversation,
     AiMessage,
+    AiTurn,
     ConversationStatus,
     Deal,
     Escalation,
@@ -26,40 +27,62 @@ from src.db.models import (
 from src.models.schemas import ChatMessageOut, ConversationOut
 
 
-def get_or_create(db: Session, actor: Actor, client_id: str, thread_id: str) -> AiConversation:
-    conv = db.scalar(
-        select(AiConversation).where(AiConversation.buyer_id == actor.id, AiConversation.client_id == client_id)
+def get_or_create(db: Session, actor: Actor | None, client_id: str, thread_id: str) -> AiConversation:
+    """The buyer's conversation, or a guest's (actor None: no buyer yet, found by its thread)."""
+    where = (
+        (AiConversation.buyer_id == actor.id, AiConversation.client_id == client_id)
+        if actor is not None
+        else (AiConversation.thread_id == thread_id,)
     )
+    conv = db.scalar(select(AiConversation).where(*where))
     if conv is None:
-        conv = AiConversation(buyer_id=actor.id, client_id=client_id, thread_id=thread_id)
+        conv = AiConversation(buyer_id=actor.id if actor else None, client_id=client_id, thread_id=thread_id)
         db.add(conv)
         db.flush()
     return conv
 
 
+def claim_guest(db: Session, actor: Actor, guest_thread: str, thread_id: str) -> bool:
+    """A guest signed up: their stored conversation (and its recommendations) becomes the new account's."""
+    conv = db.scalar(
+        select(AiConversation).where(AiConversation.thread_id == guest_thread, AiConversation.buyer_id.is_(None))
+    )
+    if conv is None or db.scalar(select(AiConversation.id).where(AiConversation.thread_id == thread_id)):
+        return False
+    conv.buyer_id, conv.thread_id = actor.id, thread_id
+    db.execute(update(Recommendation).where(Recommendation.conversation_id == conv.id).values(buyer_id=actor.id))
+    db.execute(update(AiTurn).where(AiTurn.conversation_id == conv.id).values(buyer_id=actor.id))
+    db.commit()
+    return True
+
+
 def record_turn(
     db: Session,
-    actor: Actor,
+    actor: Actor | None,
     *,
     client_id: str,
     thread_id: str,
     messages: list[BaseMessage],
     latency_ms: int,
+    turn_id: int | None = None,
+    conv: AiConversation | None = None,
 ) -> AiConversation:
-    """Store one turn (the new messages) and derive recommendations / deal attribution from tool results."""
-    conv = get_or_create(db, actor, client_id, thread_id)
+    """Store one turn (the new messages) and derive recommendations / deal attribution from tool results.
+    `actor` None: a guest's turn (stored too; claimed when the guest signs up)."""
+    conv = conv or get_or_create(db, actor, client_id, thread_id)
     tool_args: dict[str, dict[str, Any]] = {}
     last_assistant: AiMessage | None = None
 
     for m in messages:
         if isinstance(m, HumanMessage):
-            db.add(AiMessage(conversation_id=conv.id, role=MessageRole.USER, content=m.text))
+            db.add(AiMessage(conversation_id=conv.id, turn_id=turn_id, role=MessageRole.USER, content=m.text))
         elif isinstance(m, AIMessage):
             calls = [{"id": c["id"], "name": c["name"], "args": c["args"]} for c in m.tool_calls]
             tool_args.update({c["id"]: c["args"] for c in calls})
             usage = m.usage_metadata or {}
             last_assistant = AiMessage(
                 conversation_id=conv.id,
+                turn_id=turn_id,
                 role=MessageRole.ASSISTANT,
                 content=m.text,
                 tool_calls=calls or None,
@@ -76,6 +99,7 @@ def record_turn(
             args = tool_args.get(m.tool_call_id, {})
             row = AiMessage(
                 conversation_id=conv.id,
+                turn_id=turn_id,
                 role=MessageRole.TOOL,
                 content="",
                 tool_name=m.name,
@@ -91,11 +115,11 @@ def record_turn(
     if last_assistant is not None:
         last_assistant.latency_ms = latency_ms
     conv.last_message_at = datetime.now(UTC)
-    db.commit()
+    db.flush()
     return conv
 
 
-def _on_tool_success(db: Session, actor: Actor, conv: AiConversation, row: AiMessage, data: Any) -> None:
+def _on_tool_success(db: Session, actor: Actor | None, conv: AiConversation, row: AiMessage, data: Any) -> None:
     if row.tool_name == "search_properties":
         conv.extracted_criteria = row.tool_args or {}
         for rank, rec in enumerate(data.get("results", []), start=1):
@@ -103,7 +127,7 @@ def _on_tool_success(db: Session, actor: Actor, conv: AiConversation, row: AiMes
                 Recommendation(
                     conversation_id=conv.id,
                     ai_message_id=row.id,
-                    buyer_id=actor.id,
+                    buyer_id=actor.id if actor is not None else None,
                     property_id=rec["property"]["id"],
                     rank=rank,
                     match_score=Decimal(str(rec["match_score"])).quantize(Decimal("0.0001")),

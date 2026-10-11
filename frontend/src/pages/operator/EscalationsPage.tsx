@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { api, call } from "../../api/client";
+import { useAuth } from "../../auth/AuthContext";
 import type { Escalation } from "../../api/types";
 import { EmptyState, ErrorBox, PageHeader, Spinner } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
+import { useJumpFlash } from "../../lib/jump";
+import { CaseContext } from "./CaseContext";
 import { OwnershipCase } from "./OwnershipCase";
 import { ViewingDisputeCase } from "./ViewingDisputeCase";
 
@@ -16,26 +20,40 @@ const TYPE: Record<Escalation["type"], string> = {
   MULTI_BUYER: "Nhiều người mua cùng căn",
   SYSTEM_FAILURE: "Lỗi hệ thống",
   OTHER: "Khác",
-  OWNERSHIP_SUPPORT: "Hỗ trợ xác thực sổ đỏ",
+  OWNERSHIP_SUPPORT: "Hỗ trợ xác thực sổ đỏ / sổ hồng",
   VIEWING_DISPUTE: "Tranh chấp kết quả buổi xem",
+};
+
+const STATUS: Record<Escalation["status"], { text: string; tone: string }> = {
+  OPEN: { text: "Chờ nhận", tone: "bg-amber-100 text-amber-900" },
+  IN_PROGRESS: { text: "Đang xử lý", tone: "bg-sky-100 text-sky-900" },
+  RESOLVED: { text: "Đã xử lý", tone: "bg-emerald-100 text-emerald-900" },
+  DISMISSED: { text: "Đã bỏ qua", tone: "bg-stone-200 text-stone-700" },
 };
 
 const RAISED_BY: Record<Escalation["raised_by"], string> = { USER: "Người dùng", AI_AGENT: "Trợ lý AI", SYSTEM: "Hệ thống" };
 
 /** Exception queue (spec §4.15 Operator, §4.3 HITL, §6.4): what the AI or the system could not resolve. */
 export function EscalationsPage() {
+  const [params] = useSearchParams();
+  // Opened from a notification (?case=ID): that case lights up; a closed one is looked for among the handled ones
+  const opened = Number(params.get("case")) || null;
   const [showClosed, setShowClosed] = useState(false);
   const queue = useQuery({
     queryKey: ["escalations", showClosed],
     queryFn: () =>
       call(api.GET("/api/v1/operator/escalations", { params: { query: showClosed ? { status: "RESOLVED" } : {} } })),
   });
+  const missing = opened !== null && queue.data !== undefined && !queue.data.some((e) => e.id === opened);
+  useEffect(() => {
+    if (missing && !showClosed) setShowClosed(true);
+  }, [missing, showClosed]);
 
   return (
     <div>
       <PageHeader
         title="Hàng đợi ngoại lệ"
-        subtitle="Các trường hợp AI, hệ thống hoặc người dùng chuyển cho người xử lý (kể cả hỗ trợ xác thực sổ đỏ); người gửi được báo kết quả khi bạn đóng."
+        subtitle="Các trường hợp AI, hệ thống hoặc người dùng chuyển cho người xử lý (kể cả hỗ trợ xác thực sổ đỏ / sổ hồng); người gửi được báo kết quả khi bạn đóng."
         action={
           <button type="button" className="btn-secondary btn-sm" onClick={() => setShowClosed((v) => !v)}>
             {showClosed ? "Xem đang mở" : "Xem đã xử lý"}
@@ -47,25 +65,38 @@ export function EscalationsPage() {
       {queue.data?.length === 0 && <EmptyState title={showClosed ? "Chưa có trường hợp đã xử lý" : "Không có trường hợp nào đang chờ"} />}
       <ul className="space-y-3">
         {queue.data?.map((e) => (
-          <EscalationRow key={e.id} escalation={e} />
+          <EscalationRow key={e.id} escalation={e} opened={e.id === opened} />
         ))}
       </ul>
     </div>
   );
 }
 
-function EscalationRow({ escalation: e }: { escalation: Escalation }) {
+function EscalationRow({ escalation: e, opened = false }: { escalation: Escalation; opened?: boolean }) {
+  const flash = useJumpFlash(opened);
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [resolution, setResolution] = useState("");
+  // Who hears the outcome: preset for the kind of case, the operator can change it
+  const ctx = useQuery({
+    queryKey: ["escalation-context", e.id],
+    queryFn: () =>
+      call(api.GET("/api/v1/operator/escalations/{escalation_id}/context", { params: { path: { escalation_id: e.id } } })),
+  });
+  const [tellBuyer, setTellBuyer] = useState<boolean | null>(null);
+  const [tellSeller, setTellSeller] = useState<boolean | null>(null);
+  const buyerTold = tellBuyer ?? ctx.data?.notify_buyer_default ?? false;
+  const sellerTold = tellSeller ?? ctx.data?.notify_seller_default ?? false;
+  const outcome = { resolution, notify_buyer: buyerTold, notify_seller: sellerTold };
   const path = { params: { path: { escalation_id: e.id } } };
   const onSuccess = () => queryClient.invalidateQueries({ queryKey: ["escalations"] });
   const assign = useMutation({ mutationFn: () => call(api.POST("/api/v1/operator/escalations/{escalation_id}/assign", path)), onSuccess });
   const resolve = useMutation({
-    mutationFn: () => call(api.POST("/api/v1/operator/escalations/{escalation_id}/resolve", { ...path, body: { resolution } })),
+    mutationFn: () => call(api.POST("/api/v1/operator/escalations/{escalation_id}/resolve", { ...path, body: outcome })),
     onSuccess,
   });
   const dismiss = useMutation({
-    mutationFn: () => call(api.POST("/api/v1/operator/escalations/{escalation_id}/dismiss", { ...path, body: { resolution } })),
+    mutationFn: () => call(api.POST("/api/v1/operator/escalations/{escalation_id}/dismiss", { ...path, body: outcome })),
     onSuccess,
   });
   const open = e.status === "OPEN" || e.status === "IN_PROGRESS";
@@ -73,60 +104,99 @@ function EscalationRow({ escalation: e }: { escalation: Escalation }) {
   const error = assign.error ?? resolve.error ?? dismiss.error;
 
   return (
-    <li className="card space-y-3 p-4">
+    <li ref={flash} className="card space-y-3 p-4">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-medium">{TYPE[e.type]}</h3>
-            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-700">{e.status}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS[e.status].tone}`}>
+              {STATUS[e.status].text}
+            </span>
+            {e.status === "IN_PROGRESS" && e.assigned_to && (
+              <span className="text-xs text-muted">
+                {e.assigned_to === user?.id ? "Bạn đang xử lý" : `${e.assigned_to_name ?? "Đồng nghiệp"} đang xử lý`}
+              </span>
+            )}
           </div>
           <p className="mt-1 text-sm">{e.summary}</p>
+          {/* Who and which home are shown by name below, not as internal ids */}
           <p className="mt-1 text-xs text-muted">
             {RAISED_BY[e.raised_by]} · {formatDateTime(e.created_at)}
-            {e.requester_id && ` · Người dùng #${e.requester_id}`}
-            {e.booking_id && ` · Booking #${e.booking_id}`}
-            {e.property_id && ` · Căn #${e.property_id}`}
           </p>
           {e.resolution && <p className="mt-1 text-sm text-emerald-800">Kết quả: {e.resolution}</p>}
         </div>
         {e.status === "OPEN" && (
-          <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => assign.mutate()}>
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            disabled={busy}
+            title="Ghi tên bạn vào ca, để đồng nghiệp biết ca này đã có người lo"
+            onClick={() => assign.mutate()}
+          >
             Nhận xử lý
           </button>
         )}
       </div>
+      {/* Red book support and viewing disputes have their own panels with the people involved */}
+      {e.type !== "OWNERSHIP_SUPPORT" && e.type !== "VIEWING_DISPUTE" && <CaseContext escalation={e} />}
       {e.type === "OWNERSHIP_SUPPORT" && <OwnershipCase escalation={e} />}
       {e.type === "VIEWING_DISPUTE" && <ViewingDisputeCase escalation={e} />}
       {open && (
         <form
-          className="flex flex-wrap gap-2"
+          className="space-y-2 border-t border-line pt-3"
           onSubmit={(ev) => {
             ev.preventDefault();
             resolve.mutate();
           }}
         >
-          <label htmlFor={`res-${e.id}`} className="sr-only">
+          <label htmlFor={`res-${e.id}`} className="text-sm font-semibold">
             Kết quả xử lý
           </label>
           <input
             id={`res-${e.id}`}
-            className="input min-w-0 flex-1"
+            className="input w-full"
             required
             minLength={3}
             placeholder={
               e.type === "OWNERSHIP_SUPPORT"
-                ? "Hoặc đóng ca với lời nhắn (người bán sẽ thấy), VD: Giấy ủy quyền chưa công chứng, vui lòng bổ sung"
-                : "Kết quả (người mua sẽ thấy), VD: Đã hẹn chủ căn 19h thứ 6"
+                ? "VD: Giấy ủy quyền chưa công chứng, vui lòng bổ sung"
+                : "VD: Đã hẹn chủ căn tiếp khách 19h thứ 6"
             }
             value={resolution}
             onChange={(ev) => setResolution(ev.target.value)}
           />
-          <button type="submit" className="btn-primary btn-sm" disabled={busy}>
-            Đã xử lý
-          </button>
-          <button type="button" className="btn-secondary btn-sm" disabled={busy || resolution.trim().length < 3} onClick={() => dismiss.mutate()}>
-            Bỏ qua
-          </button>
+          {(ctx.data?.buyer_name || ctx.data?.seller_name) && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="text-muted">Gửi lời nhắn này tới:</span>
+              {ctx.data?.buyer_name && (
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={buyerTold} onChange={(ev) => setTellBuyer(ev.target.checked)} />
+                  Người mua {ctx.data.buyer_name}
+                </label>
+              )}
+              {ctx.data?.seller_name && (
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={sellerTold} onChange={(ev) => setTellSeller(ev.target.checked)} />
+                  Chủ căn {ctx.data.seller_name}
+                </label>
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="submit" className="btn-primary btn-sm" disabled={busy}>
+              Đã xử lý
+            </button>
+            <span className="text-xs text-muted">đã giải quyết xong</span>
+            <button
+              type="button"
+              className="btn-secondary btn-sm ml-2"
+              disabled={busy || resolution.trim().length < 3}
+              onClick={() => dismiss.mutate()}
+            >
+              Bỏ qua
+            </button>
+            <span className="text-xs text-muted">không cần xử lý (VD ca trùng, thiếu giấy tờ)</span>
+          </div>
         </form>
       )}
       {error && <ErrorBox error={error} />}

@@ -174,9 +174,9 @@ def _follow_up(db: Session, booking: Booking, kind: str, key: str, now: datetime
         homes = ", ".join(f"{_label(p)} – {_price(p.price_vnd)}, {p.bedrooms} PN" for p in similar)
         options.append(f"Căn tương tự còn trống: {homes}.")
     if options:
-        closing = "Nhắn AI Agent trong mục Tìm nhà với AI để đặt một lựa chọn."
+        closing = "Nhắn Trợ lý AI trong mục Tìm nhà để đặt một lựa chọn."
     else:
-        closing = "AI chưa tìm được lựa chọn thay thế; bộ phận hỗ trợ của Chủ đầu tư sẽ theo dõi giúp bạn."
+        closing = "Trợ lý AI chưa tìm được lựa chọn thay thế; bộ phận hỗ trợ của Chủ đầu tư sẽ theo dõi giúp bạn."
     template = " ".join([opening, *options, closing])
 
     buyer = db.get(User, booking.customer_id)
@@ -196,7 +196,7 @@ def _follow_up(db: Session, booking: Booking, kind: str, key: str, now: datetime
         db,
         booking.customer_id,
         "AGENT_FOLLOWUP",
-        "AI Agent gợi ý lựa chọn khác" if options else "Cập nhật yêu cầu xem nhà",
+        "Trợ lý AI gợi ý lựa chọn khác" if options else "Cập nhật yêu cầu xem nhà",
         body,
         booking=booking,
         payload={
@@ -235,7 +235,7 @@ def announce_listing(db: Session, prop: Property) -> int:
             f"Căn {_label(prop)} vừa mở bán: {_price(prop.price_vnd)}, {prop.bedrooms} PN, "
             f"{float(prop.area_m2):g} m², tầng {prop.floor}"
             + (f" — phù hợp {round(rec.match_score * 100)}% với tiêu chí bạn đã tìm." if has_preferences else ".")
-            + " Nhắn AI Agent để xem chi tiết hoặc đặt lịch xem.",
+            + " Nhắn Trợ lý AI để xem chi tiết hoặc đặt lịch xem.",
             payload={"property_id": prop.id, "match_score": rec.match_score},
             dedupe_key=key,
         )
@@ -274,7 +274,7 @@ def personalize_due_reminders(db: Session, now: datetime | None = None) -> int:
                 "căn": f"{prop.unit_code}, {prop.building.name}, {prop.building.project.name}",
                 "giờ xem": _when(booking.start_at),
                 "mã deal": code,
-                "lưu ý": "Căn được giữ riêng cho bạn trong khung giờ này; muốn đổi giờ hãy nhắn AI Agent.",
+                "lưu ý": "Căn được giữ riêng cho bạn trong khung giờ này; muốn đổi giờ hãy nhắn Trợ lý AI.",
             },
             note.body,
             must_include=[code],

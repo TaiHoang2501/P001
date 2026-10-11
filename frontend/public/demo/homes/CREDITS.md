@@ -1,7 +1,8 @@
 # Demo home photos
 
 Illustrative apartment interiors for the demo listings (not photos of the actual Vinhomes units).
-All from [Pexels](https://www.pexels.com), free to use under the [Pexels License](https://www.pexels.com/license/).
+The files below are from [Pexels](https://www.pexels.com), free to use under the
+[Pexels License](https://www.pexels.com/license/); the rest are AI-generated (see the end of this page).
 
 | File | Source |
 |---|---|
@@ -22,3 +23,9 @@ All from [Pexels](https://www.pexels.com), free to use under the [Pexels License
 | bedroom-2.jpg | https://www.pexels.com/photo/6636243/ |
 | bedroom-3.jpg | https://www.pexels.com/photo/8135527/ |
 | bedroom-4.jpg | https://www.pexels.com/photo/15667603/ |
+
+## AI-generated
+
+`living-9.jpg` … `living-24.jpg`, `bedroom-5.jpg` … `bedroom-16.jpg` and `kitchen-6.jpg` … `kitchen-12.jpg` were
+generated with Google Gemini (`gemini-2.5-flash-image`) from text prompts describing typical Hanoi condominium
+interiors. They show no real place or person.

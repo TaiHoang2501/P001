@@ -234,6 +234,17 @@ python eval/run_golden.py
 ```
 *Kết quả đánh giá AI sẽ được tự động ghi lại tại [`eval/results/golden_report.md`](eval/results/golden_report.md).*
 
+### Trace AI cho dev
+
+Mỗi lượt chat với Trợ lý AI (cả khách chưa đăng nhập và lượt bị lỗi) được ghi vào bảng `ai_turns`: câu hỏi, kết quả, từng lần gọi model / công cụ kèm thời gian và token. Mã trace (`trace_id`) có trong phản hồi chat và trong log server khi một lượt bị lỗi. Phần này chỉ dành cho đội phát triển.
+
+```bash
+python scripts/ai_traces.py recent -n 20            # các lượt gần đây (--errors: chỉ lượt lỗi, --guests: chỉ khách)
+python scripts/ai_traces.py show <trace_id>         # chi tiết một lượt: từng bước, tin nhắn, tham số và kết quả công cụ
+python scripts/ai_traces.py stats --days 7          # tỉ lệ lỗi, thời gian p50/p95, token, công cụ hay lỗi
+```
+Trace cũ tự xóa sau `AI_TRACE_RETENTION_DAYS` ngày (mặc định 180).
+
 ---
 
 ## 8. Hướng dẫn Triển khai Production (Vercel + Render + Neon)

@@ -103,6 +103,26 @@ VIEW_TEXT = {
 FURNISH_TEXT = {Furnishing.NONE: "bàn giao thô", Furnishing.BASIC: "nội thất cơ bản", Furnishing.FULL: "full nội thất"}
 
 
+def _m2(area: Decimal | str) -> str:
+    """Area the Vietnamese way, with a decimal comma: 57.5 -> "57,5"."""
+    return str(area).replace(".", ",")
+
+
+# Older seeded descriptions wrote the area with a decimal point ("Căn 2PN 57.5 m² tầng 12, ...")
+_SEEDED_AREA = re.compile(r"^(Căn \S+ )(\d+)\.(\d+)( m² tầng )")
+
+
+# The listings waiting for review (and the hidden one of an unverified owner): real-looking units, not "X01"
+# (unit number suffix, bedrooms, area m², floor, price VND); older databases are updated by ensure_red_book_units
+EXTRA_UNITS = [
+    ("1206", 2, "68.5", 12, 3_650_000_000),
+    ("1803", 3, "92.0", 18, 5_200_000_000),
+    ("0911", 2, "55.3", 9, 2_850_000_000),
+    ("2104", 2, "74.0", 21, 4_100_000_000),
+]
+_PLACEHOLDER_UNIT = re.compile(r"^(.+)-X0([1-4])$")
+
+
 def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]:
     props: list[Property] = []
     # 32 approved listings across the two active owners
@@ -130,7 +150,7 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
                 view=view,
                 furnishing=furnishing,
                 legal_status=rng.choice([LegalStatus.PINK_BOOK, LegalStatus.PINK_BOOK, LegalStatus.SALE_CONTRACT]),
-                description=f"Căn {label} {area} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
+                description=f"Căn {label} {_m2(area)} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
                 status=PropertyStatus.AVAILABLE,
             )
         )
@@ -143,17 +163,18 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
     ]
     for j, (owner_id, status, desc) in enumerate(extra):
         building = buildings[j]
+        unit, beds, area, floor, price = EXTRA_UNITS[j]
         props.append(
             Property(
                 owner_id=owner_id,
                 building=building,
-                unit_code=f"{building.code}-X{j + 1:02d}",
+                unit_code=f"{building.code}-{unit}",
                 property_type=PropertyType.APARTMENT,
-                bedrooms=2,
+                bedrooms=beds,
                 bathrooms=2,
-                area_m2=Decimal("70.0"),
-                floor=10,
-                price_vnd=3_500_000_000,
+                area_m2=Decimal(area),
+                floor=floor,
+                price_vnd=price,
                 direction=Direction.SE,
                 view=ViewType.PARK,
                 furnishing=Furnishing.BASIC,
@@ -218,7 +239,7 @@ def ensure_listings(db: Session) -> int:
             view=view,
             furnishing=furnishing,
             legal_status=LegalStatus.PINK_BOOK,
-            description=f"Căn 2PN {area} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
+            description=f"Căn 2PN {_m2(area)} m² tầng {floor}, {VIEW_TEXT[view]}, {FURNISH_TEXT[furnishing]}.",
             status=PropertyStatus.AVAILABLE,
         )
         db.add(prop)
@@ -329,11 +350,12 @@ def ensure_seller_story(db: Session) -> str:
     return f"{added_books} red book(s) added, {linked} listing(s) linked, {moved} listing(s) moved to the other seller"
 
 
-# Illustrative interiors served by the web app (frontend/public/demo/homes, Pexels License; see CREDITS.md there)
+# Illustrative interiors served by the web app (frontend/public/demo/homes: Pexels photos and AI-generated ones;
+# see CREDITS.md there)
 DEMO_PHOTOS = {
-    "living": [f"/demo/homes/living-{i}.jpg" for i in range(1, 9)],
-    "bedroom": [f"/demo/homes/bedroom-{i}.jpg" for i in range(1, 5)],
-    "kitchen": [f"/demo/homes/kitchen-{i}.jpg" for i in range(1, 6)],
+    "living": [f"/demo/homes/living-{i}.jpg" for i in range(1, 25)],
+    "bedroom": [f"/demo/homes/bedroom-{i}.jpg" for i in range(1, 17)],
+    "kitchen": [f"/demo/homes/kitchen-{i}.jpg" for i in range(1, 13)],
 }
 
 
@@ -350,10 +372,16 @@ def ensure_photos(db: Session) -> int:
         placeholder = f"public/properties/{prop.id}/cover.jpg"  # the key `_media` gives every seeded listing
         if any(m.s3_key != placeholder and not m.s3_key.startswith("/demo/homes/") for m in images):
             continue  # the seller's own photos
-        # Spread the sets so listings shown together (e.g. one seller's) do not share a cover photo
+        # Spread the sets so listings shown together (e.g. one seller's) do not share a cover photo: each step is
+        # coprime with its set size, so consecutive ids cycle through every photo before one repeats
         i = prop.id
-        cover = (i * 7 + i // 8) % 8
-        photos = [living[cover], bedroom[(i * 3 + i // 4) % 4], kitchen[(i * 2 + i // 5) % 5], living[(cover + 3) % 8]]
+        cover = (i * 7) % len(living)
+        photos = [
+            living[cover],
+            bedroom[(i * 5) % len(bedroom)],
+            kitchen[(i * 5) % len(kitchen)],
+            living[(cover + len(living) // 2) % len(living)],
+        ]
         if [m.s3_key for m in sorted(images, key=lambda m: m.sort_order)] == photos:
             continue
         for m in images:
@@ -645,6 +673,133 @@ def ensure_showcase(db: Session) -> str:
     return ", ".join(done) if done else "nothing to add"
 
 
+# A full set of cases for the demo buyer Nguyễn Văn An (0901111222) and more for the story seller, so both the
+# buyer's "Hoạt động" page and the seller's requests page show every state. Days are counted from the day the seed
+# runs and stay clear of DEMO_REQUESTS (days 1-4) and the showcase (day 2), so confirmed viewings never clash.
+# (unit of the story seller, day, hour)
+RICH_DEMO_BUYER_PHONE = "0901111222"
+RICH_DEMO_MARKER = "seed.rich_demo"
+# New buyers asking the story seller: (name, phone, budget min/max in tỷ)
+RICH_DEMO_BUYERS = {
+    "vinh": ("Đinh Quang Vinh", "0938100121", 4.5, 5.0),
+    "trang": ("Tạ Thu Trang", "0938100122", 3.8, 4.4),
+    "duc": ("Lương Minh Đức", "0938100123", 3.0, 3.5),
+    "ngoc": ("Hồ Bảo Ngọc", "0938100124", 3.8, 4.5),
+    "tuan": ("Phùng Anh Tuấn", "0938100125", 3.5, 4.0),
+    "linh": ("Kiều Mỹ Linh", "0938100126", 3.5, 4.0),
+    "nam": ("Võ Thành Nam", "0938100127", 4.5, 5.2),
+}
+
+
+def ensure_rich_demo(db: Session) -> str:
+    """Add the rich demo cases once (see RICH_DEMO_*). Run after --ensure-slots (with enough days) and the showcase.
+
+    Buyer Nguyễn Văn An: waiting for the owner, confirmed (with its viewing pass), asked for a new time, declined
+    with times the owner suggested, cancelled, past viewing waiting for the owner's record, viewed (asked how it
+    went), interested, recorded as a no-show. Seller Hoàng Thị Lan: more requests to answer (one due soon), viewings
+    coming up, new times asked for, a past viewing to record, a buyer interested after a viewing.
+    """
+    from src.core.actor import Actor
+    from src.db.models import AuditLog
+    from src.models.booking import BookingCreate, RescheduleRequest
+    from src.services import audit, booking_service, viewing_outcome_service
+
+    if db.scalar(select(AuditLog.id).where(AuditLog.action == RICH_DEMO_MARKER)) is not None:
+        return "already added"
+    an = db.scalar(select(User).where(User.phone == RICH_DEMO_BUYER_PHONE, User.role == UserRole.CUSTOMER))
+    lan = db.scalar(select(User).where(User.phone == STORY_SELLER_PHONE, User.role == UserRole.OWNER))
+    tuan = db.scalar(select(User).where(User.phone == "0918765432", User.role == UserRole.OWNER))
+    if an is None or lan is None or tuan is None:
+        return "skipped (demo accounts missing)"
+    available = Property.status == PropertyStatus.AVAILABLE
+    lan_homes = {p.unit_code: p for p in db.scalars(select(Property).where(Property.owner_id == lan.id, available))}
+    units = [u for u in ("S1.08-2410", "S1.08-1026", "S2.01-0718", "S1.08-0904") if u in lan_homes]
+    if len(units) < 4:
+        return "skipped (the story seller's homes are missing)"
+    h1, h2, h3, h4 = (lan_homes[u] for u in units)
+    # Tuấn's homes An has no deal on yet, for the past viewings
+    an_deals = set(db.scalars(select(Deal.property_id).where(Deal.buyer_id == an.id)))
+    tuans = [
+        p
+        for p in db.scalars(select(Property).where(Property.owner_id == tuan.id, available).order_by(Property.id))
+        if p.id not in an_deals
+    ][:5]
+    if len(tuans) < 5:
+        return "skipped (not enough homes of the second seller)"
+
+    tz = ZoneInfo(get_settings().timezone)
+    today = datetime.now(tz).date()
+
+    def at(day: int, hour: int) -> datetime:
+        return datetime.combine(today + timedelta(days=day), time(hour, 0), tzinfo=tz)
+
+    def past(buyer: User, prop: Property, day: int, hour: int, status: str) -> int:
+        """A past viewing at the first of a few hours when the home's owner had no other confirmed viewing."""
+        from src.services.availability_service import owner_busy
+
+        for h in (hour, 10, 15, 11, 17):
+            start = at(day, h)
+            if status not in ("CONFIRMED", "RESCHEDULE_REQUESTED") or not owner_busy(
+                db, prop.owner_id, start, start + timedelta(minutes=SLOT_MINUTES)
+            ):
+                return _past_booking(db, buyer, prop, start, status)
+        raise RuntimeError(f"no free past hour for {prop.unit_code}")
+
+    def ask(buyer: User, prop: Property, day: int, hour: int, note: str | None = None) -> int:
+        return booking_service.create_request(
+            db, Actor(buyer), BookingCreate(property_id=prop.id, start_at=at(day, hour), note=note)
+        ).id
+
+    buyers = {key: _showcase_buyer(db, *data) for key, data in RICH_DEMO_BUYERS.items()}
+    if any(b is None for b in buyers.values()):
+        return "skipped (rich demo buyers already exist)"
+    owner_lan, buyer_an = Actor(lan), Actor(an)
+    done: list[str] = []
+
+    # ---- Nguyễn Văn An ----
+    ask(an, h4, 5, 14, "Đi cùng vợ, muốn xem kỹ ban công và hướng nắng")
+    done.append("An: waiting for the owner")
+    booking_service.approve(db, owner_lan, ask(an, h2, 5, 9, "Cần chỗ để ô tô"))
+    done.append("An: confirmed")
+    moved = ask(an, h1, 6, 14)
+    booking_service.approve(db, owner_lan, moved)
+    booking_service.reschedule(db, buyer_an, moved, RescheduleRequest(start_at=at(7, 16)))
+    done.append("An: new time asked")
+    declined = ask(an, h3, 5, 16)
+    booking_service.reject(
+        db, owner_lan, declined, "Chiều hôm đó tôi bận, mời anh chọn giờ khác", suggested_starts=[at(8, 14), at(9, 9)]
+    )
+    done.append("An: declined with suggested times")
+    booking_service.cancel(db, buyer_an, ask(an, tuans[0], 5, 16))
+    done.append("An: cancelled")
+    past(an, tuans[1], -1, 14, "CONFIRMED")
+    done.append("An: past viewing to record")
+    past(an, tuans[2], -2, 9, "COMPLETED")
+    done.append("An: viewed")
+    liked = past(an, tuans[3], -3, 16, "COMPLETED")
+    viewing_outcome_service.feedback(db, buyer_an, liked, "INTERESTED", "Thích view và cách bố trí bếp")
+    done.append("An: interested")
+    past(an, tuans[4], -1, 9, "NO_SHOW")
+    done.append("An: recorded as a no-show")
+
+    # ---- Hoàng Thị Lan ----
+    ask(buyers["vinh"], h2, 1, 16, "Muốn xem sớm vì đang cân nhắc 2 căn")  # due in less than a day
+    ask(buyers["trang"], h3, 7, 9, "Gia đình 3 người, quan tâm trường học gần đó")
+    ask(buyers["duc"], h1, 9, 16)
+    booking_service.approve(db, owner_lan, ask(buyers["ngoc"], h3, 8, 9))
+    later = ask(buyers["tuan"], h4, 6, 9)
+    booking_service.approve(db, owner_lan, later)
+    booking_service.reschedule(db, Actor(buyers["tuan"]), later, RescheduleRequest(start_at=at(9, 14)))
+    past(buyers["linh"], h4, -1, 16, "CONFIRMED")
+    seen = past(buyers["nam"], h2, -2, 14, "COMPLETED")
+    viewing_outcome_service.feedback(db, Actor(buyers["nam"]), seen, "INTERESTED", "Rất ưng, muốn trao đổi thêm")
+    done.append("Lan: 3 to answer, 1 coming up, 1 new time asked, 1 to record, 1 buyer interested")
+
+    audit.record(db, None, RICH_DEMO_MARKER, "user", an.id, after={"cases": done})
+    db.commit()
+    return ", ".join(done)
+
+
 SLOT_HOURS = (9, 14, 16)
 SLOT_MINUTES = 30
 DEMO_OWNER_IDS = {uid for uid, role, *_ in USERS if role == UserRole.OWNER}
@@ -859,6 +1014,28 @@ def ensure_red_book_units(db: Session) -> str:
         .where(Property.description == "Bản nháp, chưa gửi duyệt.")
         .values(description="Căn 2PN, chờ Ban quản trị duyệt.")
     )
+    # Listings of the old seed with placeholder units ("S1.08-X02", all 70 m² at 3,5 tỷ on floor 10)
+    taken = set(db.scalars(select(Property.unit_code)))
+    for prop in db.scalars(select(Property).where(Property.unit_code.like("%-X0_"))):
+        match = _PLACEHOLDER_UNIT.match(prop.unit_code)
+        if match is None:
+            continue
+        unit, beds, area, floor, price = EXTRA_UNITS[int(match.group(2)) - 1]
+        code = f"{match.group(1)}-{unit}"
+        if code in taken:
+            continue
+        taken.add(code)
+        prop.unit_code, prop.bedrooms, prop.area_m2, prop.floor, prop.price_vnd = (
+            code,
+            beds,
+            Decimal(area),
+            floor,
+            price,
+        )
+        if prop.verification is not None and _generated(prop.verification.red_book_code):
+            _copy_unit(prop.verification, prop)
+    for prop in db.scalars(select(Property).where(Property.description.like("Căn % m² tầng %"))):
+        prop.description = _SEEDED_AREA.sub(r",", prop.description)
     db.commit()
     return (
         f"{created} red book(s) added for older listings, {filled} given their home's facts, "
@@ -972,6 +1149,11 @@ if __name__ == "__main__":
         help="Demo buyers and viewing requests of every kind for the story seller (see DEMO_REQUESTS)",
     )
     parser.add_argument(
+        "--ensure-rich-demo",
+        action="store_true",
+        help="Every case for the demo buyer Nguyễn Văn An and more requests for the story seller (once)",
+    )
+    parser.add_argument(
         "--ensure-showcase",
         action="store_true",
         help="More demo cases: uploaded photos, overlapping requests, a viewing to record, a dispute, a locked red book",
@@ -1027,3 +1209,5 @@ if __name__ == "__main__":
             print(f"Added {ensure_demo_requests(session)} demo viewing request(s).")
         if args.ensure_showcase:
             print(f"Showcase: {ensure_showcase(session)}.")
+        if args.ensure_rich_demo:
+            print(f"Rich demo: {ensure_rich_demo(session)}.")

@@ -27,7 +27,7 @@ export function ModerationPage() {
     <div>
       <PageHeader
         title="Duyệt tin đăng"
-        subtitle="Người bán đã xác thực sổ đỏ; kiểm tra ảnh, giá và mô tả. Chỉ tin được duyệt mới được AI gợi ý cho người mua."
+        subtitle="Người bán đã xác thực sổ đỏ / sổ hồng; kiểm tra ảnh, giá và mô tả. Chỉ tin được duyệt mới được AI gợi ý cho người mua."
       />
       {pending.isPending && <Spinner />}
       {pending.isError && <ErrorBox error={pending.error} onRetry={() => pending.refetch()} />}
@@ -170,7 +170,7 @@ function Evidence({ property: p }: { property: Property }) {
       {/* Ownership was proven by the seller (red book + OTP); the home's facts above come from that red book */}
       {p.verified_red_book && (
         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-          ✓ Sổ đỏ {p.red_book_code ?? ""} đã xác thực · thông tin căn theo dữ liệu Chủ đầu tư
+          ✓ Sổ đỏ / sổ hồng {p.red_book_code ?? ""} đã xác thực · thông tin căn theo dữ liệu Chủ đầu tư
         </span>
       )}
       {viewer !== null && (

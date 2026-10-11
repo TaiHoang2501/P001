@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router";
 
-import { api, call } from "../../api/client";
+import { api, ApiError, call } from "../../api/client";
 import { EmptyState, ErrorBox, PageHeader, Spinner } from "../../components/ui";
 import { formatTimeRange } from "../../lib/format";
 
@@ -52,6 +52,19 @@ export function SlotsPage() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     add.mutate();
+  }
+
+  // Someone else's home (e.g. an id typed in the address bar): nothing of it is shown
+  if (slots.error instanceof ApiError && slots.error.code === "NOT_FOUND") {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <EmptyState title="Căn này không thuộc tài khoản của bạn">
+          <Link to="/owner" className="font-semibold text-brand-700 underline">
+            Về Căn của tôi
+          </Link>
+        </EmptyState>
+      </div>
+    );
   }
 
   return (
@@ -110,12 +123,23 @@ export function SlotsPage() {
           <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
             <span className="font-medium">{formatTimeRange(s.start_at, s.end_at)}</span>
             <span className="flex items-center gap-3">
-              {s.is_free ? (
-                <span className="text-emerald-700">Còn trống</span>
+              {!s.is_free ? (
+                <span className="text-amber-700">Đã xác nhận lịch xem</span>
+              ) : s.requests > 0 ? (
+                // Still open to other buyers, but someone is waiting for the seller's answer
+                <Link to="/owner/bookings" className="font-semibold text-amber-700 underline">
+                  {s.requests} yêu cầu chờ bạn trả lời
+                </Link>
               ) : (
-                <span className="text-amber-700">Đã có khách đặt</span>
+                <span className="text-emerald-700">Còn trống</span>
               )}
-              <button type="button" className="btn-danger btn-sm" disabled={!s.is_free || remove.isPending} onClick={() => remove.mutate(s.id)}>
+              <button
+                type="button"
+                className="btn-danger btn-sm"
+                disabled={!s.is_free || s.requests > 0 || remove.isPending}
+                title={!s.is_free || s.requests > 0 ? "Khung giờ đã có người xin xem: trả lời yêu cầu trước khi xóa" : undefined}
+                onClick={() => remove.mutate(s.id)}
+              >
                 Xóa
               </button>
             </span>

@@ -39,7 +39,7 @@ export const FURNISHING: Record<Furnishing, string> = {
 };
 
 export const LEGAL: Record<LegalStatus, string> = {
-  PINK_BOOK: "Sổ hồng",
+  PINK_BOOK: "Sổ đỏ / sổ hồng",
   PENDING_BOOK: "Đang làm sổ",
   SALE_CONTRACT: "HĐMB",
 };
@@ -69,7 +69,23 @@ export const BOOKING_STATUS: Record<BookingStatus, string> = {
   COMPLETED: "Đã xem",
   NO_SHOW: "Người mua không đến",
   OWNER_ABSENT: "Chủ căn vắng mặt",
-  UNREPORTED: "Không ghi nhận kết quả",
+  UNREPORTED: "Không ai ghi nhận kết quả",
+  EXPIRED: "Hết hạn",
+};
+
+/** What each viewing status means, shown when hovering its label (all three roles). */
+export const BOOKING_STATUS_HINT: Record<BookingStatus, string> = {
+  REQUESTED: "Người mua đã gửi yêu cầu, chủ căn chưa trả lời.",
+  CONFIRMED: "Chủ căn đã nhận lịch; căn được giữ riêng cho buổi xem vào giờ đó.",
+  RESCHEDULE_REQUESTED: "Người mua xin đổi sang giờ khác; giờ cũ vẫn giữ tới khi chủ căn đồng ý.",
+  REJECTED: "Chủ căn không nhận lịch này, hoặc đã nhận một người khác cùng giờ.",
+  CANCELLED: "Người mua đã hủy (hoặc nhân viên Chủ đầu tư hủy khi xử lý sự cố).",
+  COMPLETED: "Buổi xem đã diễn ra.",
+  NO_SHOW: "Chủ căn ghi nhận người mua không đến.",
+  OWNER_ABSENT: "Nhân viên Chủ đầu tư xác định chủ căn không có mặt.",
+  UNREPORTED:
+    "Buổi xem đã qua 48 giờ mà chủ căn không bấm “Đã xem xong” hay “Khách không đến”: lịch tự đóng, không tính lỗi cho ai.",
+  EXPIRED: "Đã tới giờ xem mà chủ căn chưa trả lời yêu cầu, nên yêu cầu tự đóng.",
 };
 
 export const DEAL_STATUS: Record<DealStatus, string> = {
@@ -132,7 +148,9 @@ export function formatTimeRange(startIso: string, endIso: string): string {
     day: "2-digit",
     month: "2-digit",
   });
-  return `${day} · ${time(startIso)}–${time(endIso)}`;
+  // The start time only ("14:00"): every viewing lasts the same, so the end time added nothing but clutter
+  void endIso;
+  return `${day} · ${time(startIso)}`;
 }
 
 export function bedroomsLabel(n: number): string {
@@ -156,4 +174,13 @@ export function timeOf(iso: string): string {
 
 export function dateOf(iso: string): string {
   return new Date(iso).toLocaleDateString("vi-VN", { timeZone: TIMEZONE, day: "2-digit", month: "2-digit" });
+}
+
+/** A person's name as typed at sign-up, shown with capital initials ("nguyễn văn an" -> "Nguyễn Văn An"). */
+export function displayName(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toLocaleUpperCase("vi") + w.slice(1))
+    .join(" ");
 }

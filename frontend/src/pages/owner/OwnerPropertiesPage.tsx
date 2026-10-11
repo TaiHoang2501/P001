@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router";
 
 import { api, call } from "../../api/client";
+import { useJumpFlash } from "../../lib/jump";
 import type { Property } from "../../api/types";
 import { ErrorBox, Notice, Spinner } from "../../components/ui";
 import { formatArea, formatVnd, PROPERTY_STATUS } from "../../lib/format";
@@ -18,6 +19,8 @@ type Tab = "listings" | "review" | "verified";
 // Listings the investor has not approved yet: waiting for review, or rejected and to be fixed (there are no
 // drafts: a listing goes for review when it is posted; DRAFT only covers older data)
 const IN_REVIEW = new Set<Property["status"]>(["PENDING_REVIEW", "REJECTED", "DRAFT"]);
+// The seller edits a listing while it waits for review, after a rejection, or while it is paused (as the API allows)
+const EDITABLE = new Set<Property["status"]>([...IN_REVIEW, "WITHDRAWN"]);
 type Stats = { viewing_requests: number; pending_requests: number; ai_suggestions: number; open_slots_week: number };
 
 const STATUS_TONE: Record<Property["status"], string> = {
@@ -96,8 +99,6 @@ export function OwnerPropertiesPage() {
         </Link>
       </div>
 
-      <SellerNotices />
-
       <div className="mb-5 flex w-fit rounded-full bg-sand p-1" role="tablist" aria-label="Căn của tôi">
         {(
           [
@@ -116,10 +117,17 @@ export function OwnerPropertiesPage() {
               tab === key ? "bg-brand-600 text-canvas" : "text-ink hover:bg-paper"
             }`}
           >
-            {label} · {count}
+            {label} ·{" "}
+            {/* No "0" while loading (it then jumped to the real number) */}
+            <span className="inline-block min-w-[1ch] tabular-nums">
+              {(key === "verified" ? books.data : list.data) ? count : "…"}
+            </span>
           </button>
         ))}
       </div>
+
+      {/* Under the tabs, so the tabs do not move when these appear after loading */}
+      <SellerNotices />
 
       {actionError && (
         <div className="mb-4">
@@ -204,12 +212,15 @@ function ListingCard({
   const images = imagesOf(p);
   const [viewer, setViewer] = useState<number | null>(null);
   const rejected = p.status === "REJECTED";
+  // Opened from a notification: the card lights up (and is scrolled to)
+  const flash = useJumpFlash(highlighted);
   // Fixing the listing happens right here, under its card
   const [editing, setEditing] = useState(false);
   return (
     <li
       ref={(el) => {
         if (el && highlighted) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        flash(el);
       }}
       className={`rounded-[28px] bg-paper p-4 ${highlighted ? "ring-2 ring-brand-500" : ""} ${rejected ? "ring-2 ring-red-200" : ""}`}
     >
@@ -278,7 +289,7 @@ function ListingCard({
           )}
 
           <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
-            {IN_REVIEW.has(p.status) && (
+            {EDITABLE.has(p.status) && (
               <button
                 type="button"
                 onClick={() => setEditing((v) => !v)}
@@ -314,6 +325,9 @@ function ListingCard({
                 <button type="button" disabled={busy} onClick={onSold} className="px-3 py-2 text-sm font-bold text-brand-700 hover:underline">
                   Đánh dấu đã bán
                 </button>
+                <p className="basis-full text-xs text-muted">
+                  Muốn đổi giá, ảnh hay mô tả? Bấm “Tạm ngừng”, sửa thông tin rồi “Mở bán lại” để Chủ đầu tư duyệt lại.
+                </p>
               </>
             )}
           </div>
@@ -341,7 +355,7 @@ function Stat({ value, label }: { value: number; label: string }) {
 function SellerNotices() {
   const books = useRedBooks();
   const profile = useQuery({ queryKey: ["owner-verification"], queryFn: () => call(api.GET("/api/v1/owner/verification")) });
-  if (!books.data) return null;
+  if (!books.data || profile.isPending) return null;
   const usable = usableRedBooks(books.data).length;
   const status = profile.data?.verification_status;
 
@@ -350,17 +364,17 @@ function SellerNotices() {
       {/* A verified red book verifies the seller; until then, say how */}
       {status && status !== "VERIFIED" && books.data.length > 0 && (
         <Notice tone="warning">
-          Tài khoản người bán của bạn chưa được xác thực. Xác thực một sổ đỏ (họ tên, mã số sổ và mã OTP) để hoàn tất.
+          Tài khoản người bán của bạn chưa được xác thực. Xác thực một sổ đỏ / sổ hồng (họ tên, mã số sổ và mã OTP) để hoàn tất.
         </Notice>
       )}
       {(books.data.length === 0 || usable > 0) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-leaf/70 px-5 py-4">
           <p>
             {books.data.length === 0 ? (
-              "Bạn cần xác thực sổ đỏ trước khi đăng bán."
+              "Bạn cần xác thực sổ đỏ / sổ hồng trước khi đăng bán."
             ) : (
               <>
-                Bạn có <strong>{usable} sổ đỏ đã xác thực</strong> chưa đăng bán.
+                Bạn có <strong>{usable} sổ đỏ / sổ hồng đã xác thực</strong> chưa đăng bán.
               </>
             )}
           </p>
@@ -368,7 +382,7 @@ function SellerNotices() {
             to={books.data.length === 0 ? "/owner/verify" : "/owner?tab=verified"}
             className="rounded-full border border-ink/20 bg-paper px-4 py-2 text-sm font-bold hover:bg-canvas"
           >
-            {books.data.length === 0 ? "Xác thực sổ đỏ" : "Xem sổ đỏ"}
+            {books.data.length === 0 ? "Xác thực sổ đỏ / sổ hồng" : "Xem sổ đỏ / sổ hồng"}
           </Link>
         </div>
       )}
@@ -411,7 +425,7 @@ function ConfirmSold({
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             <li>Tin đăng đóng hẳn, không mở bán lại được.</li>
             <li>Người mua không còn thấy căn và không đặt lịch xem được.</li>
-            <li>Sổ đỏ của căn không dùng để đăng bán lại được nữa.</li>
+            <li>Sổ đỏ / sổ hồng của căn không dùng để đăng bán lại được nữa.</li>
           </ul>
           <p className="mt-2 text-xs">Chỉ muốn ngừng bán một thời gian? Dùng “Tạm ngừng” thay vì đánh dấu đã bán.</p>
         </div>

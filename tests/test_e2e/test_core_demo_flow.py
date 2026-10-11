@@ -27,7 +27,7 @@ from src.db.models import (
     Recommendation,
 )
 from src.services import booking_service, hold_service, notification_service
-from tests.helpers import OPERATOR, UNCLAIMED_RED_BOOK, auth
+from tests.helpers import OPERATOR, UNCLAIMED_RED_BOOK, UNCLAIMED_RED_BOOK_PHONE, auth
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 SAT = datetime(2030, 1, 5, tzinfo=VN)
@@ -68,7 +68,8 @@ async def test_core_demo_flow(client, db, monkeypatch):
     operator = await auth(client, OPERATOR)
 
     # ---- Seller onboarding (spec §4.5): phone OTP login, then red book + OTP to the phone on record ----
-    seller = await _otp_signup(client, "0966000001", "Chủ Căn Demo", "OWNER")
+    # Signed in with the phone on the red book: the owner verifies it on their own
+    seller = await _otp_signup(client, UNCLAIMED_RED_BOOK_PHONE, "Chủ Căn Demo", "OWNER")
     assert (await client.get("/api/v1/owner/verification", headers=seller)).json()[
         "verification_status"
     ] == "UNVERIFIED"

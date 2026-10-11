@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
 
 import { ApiError } from "../api/client";
 import type { User } from "../api/types";
@@ -26,7 +26,7 @@ export function LoginPage() {
       art={<RedBookHomeArt />}
       points={[
         {
-          title: "Xác thực sổ đỏ một lần",
+          title: "Xác thực sổ đỏ / sổ hồng một lần",
           text: "Đối chiếu với dữ liệu Chủ đầu tư, rồi đăng bán ngay.",
         },
         {
@@ -176,8 +176,30 @@ function OtpForm({
 }) {
   const { requestOtp, verifyOtp } = useAuth();
   const [target, setTarget] = useState("");
+  // Shown under the phone box (not the browser's own tooltip)
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const phone = target.replace(/\s/g, "");
+  // A new code can be asked for 60 s after the last one (the countdown is shown on the resend link)
+  const [resendAt, setResendAt] = useState(0);
+  // When the code sent last stops working (shown as a countdown)
+  const [expireAt, setExpireAt] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (Math.max(resendAt, expireAt) <= clock) return;
+    const t = setTimeout(() => setClock(Date.now()), 1000);
+    return () => clearTimeout(t);
+  }, [resendAt, expireAt, clock]);
+  const expiresIn = Math.max(0, Math.ceil((expireAt - clock) / 1000));
+  // A code was just sent: start both countdowns
+  const gotCode = (res: { debug_code?: string | null; expires_in?: number }) => {
+    setSent(res);
+    setExpireAt(Date.now() + (res.expires_in ?? 300) * 1000);
+    setResendAt(Date.now() + 60_000);
+    setClock(Date.now());
+  };
+  const resendIn = Math.max(0, Math.ceil((resendAt - clock) / 1000));
   const [code, setCode] = useState("");
-  const [sent, setSent] = useState<{ debug_code?: string | null } | null>(null);
+  const [sent, setSent] = useState<{ debug_code?: string | null; expires_in?: number } | null>(null);
   const [needsSignup, setNeedsSignup] = useState(intent === "signup");
   const [fullName, setFullName] = useState("");
   const role = audience === "buyer" ? "CUSTOMER" : "OWNER";
@@ -200,13 +222,14 @@ function OtpForm({
 
   const send = (e: FormEvent) => {
     e.preventDefault();
+    if (!/^0[1-9]\d{8,9}$/.test(phone)) {
+      setPhoneError("Số điện thoại gồm 10–11 chữ số và bắt đầu bằng 0, ví dụ 0912 345 678.");
+      return;
+    }
+    setPhoneError(null);
     void run(async () => {
-      setSent(
-        await requestOtp(
-          target.trim(),
-          intent === "signup" ? { role, purpose: "signup" } : {},
-        ),
-      );
+      // The role is always sent, so a seller's number on the buyer page (and back) is turned away with a pointer
+      gotCode(await requestOtp(phone, intent === "signup" ? { role, purpose: "signup" } : { role }));
       setCode("");
     });
   };
@@ -216,7 +239,7 @@ function OtpForm({
     void run(async () => {
       onDone(
         await verifyOtp({
-          target: target.trim(),
+          target: phone,
           code: code.trim(),
           // The role only matters when an account is created; signing in works for the account the phone has
           role: needsSignup ? role : null,
@@ -228,9 +251,9 @@ function OtpForm({
 
   if (!sent) {
     return (
-      <form onSubmit={send} className="space-y-4">
+      <form onSubmit={send} className="space-y-4" noValidate>
         <Steps step={1} />
-        {error !== null && <ErrorBox error={error} />}
+        {error !== null && <OtherAreaOrError error={error} intent={intent} />}
         <div>
           <label
             htmlFor="otp-target"
@@ -244,12 +267,23 @@ function OtpForm({
             inputMode="tel"
             autoComplete="tel"
             placeholder="09xx xxx xxx"
-            pattern="0\d{9,10}"
-            title="Số điện thoại Việt Nam, bắt đầu bằng 0 (10-11 số)"
-            required
+            aria-invalid={phoneError !== null}
+            aria-describedby={phoneError ? "otp-target-error" : undefined}
             value={target}
-            onChange={(e) => setTarget(e.target.value)}
+            // Digits only, grouped as 09xx xxx xxx while typing
+            onChange={(e) => {
+              setPhoneError(null);
+              let digits = e.target.value.replace(/\D/g, "");
+              // +84 912 345 678 -> 0912 345 678
+              if (digits.startsWith("84") && digits.length >= 11) digits = "0" + digits.slice(2);
+              setTarget(groupPhone(digits.slice(0, 11)));
+            }}
           />
+          {phoneError && (
+            <p id="otp-target-error" className="mt-1.5 text-sm font-medium text-red-700">
+              {phoneError}
+            </p>
+          )}
         </div>
         <button
           type="submit"
@@ -275,12 +309,20 @@ function OtpForm({
     <form onSubmit={verify} className="space-y-4">
       <Steps step={2} />
       {error !== null && <ErrorBox error={error} />}
+      <p className={`text-sm ${expiresIn === 0 ? "font-medium text-red-700" : "text-muted"}`}>
+        {expiresIn > 0
+          ? `Mã hết hạn sau ${Math.floor(expiresIn / 60)}:${String(expiresIn % 60).padStart(2, "0")}.`
+          : "Mã đã hết hạn. Bấm “Gửi lại mã” để nhận mã mới."}
+      </p>
       <p className="text-sm text-muted">
         Đã gửi mã tới <strong className="text-ink">{target}</strong>.{" "}
         <button
           type="button"
           className="font-semibold text-brand-700 hover:underline"
-          onClick={() => setSent(null)}
+          onClick={() => {
+            setSent(null);
+            setError(null);
+          }}
         >
           Đổi số
         </button>
@@ -289,7 +331,7 @@ function OtpForm({
         <div className="flex items-center gap-3 rounded-2xl border border-dashed border-brand-200 bg-brand-50 px-4 py-3">
           <div className="min-w-0 flex-1 text-sm">
             <p className="text-muted">
-              Thử nghiệm (chưa có SMS/Zalo) · mã của bạn
+              Chế độ thử nghiệm (chưa nối SMS/Zalo) · mã của bạn
             </p>
             <strong className="font-mono text-xl tracking-[0.3em]">
               {sent.debug_code}
@@ -363,6 +405,26 @@ function OtpForm({
             ? "Tạo tài khoản & đăng nhập"
             : "Đăng nhập"}
       </button>
+      <p className="text-center text-sm text-muted">
+        Chưa nhận được mã?{" "}
+        {resendIn > 0 ? (
+          <span>Gửi lại sau {resendIn} giây</span>
+        ) : (
+          <button
+            type="button"
+            className="font-semibold text-brand-700 hover:underline disabled:opacity-50"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                gotCode(await requestOtp(phone, intent === "signup" ? { role, purpose: "signup" } : { role }));
+                setCode("");
+              })
+            }
+          >
+            Gửi lại mã
+          </button>
+        )}
+      </p>
     </form>
   );
 }
@@ -397,4 +459,27 @@ function Steps({ step }: { step: 1 | 2 }) {
       {item(2, "Nhập mã")}
     </div>
   );
+}
+
+/** "0912345678" -> "0912 345 678" (an 11-digit number keeps its last four together). */
+function groupPhone(digits: string): string {
+  return [digits.slice(0, 4), digits.slice(4, 7), digits.slice(7)].filter(Boolean).join(" ");
+}
+
+/** A phone of the other kind of account (a seller's number on the buyer page, or back): say where to sign in. */
+function OtherAreaOrError({ error, intent }: { error: unknown; intent: OtpIntent }) {
+  const role = error instanceof ApiError && error.code === "PHONE_IN_USE" ? error.details.account_role : undefined;
+  if (intent === "login" && (role === "OWNER" || role === "CUSTOMER")) {
+    const seller = role === "OWNER";
+    return (
+      <Notice tone="warning">
+        Số này là tài khoản {seller ? "người bán" : "người mua"}.{" "}
+        <Link to={seller ? "/login" : "/buyer/login"} className="font-semibold underline">
+          Đăng nhập ở trang {seller ? "người bán" : "người mua"}
+        </Link>{" "}
+        hoặc dùng số khác.
+      </Notice>
+    );
+  }
+  return <ErrorBox error={error} />;
 }
