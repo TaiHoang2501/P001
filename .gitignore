@@ -32,6 +32,8 @@ Thumbs.db
 data/*
 !data/*.csv
 !data/README.md
+# Three small photos the demo seed uploads as a seller's own (src/db/seed.py ensure_showcase)
+!data/demo_uploads/
 *.db
 *.sqlite3
 

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api, call } from "../api/client";
 import type { Booking } from "../api/types";
 import { BookingBadge, ErrorBox, Notice, Spinner } from "../components/ui";
-import { formatTimeRange } from "../lib/format";
+import { formatDateTime, formatTimeRange } from "../lib/format";
 import {
   CANCELLABLE,
   ENDED,
@@ -13,6 +13,7 @@ import {
 } from "./bookingStatus";
 import { CheckIcon, CopyIcon } from "./icons";
 import { BackButton } from "./shared";
+import { AfterViewing } from "./AfterViewing";
 import { ViewingPass } from "./ViewingPass";
 
 export function useBooking(bookingId: number) {
@@ -113,7 +114,7 @@ export function BookingStatusCard({
             <p className="text-sm text-violet-800">
               Đề nghị đổi sang{" "}
               {formatTimeRange(b.proposed_start_at, b.proposed_end_at)} — chờ
-              chủ căn đồng ý.
+              chủ căn đồng ý. Lịch cũ vẫn giữ (mã QR bên dưới vẫn dùng được) cho tới khi chủ căn đồng ý giờ mới.
             </p>
           )}
           {b.hold_status === "ACTIVE" && (
@@ -142,6 +143,14 @@ export function BookingStatusCard({
       ) : (
         <StatusTimeline booking={b} deal={deal.data} compact />
       )}
+
+      {/* The owner could not take this time and offered others: one tap sends a new request */}
+      {b.status === "REJECTED" && (b.suggested_starts?.length ?? 0) > 0 && (
+        <SuggestedTimes booking={b} onBooked={onChanged} />
+      )}
+
+      {/* Once the viewing time is over: how it went, or a disagreement with what was recorded */}
+      <AfterViewing booking={b} onChanged={onChanged} />
 
       {/* Confirmed and not over yet: the QR to show at the building's gate */}
       {(b.status === "CONFIRMED" || b.status === "RESCHEDULE_REQUESTED") &&
@@ -198,5 +207,46 @@ export function BookingStatusCard({
         </div>
       )}
     </section>
+  );
+}
+
+/** "Chủ căn đề xuất giờ khác": the times the owner offered, each one a new viewing request in one tap. */
+function SuggestedTimes({ booking: b, onBooked }: { booking: Booking; onBooked: (b: Booking) => void }) {
+  const queryClient = useQueryClient();
+  const upcoming = (b.suggested_starts ?? []).filter((t) => new Date(t).getTime() > Date.now());
+  const book = useMutation({
+    mutationFn: (start: string) =>
+      call(api.POST("/api/v1/bookings", { body: { property_id: b.property_id, start_at: start } })),
+    onSuccess: (next) => {
+      queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
+      queryClient.invalidateQueries({ queryKey: ["my-activity"] });
+      onBooked(next);
+    },
+  });
+  return (
+    <div className="space-y-2 rounded-xl border border-brand-200 bg-brand-50 p-3">
+      <p className="font-semibold">Chủ căn đề xuất giờ khác</p>
+      {upcoming.length === 0 ? (
+        <p className="text-sm text-muted">Các giờ chủ căn đề xuất đã qua. Nhắn Trợ lý AI để tìm giờ khác.</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {upcoming.map((t) => (
+              <button
+                key={t}
+                type="button"
+                className="btn-secondary btn-sm"
+                disabled={book.isPending}
+                onClick={() => book.mutate(t)}
+              >
+                Đặt {formatDateTime(t)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted">Bấm một giờ là yêu cầu được gửi lại cho chủ căn xác nhận.</p>
+        </>
+      )}
+      {book.error && <ErrorBox error={book.error} />}
+    </div>
   );
 }

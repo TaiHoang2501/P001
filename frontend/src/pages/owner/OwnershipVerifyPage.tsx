@@ -23,7 +23,7 @@ export function OwnershipVerifyPage() {
       </div>
       <section aria-labelledby="books-title">
         <h2 id="books-title" className="mb-4 font-display text-2xl font-bold">
-          Sổ đỏ đã xác thực
+          Sổ đỏ / sổ hồng đã xác thực
         </h2>
         <RedBookList />
       </section>
@@ -82,7 +82,7 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
     return (
       <div className="h-fit space-y-4 rounded-[28px] bg-sand p-6">
         <Notice tone="success">
-          Đã xác thực sổ đỏ <strong className="font-mono">{done.red_book_code}</strong> của {done.red_book_holder_name}. Tài khoản
+          Đã xác thực sổ đỏ / sổ hồng <strong className="font-mono">{done.red_book_code}</strong> của {done.red_book_holder_name}. Tài khoản
           người bán của bạn đã được xác thực, bạn có thể đăng bán ngay.
         </Notice>
         <div className="flex flex-wrap gap-2">
@@ -120,7 +120,8 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
         </p>
         {challenge.debug_code && (
           <Notice>
-            Môi trường thử nghiệm (chưa có nhà cung cấp SMS/Zalo): mã là <strong className="font-mono">{challenge.debug_code}</strong>
+            <strong>Chế độ thử nghiệm</strong> (chưa nối SMS/Zalo): mã là <strong className="font-mono">{challenge.debug_code}</strong>.
+            Bản chính thức chỉ gửi mã tới điện thoại của chủ sở hữu, không hiện ở đây.
           </Notice>
         )}
         {confirm.isError && (
@@ -128,7 +129,7 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
             <ErrorBox error={confirm.error} />
             {locked ? (
               <Notice tone="warning">
-                Sổ đỏ đã bị khóa do nhập sai quá nhiều lần.{" "}
+                Sổ đỏ / sổ hồng đã bị khóa do nhập sai quá nhiều lần.{" "}
                 <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "LOCKED", holder, code })}>
               Gửi yêu cầu mở khóa tới Chủ đầu tư
             </button>
@@ -177,7 +178,8 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
     );
   }
 
-  const conflict = claim.error instanceof ApiError && claim.error.code === "STATE_CONFLICT" ? claim.error.details.reason : undefined;
+  const conflict = claim.error instanceof ApiError ? (claim.error.details.reason as string | undefined) : undefined;
+  const guessing = claim.error instanceof ApiError && claim.error.code === "RATE_LIMITED";
   return (
     <form
       className="h-fit space-y-4 rounded-[28px] bg-sand p-6"
@@ -187,20 +189,45 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
       }}
     >
       <div>
-        <h2 className="font-display text-2xl font-bold">Xác thực sổ đỏ mới</h2>
-        <p className="mt-1 text-sm text-muted">Đối chiếu với dữ liệu của Chủ đầu tư. Mỗi sổ đỏ dùng cho một tin đăng.</p>
+        <h2 className="font-display text-2xl font-bold">Xác thực sổ đỏ / sổ hồng mới</h2>
+        <p className="mt-1 text-sm text-muted">Đối chiếu với dữ liệu của Chủ đầu tư. Mỗi sổ đỏ / sổ hồng dùng cho một tin đăng.</p>
       </div>
       {claim.isError &&
         (conflict === "CLAIMED" ? (
           <Notice tone="warning">
-            Sổ đỏ này đã được xác thực bởi một tài khoản khác. Nếu bạn là chủ sở hữu:{" "}
+            Sổ đỏ / sổ hồng này đã được xác thực bởi một tài khoản khác. Nếu bạn là chủ sở hữu:{" "}
             <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "CLAIMED_BY_OTHER", holder, code })}>
               gửi giấy tờ để Chủ đầu tư xử lý
             </button>
           </Notice>
+        ) : conflict === "NOT_OWNER_PHONE" ? (
+          <Notice tone="warning">
+            Sổ này đăng ký số điện thoại của chủ sở hữu, khác số bạn đang đăng nhập. Chỉ chủ sở hữu đăng nhập bằng đúng
+            số trên sổ mới tự xác thực được.
+            <br />
+            Là chủ sở hữu? Đăng xuất rồi đăng nhập bằng số đó. Bán thay có ủy quyền hoặc sổ đồng sở hữu?{" "}
+            <button type="button" className="font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "PROXY", holder, code })}>
+              Gửi giấy tờ để Chủ đầu tư xác thực
+            </button>
+          </Notice>
+        ) : conflict === "UNIT_CLAIMED" ? (
+          <Notice tone="warning">
+            Căn này đang có một sổ khác đã được xác thực trên hệ thống.{" "}
+            <button type="button" className="font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "CLAIMED_BY_OTHER", holder, code })}>
+              Gửi yêu cầu để Chủ đầu tư kiểm tra
+            </button>
+          </Notice>
+        ) : guessing ? (
+          <Notice tone="warning">
+            Bạn đã nhập thông tin sổ chưa khớp nhiều lần. Vui lòng thử lại sau 1 giờ, hoặc{" "}
+            <button type="button" className="font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "MISMATCH", holder, code })}>
+              nhờ Chủ đầu tư kiểm tra
+            </button>
+            .
+          </Notice>
         ) : conflict === "LOCKED" ? (
           <Notice tone="warning">
-            Sổ đỏ này đang bị khóa do nhập sai OTP quá nhiều lần.{" "}
+            Sổ đỏ / sổ hồng này đang bị khóa do nhập sai OTP quá nhiều lần.{" "}
             <button type="button" className="mt-2 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "LOCKED", holder, code })}>
               Gửi yêu cầu mở khóa
             </button>
@@ -210,7 +237,8 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
             <ErrorBox error={claim.error} />
             {claim.error instanceof ApiError && claim.error.code === "OWNERSHIP_NOT_MATCHED" && (
               <p className="text-xs text-muted">
-                Chắc chắn đã nhập đúng như trên sổ?{" "}
+                Kiểm tra lại dấu tiếng Việt của họ tên (Tuấn khác Tuan) và mã số dạng SD-XXXX-XXXXXXX như in trên sổ. Đã đúng
+                mà vẫn báo sai?{" "}
                 <button type="button" className="font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "MISMATCH", holder, code })}>
                   Nhờ Chủ đầu tư kiểm tra
                 </button>
@@ -229,14 +257,14 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
           minLength={2}
           maxLength={255}
           autoComplete="name"
-          placeholder="Nguyễn Thị Hương"
+          placeholder="VD: Nguyễn Văn A"
           value={holder}
           onChange={(e) => setHolder(e.target.value)}
         />
       </div>
       <div>
         <label htmlFor="rb-code" className="label">
-          Mã số sổ đỏ
+          Mã số sổ đỏ / sổ hồng
         </label>
         <input
           id="rb-code"
@@ -244,7 +272,7 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
           required
           minLength={3}
           maxLength={100}
-          placeholder="SD-2017-0332211"
+          placeholder="VD: SD-XXXX-XXXXXXX"
           value={code}
           onChange={(e) => setCode(e.target.value)}
         />
@@ -253,14 +281,19 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
         {claim.isPending ? "Đang kiểm tra..." : "Gửi mã OTP tới chủ sở hữu"}
       </button>
       <p className="text-xs text-muted">
-        Họ tên (có dấu) và mã số phải khớp với dữ liệu sổ đỏ của Chủ đầu tư. Mã OTP được gửi tới số điện thoại của chủ sở hữu đã đăng
-        ký trên sổ.
+        Họ tên (có dấu) và mã số phải khớp với dữ liệu sổ đỏ / sổ hồng của Chủ đầu tư. Chỉ chủ sở hữu, đăng nhập bằng đúng số điện thoại
+        đăng ký trên sổ, mới tự xác thực được; mã OTP được gửi tới số đó.
       </p>
       <div className="rounded-2xl bg-paper/70 px-4 py-3 text-sm">
         <p className="font-semibold">Không tự xác thực được?</p>
         <p className="mt-0.5 text-xs text-muted">Bán thay có ủy quyền, sổ đồng sở hữu, thừa kế, căn chưa có sổ…</p>
-        <button type="button" className="mt-1.5 font-semibold text-brand-700 underline" onClick={() => onNeedHelp({ reason: "PROXY", holder, code })}>
+        <button
+          type="button"
+          className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-brand-600/40 bg-paper px-4 py-2 text-sm font-semibold text-brand-700 shadow-sm transition hover:border-brand-600 hover:bg-brand-600 hover:text-canvas active:scale-[0.98]"
+          onClick={() => onNeedHelp({ reason: "PROXY", holder, code })}
+        >
           Gửi yêu cầu hỗ trợ tới Chủ đầu tư
+          <span aria-hidden="true">→</span>
         </button>
       </div>
     </form>

@@ -51,8 +51,9 @@ async def test_seller_is_notified_of_new_request_without_buyer_pii(client):
     assert n["event_type"] == "VIEWING_REQUESTED"
     assert n["booking_id"] == booking["id"]
     assert booking["deal_code"] in n["body"]
-    assert f"Buyer #{BUYER_ID}" in n["body"]
-    assert "Nguyễn Văn An" not in n["body"] and "0901111222" not in n["body"]
+    # The seller sees who asks (same name as on the requests page), never their phone or email
+    assert "Nguyễn Văn An" in n["body"] and "Buyer #" not in n["body"]
+    assert "0901111222" not in n["body"] and "@" not in n["body"]
 
 
 @pytest.mark.asyncio

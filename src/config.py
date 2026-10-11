@@ -21,11 +21,13 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     timezone: str = "Asia/Ho_Chi_Minh"
 
-    # LLM (spec §9.1: Gemini or OpenAI)
-    llm_provider: Literal["openai", "google"] = "openai"
+    # LLM (spec §9.1: Gemini or OpenAI; also any model through OpenRouter, an OpenAI-compatible gateway)
+    llm_provider: Literal["openai", "google", "openrouter"] = "openai"
     openai_api_key: str = ""
     google_api_key: str = ""
-    # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest)
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest / openai/gpt-4o-mini on OpenRouter)
     model_name: str = ""
     # Used when the main model fails (e.g. Gemini "high demand" 503). Empty = provider default, "none" = off
     model_fallback_name: str = ""
@@ -40,11 +42,15 @@ class Settings(BaseSettings):
 
     @property
     def llm_api_key(self) -> str:
-        return self.google_api_key if self.llm_provider == "google" else self.openai_api_key
+        return {
+            "google": self.google_api_key,
+            "openrouter": self.openrouter_api_key,
+        }.get(self.llm_provider, self.openai_api_key)
 
     @property
     def llm_model(self) -> str:
-        return self.model_name or ("gemini-flash-latest" if self.llm_provider == "google" else "gpt-4o-mini")
+        defaults = {"google": "gemini-flash-latest", "openrouter": "openai/gpt-4o-mini"}
+        return self.model_name or defaults.get(self.llm_provider, "gpt-4o-mini")
 
     @property
     def llm_fallback_model(self) -> str | None:
@@ -66,9 +72,13 @@ class Settings(BaseSettings):
     viewing_step_minutes: int = Field(default=30, ge=5, le=120)
     viewing_max_proposals: int = Field(default=3, ge=1, le=10)
     viewing_alternative_days: int = Field(default=14, ge=1, le=60)
+    # A viewing is offered and booked at least this long ahead, so the seller has time to answer and get there
+    viewing_min_notice_minutes: int = Field(default=120, ge=0, le=24 * 60)
 
     # Hours a seller has to answer a viewing request before an operator is asked (TBD in spec §10 Q8)
     seller_response_hours: int = Field(default=24, ge=1)
+    # ...and at the latest this long before the viewing, so an unanswered request reaches the investor's staff in time
+    seller_response_lead_minutes: int = Field(default=60, ge=0)
 
     # Agent memory: "postgres" keeps conversations across restarts (falls back to "memory" if it cannot connect)
     agent_memory: Literal["postgres", "memory"] = "postgres"
@@ -87,9 +97,10 @@ class Settings(BaseSettings):
     # web app on another domain can show them (Render sets RENDER_EXTERNAL_URL). Empty: same-origin path.
     public_api_url: str = Field(default="", validation_alias=AliasChoices("PUBLIC_API_URL", "RENDER_EXTERNAL_URL"))
     media_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1024)
+    # After a viewing, the owner records whether the buyer came; unrecorded viewings close after this many hours
+    viewing_outcome_hours: int = Field(default=48, ge=1)
     # Photos one listing can have
     media_max_photos: int = Field(default=10, ge=1)
-
     # S3-compatible object storage (Supabase Storage, Cloudflare R2, AWS S3). Empty endpoint/keys = uploads disabled.
     s3_endpoint_url: str = ""
     s3_region: str = "auto"
@@ -121,6 +132,10 @@ class Settings(BaseSettings):
     # Return the code in the API response (no SMS/Zalo provider yet). Default: everywhere except production;
     # a public demo with fake data can turn it on explicitly.
     otp_expose_code: bool | None = None
+    # Wrong holder name / red book code attempts one seller account may make per hour (stops guessing codes)
+    ownership_claim_failures_per_hour: int = Field(default=5, ge=1)
+    # Developer traces of chat turns (ai_turns) and unclaimed guest conversations are kept this many days
+    ai_trace_retention_days: int = Field(default=180, ge=1)
 
     # Recommendation scoring weights (spec §4.6: TBD, calibrate with real data)
     score_weight_price: float = 0.25

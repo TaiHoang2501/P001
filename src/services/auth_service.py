@@ -46,7 +46,11 @@ def _account_for(db: Session, target: str) -> User | None:
 
 def _require_same_role(user: User | None, role: str | None) -> None:
     if user is not None and role is not None and user.role.value != role:
-        raise PhoneInUseError("This phone is already registered to another kind of account; use another number")
+        raise PhoneInUseError(
+            "This phone is already registered to another kind of account; use another number",
+            # Which area to sign in to instead (buyer / seller); an operator's phone is not named as such
+            details={"account_role": user.role.value} if user.role != UserRole.INVESTOR_OPERATOR else {},
+        )
 
 
 def request_otp(db: Session, data: OtpRequest) -> OtpRequestResponse:

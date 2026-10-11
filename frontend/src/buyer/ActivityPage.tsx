@@ -7,6 +7,8 @@ import type { components } from "../api/schema";
 import type { Booking } from "../api/types";
 import { BookingBadge, ErrorBox, Spinner } from "../components/ui";
 import { formatDateTime, formatTimeRange, TIMEZONE } from "../lib/format";
+import { useJumpFlash } from "../lib/jump";
+import { needsBuyerAfterViewing } from "./AfterViewing";
 import { BookingStatusCard } from "./BookingStatusCard";
 import { CalendarIcon, CheckCircleIcon, ClockIcon } from "./icons";
 import { ViewingScheduler } from "./ViewingScheduler";
@@ -36,7 +38,21 @@ const EVENT: Record<Kind, { title: (a: Activity) => string; tone: "ask" | "good"
       a.by === "BUYER" ? "Bạn đã hủy lịch xem" : a.by === "OWNER" ? "Chủ căn đã hủy lịch xem" : "BookingBot đã hủy lịch xem",
     tone: "bad",
   },
-  COMPLETED: { title: () => "Buổi xem đã hoàn tất", tone: "done" },
+  COMPLETED: {
+    title: (a) => (a.by === "BOOKINGBOT" ? "Chủ đầu tư xác nhận buổi xem đã diễn ra" : "Buổi xem đã hoàn tất"),
+    tone: "done",
+  },
+  NO_SHOW: {
+    title: (a) => (a.by === "BOOKINGBOT" ? "Chủ đầu tư xác định bạn không đến" : "Chủ căn ghi nhận bạn không đến"),
+    tone: "warn",
+  },
+  OWNER_ABSENT: { title: () => "Chủ căn không có mặt ở buổi xem (Chủ đầu tư đã xác minh)", tone: "bad" },
+  UNREPORTED: { title: () => "Không ai ghi nhận kết quả buổi xem, lịch tự đóng", tone: "done" },
+  EXPIRED: { title: () => "Chủ căn chưa trả lời trước giờ xem, yêu cầu tự hết hạn", tone: "warn" },
+  RESCHEDULE_LAPSED: { title: () => "Giờ mới bạn xin đã qua mà chủ căn chưa đồng ý; lịch giữ giờ cũ", tone: "warn" },
+  INTERESTED: { title: () => "Bạn báo quan tâm căn này", tone: "good" },
+  NOT_SUITABLE: { title: () => "Bạn thấy căn chưa phù hợp", tone: "done" },
+  DISPUTED: { title: () => "Bạn gửi phản hồi về kết quả buổi xem cho Chủ đầu tư", tone: "ask" },
   SUPERSEDED: { title: () => "Chủ căn đã nhận một lịch xem khác vào giờ này", tone: "bad" },
 };
 
@@ -105,6 +121,17 @@ export function ActivityPage() {
     .filter((b) => b.status === "CONFIRMED" && Date.parse(b.end_at) > now)
     .sort((a, b) => Date.parse(a.start_at) - Date.parse(b.start_at));
   const events = activity.data ?? [];
+  // Opened from a notification: the event of that viewing recorded with it (within a minute) lights up in the
+  // history; without one (e.g. a reminder) the viewing's row and card do
+  const sentAt = params.get("at") ? Date.parse(params.get("at")!) : null;
+  const jumpEventId =
+    sentAt === null
+      ? null
+      : (events
+          .filter((a) => a.booking_id === selectedId && Math.abs(Date.parse(a.at) - sentAt) <= 60_000)
+          .sort((x, y) => Math.abs(Date.parse(x.at) - sentAt) - Math.abs(Date.parse(y.at) - sentAt))[0]?.id ?? null);
+  // After the viewing time: something to say (how it went) or to check (what was recorded)
+  const after = (bookings.data ?? []).filter(needsBuyerAfterViewing);
 
   const detail = selectedId && (
     <div className="space-y-3">
@@ -120,14 +147,20 @@ export function ActivityPage() {
           }}
         />
       ) : (
+        <JumpTarget active={jumpEventId === null}>
         <BookingStatusCard
           key={selectedId}
           bookingId={selectedId}
           onBack={() => select(null)}
           onReschedule={setReschedule}
           onViewProperty={(id) => navigate(`/buyer/properties/${id}`)}
-          onChanged={refresh}
+          onChanged={(next) => {
+            refresh();
+            // Booked one of the owner's suggested times: show that new request
+            if (next.id !== selectedId) select(next.id);
+          }}
         />
+        </JumpTarget>
       )}
     </div>
   );
@@ -154,7 +187,8 @@ export function ActivityPage() {
             empty={bookings.isPending ? <Spinner /> : "Không có yêu cầu nào đang chờ."}
           >
             {pending.map((b) => (
-              <BookingRow key={b.id} booking={b} selected={b.id === selectedId} onOpen={() => select(b.id)}>
+              <BookingRow key={b.id} booking={b} selected={b.id === selectedId}
+                lightUp={jumpEventId === null} onOpen={() => select(b.id)}>
                 {b.status === "RESCHEDULE_REQUESTED" && b.proposed_start_at && b.proposed_end_at
                   ? `Đề nghị đổi sang ${formatTimeRange(b.proposed_start_at, b.proposed_end_at)}`
                   : "Chủ căn sẽ trả lời sớm; bạn được báo ngay khi có phản hồi."}
@@ -162,10 +196,32 @@ export function ActivityPage() {
             ))}
           </Section>
 
+          {after.length > 0 && (
+            <Section icon={<CheckCircleIcon className="size-5" />} title="Sau buổi xem" count={after.length}>
+              {after.map((b) => (
+                <BookingRow
+                  key={b.id}
+                  booking={b}
+                  selected={b.id === selectedId}
+                lightUp={jumpEventId === null}
+                  onOpen={() => select(b.id)}
+                  action={b.status === "COMPLETED" ? "Cho biết cảm nhận" : "Xem chi tiết"}
+                >
+                  {b.status === "COMPLETED"
+                    ? "Bạn thấy căn thế nào? Quan tâm thì chủ căn được báo."
+                    : b.status === "NO_SHOW"
+                      ? "Chủ căn ghi nhận bạn không đến. Thực ra bạn có đến? Mở để phản hồi."
+                      : "Buổi xem đã qua, chờ chủ căn ghi nhận kết quả."}
+                </BookingRow>
+              ))}
+            </Section>
+          )}
+
           {upcoming.length > 0 && (
             <Section icon={<CalendarIcon className="size-5" />} title="Lịch xem sắp tới" count={upcoming.length}>
               {upcoming.map((b) => (
-                <BookingRow key={b.id} booking={b} selected={b.id === selectedId} onOpen={() => select(b.id)} action="Mã QR & chi tiết">
+                <BookingRow key={b.id} booking={b} selected={b.id === selectedId}
+                lightUp={jumpEventId === null} onOpen={() => select(b.id)} action="Mã QR & chi tiết">
                   Đã xác nhận · có mã QR vào cửa
                 </BookingRow>
               ))}
@@ -195,6 +251,7 @@ export function ActivityPage() {
                     <EventItem
                       key={a.id}
                       activity={a}
+                      jumped={a.id === jumpEventId}
                       selected={a.booking_id === selectedId}
                       onOpen={() => select(a.booking_id)}
                     />
@@ -253,18 +310,23 @@ function Section({
 function BookingRow({
   booking: b,
   selected,
+  lightUp = true,
   onOpen,
   action = "Theo dõi trạng thái",
   children,
 }: {
   booking: Booking;
   selected: boolean;
+  // Opened from a notification with no event of its own in the history: the row lights up instead
+  lightUp?: boolean;
   onOpen: () => void;
   action?: string;
   children: ReactNode;
 }) {
+  const flash = useJumpFlash(selected && lightUp);
   return (
     <li
+      ref={flash}
       className={`flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 transition ${
         selected ? "ring-2 ring-brand-500" : "ring-line"
       }`}
@@ -290,14 +352,26 @@ function BookingRow({
   );
 }
 
-function EventItem({ activity: a, selected, onOpen }: { activity: Activity; selected: boolean; onOpen: () => void }) {
+function EventItem({
+  activity: a,
+  selected,
+  jumped,
+  onOpen,
+}: {
+  activity: Activity;
+  selected: boolean;
+  jumped: boolean;
+  onOpen: () => void;
+}) {
+  // Opened from the notification about this event: it lights up
+  const flash = useJumpFlash(jumped);
   const e = EVENT[a.kind];
   const whenLabel = WHEN_LABEL[a.kind];
   // A request the owner has not answered yet: follow it from here
   const stillPending = a.kind === "REQUESTED" || a.kind === "TIME_CHANGED" || a.kind === "RESCHEDULE_REQUESTED";
   const canTrack = stillPending && PENDING.has(a.booking_status);
   return (
-    <li className="relative">
+    <li ref={flash} className="relative rounded-2xl">
       <span
         aria-hidden="true"
         className={`absolute -left-[33px] top-4 size-4 rounded-full ring-4 ring-canvas ${DOT[e.tone]}`}
@@ -371,4 +445,14 @@ function groupByDay(events: Activity[]): [string, Activity[]][] {
     groups.set(label, [...(groups.get(label) ?? []), a]);
   }
   return [...groups.entries()];
+}
+
+/** The opened viewing's details, lit up when the page was opened from a notification. */
+function JumpTarget({ active, children }: { active: boolean; children: ReactNode }) {
+  const flash = useJumpFlash(active);
+  return (
+    <div ref={flash} className="rounded-3xl">
+      {children}
+    </div>
+  );
 }

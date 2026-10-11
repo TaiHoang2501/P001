@@ -132,8 +132,8 @@ export function PropertyDetailCard({
               Đặt lịch xem căn này
             </button>
             <p className="text-xs text-muted">
-              Chủ căn chỉ thấy mã người mua và khoảng ngân sách, không thấy số
-              điện thoại của bạn.
+              Chủ căn chỉ thấy tên và khoảng ngân sách của bạn, không thấy số
+              điện thoại.
             </p>
           </div>
         </div>

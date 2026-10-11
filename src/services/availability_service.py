@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, exists, select
+from sqlalchemy import and_, exists, func, select
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from src.db.models import (
     OWNER_BUSY_STATUSES,
     AvailabilitySlot,
     Booking,
+    BookingStatus,
     HoldStatus,
     Property,
     PropertyHold,
@@ -51,7 +52,7 @@ def _slot_has_bookings():
     )
 
 
-def _slot_taken():
+def slot_taken():
     """SQL condition: the slot's owner already has a confirmed viewing at that time, on any of their homes.
 
     Unanswered requests leave the slot free: other buyers may still ask, the owner chooses.
@@ -126,15 +127,88 @@ def delete_slot(db: Session, actor: Actor, slot_id: int) -> None:
     db.commit()
 
 
+def close_time(db: Session, actor: Actor, property_id: int, start: datetime, end: datetime) -> int:
+    """The owner is busy at [start, end): cut that time out of the home's viewing slots (no commit).
+
+    Left alone while another request or viewing on the home overlaps it (the owner still has to answer it).
+    The parts of a slot before and after stay open when they are long enough for a viewing.
+    Returns how many slots were changed.
+    """
+    others = db.scalar(
+        select(Booking.id).where(
+            Booking.property_id == property_id,
+            Booking.status.in_(ACTIVE_BOOKING_STATUSES),
+            Booking.start_at < end,
+            Booking.end_at > start,
+        )
+    )
+    if others is not None:
+        return 0
+    minimum = timedelta(minutes=get_settings().viewing_duration_minutes)
+    slots = db.scalars(
+        select(AvailabilitySlot)
+        .where(
+            AvailabilitySlot.property_id == property_id,
+            AvailabilitySlot.start_at < end,
+            AvailabilitySlot.end_at > start,
+        )
+        .with_for_update()
+    ).all()
+    for slot in slots:
+        parts = [(slot.start_at, min(start, slot.end_at)), (max(end, slot.start_at), slot.end_at)]
+        audit.record(
+            db,
+            actor,
+            "slot.close",
+            "slot",
+            slot.id,
+            before={"start_at": slot.start_at.isoformat(), "end_at": slot.end_at.isoformat()},
+            after={"closed_from": start.isoformat(), "closed_to": end.isoformat()},
+        )
+        db.delete(slot)
+        db.flush()
+        db.add_all(
+            AvailabilitySlot(property_id=property_id, start_at=a, end_at=b) for a, b in parts if b - a >= minimum
+        )
+    db.flush()
+    return len(slots)
+
+
+def require_offerable(db: Session, property_id: int, starts: list[datetime]) -> list[datetime]:
+    """Times an owner offers a buyer must be free viewing times of theirs for this home, far enough ahead."""
+    duration = timedelta(minutes=get_settings().viewing_duration_minutes)
+    free = seller_free_windows(db, property_id)
+    for start in starts:
+        if not any(w.start_at <= start and start + duration <= w.end_at for w in free):
+            raise BusinessRuleViolationError(
+                "Suggest times from your own free viewing times (at least the minimum notice ahead)",
+                details={"start_at": start.isoformat()},
+            )
+    return sorted(set(starts))
+
+
 def list_slots(db: Session, property_id: int, *, only_free: bool = True, include_past: bool = False) -> list[SlotOut]:
-    taken = _slot_taken().label("taken")
-    stmt = select(AvailabilitySlot, taken).where(AvailabilitySlot.property_id == property_id)
+    taken = slot_taken().label("taken")
+    asked = (
+        select(func.count())
+        .where(
+            Booking.property_id == AvailabilitySlot.property_id,
+            Booking.status == BookingStatus.REQUESTED,
+            Booking.period.op("&&")(AvailabilitySlot.period),
+        )
+        .correlate(AvailabilitySlot)
+        .scalar_subquery()
+        .label("asked")
+    )
+    stmt = select(AvailabilitySlot, taken, asked).where(AvailabilitySlot.property_id == property_id)
     if not include_past:
         stmt = stmt.where(AvailabilitySlot.start_at > datetime.now(UTC))
     rows = db.execute(stmt.order_by(AvailabilitySlot.start_at)).all()
     slots = [
-        SlotOut(id=s.id, property_id=s.property_id, start_at=s.start_at, end_at=s.end_at, is_free=not is_taken)
-        for s, is_taken in rows
+        SlotOut(
+            id=s.id, property_id=s.property_id, start_at=s.start_at, end_at=s.end_at, is_free=not is_taken, requests=n
+        )
+        for s, is_taken, n in rows
     ]
     return [s for s in slots if s.is_free] if only_free else slots
 
@@ -205,11 +279,16 @@ def _seller_free(db: Session, property_id: int, now: datetime, until: datetime |
     return subtract(seller_windows(db, property_id, since=now, until=until), busy_windows(db, property_id, since=now))
 
 
+def earliest_start() -> datetime:
+    """The earliest time a viewing can be offered or booked (now + the minimum notice)."""
+    return datetime.now(UTC) + timedelta(minutes=get_settings().viewing_min_notice_minutes)
+
+
 def seller_free_windows(db: Session, property_id: int) -> list[TimeWindow]:
     """The seller's free windows over the next `viewing_alternative_days`, minus booked/held times."""
     _require_bookable(db, property_id)
-    now = datetime.now(UTC)
-    until = now + timedelta(days=get_settings().viewing_alternative_days)
+    now = earliest_start()
+    until = datetime.now(UTC) + timedelta(days=get_settings().viewing_alternative_days)
     return [
         TimeWindow(start_at=max(w.start, now), end_at=w.end)
         for w in _seller_free(db, property_id, now, until)
@@ -224,7 +303,7 @@ def propose_viewing_times(db: Session, property_id: int, data: ViewingTimesReque
     """
     _require_bookable(db, property_id)
     s = get_settings()
-    now = datetime.now(UTC)
+    now = earliest_start()  # times sooner than the minimum notice are never offered
     duration = timedelta(minutes=s.viewing_duration_minutes)
     step = timedelta(minutes=s.viewing_step_minutes)
 

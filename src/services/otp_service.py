@@ -84,14 +84,17 @@ def check_code(db: Session, target: str, code: str, purpose: OtpPurpose = OtpPur
         .limit(1)
         .with_for_update()
     )
-    # Same error for every failure so the response does not leak why
-    invalid = InvalidCredentialsError("Code is invalid or expired")
+    # Same message for every failure so the response does not leak why; the details only tell the person who
+    # asked for the code what to do next (try again / ask for a new code)
     if otp is None or otp.expires_at <= datetime.now(UTC) or otp.attempts >= settings.otp_max_attempts:
-        raise invalid
+        raise InvalidCredentialsError("Code is invalid or expired", details={"new_code_needed": True})
     if not hmac.compare_digest(otp.code_hash, _hash(target, code.strip())):
         otp.attempts += 1
         db.commit()
-        raise invalid
+        left = settings.otp_max_attempts - otp.attempts
+        raise InvalidCredentialsError(
+            "Code is invalid or expired", details={"attempts_left": left, "new_code_needed": left <= 0}
+        )
     return otp
 
 

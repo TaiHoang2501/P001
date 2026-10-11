@@ -258,6 +258,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bookings/{booking_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Viewing Feedback
+         * @description After a viewing that took place: interested (the owner is told) or not suitable (the deal closes).
+         */
+        post: operations["viewing_feedback_api_v1_bookings__booking_id__feedback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bookings/{booking_id}/dispute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Viewing Dispute
+         * @description The buyer disagrees with the recorded outcome; the operator checks with both sides.
+         */
+        post: operations["viewing_dispute_api_v1_bookings__booking_id__dispute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/bookings/{booking_id}/pass": {
         parameters: {
             query?: never;
@@ -665,6 +705,26 @@ export interface paths {
         put?: never;
         /** Reject Booking */
         post: operations["reject_booking_api_v1_owner_bookings__booking_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/owner/bookings/{booking_id}/no-show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * No Show Booking
+         * @description The buyer did not come (after the viewing time).
+         */
+        post: operations["no_show_booking_api_v1_owner_bookings__booking_id__no_show_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1080,6 +1140,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/escalations/{escalation_id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Case Context
+         * @description The case in plain words: who, which home and viewing, and the end of the buyer's chat with the assistant.
+         */
+        get: operations["case_context_api_v1_operator_escalations__escalation_id__context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/escalations/{escalation_id}/assign": {
         parameters: {
             query?: never;
@@ -1208,6 +1288,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/escalations/{escalation_id}/viewing-outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Viewing Outcome
+         * @description A viewing dispute: what really happened, after calling both sides. Closes the case and tells both.
+         */
+        post: operations["record_viewing_outcome_api_v1_operator_escalations__escalation_id__viewing_outcome_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/owner/media": {
         parameters: {
             query?: never;
@@ -1301,7 +1401,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED" | "SUPERSEDED";
+            kind: "REQUESTED" | "TIME_CHANGED" | "RESCHEDULE_REQUESTED" | "CONFIRMED" | "REJECTED" | "RESCHEDULE_APPROVED" | "RESCHEDULE_DECLINED" | "CANCELLED" | "COMPLETED" | "SUPERSEDED" | "NO_SHOW" | "OWNER_ABSENT" | "UNREPORTED" | "EXPIRED" | "RESCHEDULE_LAPSED" | "INTERESTED" | "NOT_SUITABLE" | "DISPUTED";
             /**
              * By
              * @enum {string}
@@ -1422,24 +1522,41 @@ export interface components {
             customer_note: string | null;
             /** Rejection Reason */
             rejection_reason: string | null;
+            /** Suggested Starts */
+            suggested_starts?: string[];
             /** Responded At */
             responded_at: string | null;
+            /**
+             * Closed By System
+             * @default false
+             */
+            closed_by_system: boolean;
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            /** Respond By */
+            respond_by?: string | null;
+            deal_status?: components["schemas"]["DealStatus"] | null;
         };
         /** BookingRejectRequest */
         BookingRejectRequest: {
             /** Reason */
             reason: string;
+            /** Suggested Starts */
+            suggested_starts?: string[];
+            /**
+             * Close Time
+             * @default false
+             */
+            close_time: boolean;
         };
         /**
          * BookingStatus
          * @enum {string}
          */
-        BookingStatus: "REQUESTED" | "CONFIRMED" | "RESCHEDULE_REQUESTED" | "REJECTED" | "CANCELLED" | "COMPLETED" | "NO_SHOW";
+        BookingStatus: "REQUESTED" | "CONFIRMED" | "RESCHEDULE_REQUESTED" | "REJECTED" | "CANCELLED" | "COMPLETED" | "NO_SHOW" | "OWNER_ABSENT" | "UNREPORTED" | "EXPIRED";
         /** BuildingOut */
         BuildingOut: {
             /** Id */
@@ -1448,6 +1565,60 @@ export interface components {
             code: string;
             /** Name */
             name: string;
+        };
+        /**
+         * CaseContext
+         * @description What an operator needs to handle a case, in plain words: who, which home, which viewing, and (when the
+         *     assistant raised it) the end of the buyer's chat with the assistant.
+         */
+        CaseContext: {
+            /** Buyer Name */
+            buyer_name?: string | null;
+            /** Buyer Phone */
+            buyer_phone?: string | null;
+            /** Seller Name */
+            seller_name?: string | null;
+            /** Seller Phone */
+            seller_phone?: string | null;
+            /** Property Label */
+            property_label?: string | null;
+            /** Deal Code */
+            deal_code?: string | null;
+            /** Viewing Time */
+            viewing_time?: string | null;
+            /** Viewing Status */
+            viewing_status?: string | null;
+            /** Messages */
+            messages?: components["schemas"]["CaseMessage"][];
+            /**
+             * Notify Buyer Default
+             * @default false
+             */
+            notify_buyer_default: boolean;
+            /**
+             * Notify Seller Default
+             * @default false
+             */
+            notify_seller_default: boolean;
+            /**
+             * Earlier Messages
+             * @default 0
+             */
+            earlier_messages: number;
+        };
+        /**
+         * CaseMessage
+         * @description One message of the buyer's chat with the assistant, as the buyer saw it (no technical details).
+         */
+        CaseMessage: {
+            role: components["schemas"]["MessageRole"];
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * Channel
@@ -1505,6 +1676,11 @@ export interface components {
              * @default false
              */
             needs_account: boolean;
+            /**
+             * Trace Id
+             * @description Developer trace of this turn (table ai_turns)
+             */
+            trace_id?: string | null;
             /** @description Guest chat only: the viewing request to send after the guest signs up */
             pending_viewing?: components["schemas"]["PendingViewingRequest"] | null;
         };
@@ -1608,6 +1784,8 @@ export interface components {
             };
             /** Assigned To */
             assigned_to: number | null;
+            /** Assigned To Name */
+            assigned_to_name?: string | null;
             /** Resolution */
             resolution: string | null;
             /** Resolved At */
@@ -1628,7 +1806,7 @@ export interface components {
          * @description When a human must step in (spec §4.3, §4.8 HITL, §6.4).
          * @enum {string}
          */
-        EscalationType: "SELLER_NO_RESPONSE" | "NO_COMMON_SLOT" | "SCHEDULE_CONFLICT" | "PROPERTY_ISSUE" | "MULTI_BUYER" | "SYSTEM_FAILURE" | "OTHER" | "OWNERSHIP_SUPPORT";
+        EscalationType: "SELLER_NO_RESPONSE" | "NO_COMMON_SLOT" | "SCHEDULE_CONFLICT" | "PROPERTY_ISSUE" | "MULTI_BUYER" | "SYSTEM_FAILURE" | "OTHER" | "OWNERSHIP_SUPPORT" | "VIEWING_DISPUTE";
         /**
          * Furnishing
          * @enum {string}
@@ -1833,6 +2011,18 @@ export interface components {
             escalation_id: number;
             seller: components["schemas"]["SupportSeller"] | null;
             red_book: components["schemas"]["RedBookState"] | null;
+            /** Holder Name */
+            holder_name?: string | null;
+            /**
+             * Sender Is Holder
+             * @default true
+             */
+            sender_is_holder: boolean;
+            /**
+             * Has Documents
+             * @default false
+             */
+            has_documents: boolean;
         };
         /**
          * OwnershipChallengeOut
@@ -2175,9 +2365,13 @@ export interface components {
         ResolveRequest: {
             /**
              * Resolution
-             * @description What was done / told to the buyer
+             * @description What was done / what the people are told
              */
             resolution: string;
+            /** Notify Buyer */
+            notify_buyer?: boolean | null;
+            /** Notify Seller */
+            notify_seller?: boolean | null;
         };
         /**
          * SearchCriteria
@@ -2343,6 +2537,11 @@ export interface components {
              * @default true
              */
             is_free: boolean;
+            /**
+             * Requests
+             * @default 0
+             */
+            requests: number;
         };
         /** SupportSeller */
         SupportSeller: {
@@ -2429,6 +2628,45 @@ export interface components {
          * @enum {string}
          */
         ViewType: "LAKE" | "RIVER" | "PARK" | "POOL" | "CITY" | "INTERNAL";
+        /** ViewingDispute */
+        ViewingDispute: {
+            /**
+             * Claim
+             * @enum {string}
+             */
+            claim: "I_CAME" | "OWNER_ABSENT";
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /** ViewingFeedback */
+        ViewingFeedback: {
+            /**
+             * Interest
+             * @enum {string}
+             */
+            interest: "INTERESTED" | "NOT_SUITABLE";
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
+         * ViewingOutcome
+         * @description What the operator found after calling both sides.
+         */
+        ViewingOutcome: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "VIEWED" | "BUYER_NO_SHOW" | "OWNER_ABSENT";
+            /** Note */
+            note: string;
+        };
         /**
          * ViewingPassOut
          * @description The buyer's entry pass: the QR links to /pass/{token}.
@@ -2895,6 +3133,76 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RescheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    viewing_feedback_api_v1_bookings__booking_id__feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewingFeedback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    viewing_dispute_api_v1_bookings__booking_id__dispute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewingDispute"];
             };
         };
         responses: {
@@ -3731,6 +4039,37 @@ export interface operations {
             };
         };
     };
+    no_show_booking_api_v1_owner_bookings__booking_id__no_show_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     complete_booking_api_v1_owner_bookings__booking_id__complete_post: {
         parameters: {
             query?: never;
@@ -4403,6 +4742,37 @@ export interface operations {
             };
         };
     };
+    case_context_api_v1_operator_escalations__escalation_id__context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                escalation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaseContext"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assign_api_v1_operator_escalations__escalation_id__assign_post: {
         parameters: {
             query?: never;
@@ -4627,6 +4997,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OwnershipCaseOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_viewing_outcome_api_v1_operator_escalations__escalation_id__viewing_outcome_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                escalation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewingOutcome"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingOut"];
                 };
             };
             /** @description Validation Error */

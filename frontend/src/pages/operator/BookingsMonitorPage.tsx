@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { api, call } from "../../api/client";
 import type { Booking, BookingStatus } from "../../api/types";
 import { BookingBadge, EmptyState, ErrorBox, PageHeader, Spinner } from "../../components/ui";
 import { BOOKING_STATUS, formatDateTime, formatTimeRange } from "../../lib/format";
+import { useJumpFlash } from "../../lib/jump";
 
 const ACTIVE = new Set<BookingStatus>(["REQUESTED", "CONFIRMED", "RESCHEDULE_REQUESTED"]);
 
@@ -13,7 +15,13 @@ const ACTIVE = new Set<BookingStatus>(["REQUESTED", "CONFIRMED", "RESCHEDULE_REQ
  * themselves; the operator only watches and can cancel a stuck booking as a manual fallback.
  */
 export function BookingsMonitorPage() {
+  const [params] = useSearchParams();
+  // Opened from a notification (?booking=ID): show every status so that viewing is in the list, and light it up
+  const opened = Number(params.get("booking")) || null;
   const [status, setStatus] = useState<BookingStatus | "">("");
+  useEffect(() => {
+    if (opened) setStatus("");
+  }, [opened, params]);
   const bookings = useQuery({
     queryKey: ["operator-bookings", status],
     queryFn: () => call(api.GET("/api/v1/operator/bookings", { params: { query: { status: status || null } } })),
@@ -44,14 +52,15 @@ export function BookingsMonitorPage() {
       {bookings.data?.length === 0 && <EmptyState title="Không có lịch xem nào" />}
       <ul className="space-y-3">
         {bookings.data?.map((b) => (
-          <BookingRow key={b.id} booking={b} />
+          <BookingRow key={b.id} booking={b} opened={b.id === opened} />
         ))}
       </ul>
     </div>
   );
 }
 
-function BookingRow({ booking: b }: { booking: Booking }) {
+function BookingRow({ booking: b, opened = false }: { booking: Booking; opened?: boolean }) {
+  const flash = useJumpFlash(opened);
   const queryClient = useQueryClient();
   const cancel = useMutation({
     mutationFn: () => call(api.POST("/api/v1/operator/bookings/{booking_id}/cancel", { params: { path: { booking_id: b.id } } })),
@@ -59,7 +68,7 @@ function BookingRow({ booking: b }: { booking: Booking }) {
   });
 
   return (
-    <li className="card space-y-2 p-4">
+    <li ref={flash} className="card space-y-2 p-4">
       <div className="flex flex-wrap items-start gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">

@@ -25,6 +25,7 @@ from src.services import (
     ownership_support_service,
     property_service,
     seller_service,
+    viewing_outcome_service,
 )
 
 router = APIRouter(prefix="/owner", tags=["owner"])
@@ -169,7 +170,15 @@ def approve_booking(booking_id: int, actor: OwnerActor, db: DbSession) -> Bookin
 
 @router.post("/bookings/{booking_id}/reject", response_model=BookingOut)
 def reject_booking(booking_id: int, data: BookingRejectRequest, actor: OwnerActor, db: DbSession) -> BookingOut:
-    return booking_service.reject(db, actor, booking_id, data.reason)
+    return booking_service.reject(
+        db, actor, booking_id, data.reason, suggested_starts=data.suggested_starts, close_time=data.close_time
+    )
+
+
+@router.post("/bookings/{booking_id}/no-show", response_model=BookingOut)
+def no_show_booking(booking_id: int, actor: OwnerActor, db: DbSession) -> BookingOut:
+    """The buyer did not come (after the viewing time)."""
+    return viewing_outcome_service.no_show(db, actor, booking_id)
 
 
 @router.post("/bookings/{booking_id}/complete", response_model=BookingOut)

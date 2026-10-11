@@ -13,7 +13,7 @@ Safety rules enforced here (not in the UI or the prompt):
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -41,12 +41,25 @@ from src.db.models import (
     UserRole,
 )
 from src.models.booking import ActivityOut, BookingCreate, BookingOut, RescheduleRequest
-from src.services import audit, deal_service, hold_service, notification_service, seller_service
+from src.services import (
+    audit,
+    availability_service,
+    deal_service,
+    escalation_service,
+    hold_service,
+    notification_service,
+    seller_service,
+)
 from src.services.availability_service import TimeConflictError, is_exclusion_violation, list_slots, owner_busy
 
 # Booking lifecycle (spec §4.12)
 _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
-    BookingStatus.REQUESTED: {BookingStatus.CONFIRMED, BookingStatus.REJECTED, BookingStatus.CANCELLED},
+    BookingStatus.REQUESTED: {
+        BookingStatus.CONFIRMED,
+        BookingStatus.REJECTED,
+        BookingStatus.CANCELLED,
+        BookingStatus.EXPIRED,
+    },
     BookingStatus.CONFIRMED: {
         BookingStatus.COMPLETED,
         BookingStatus.CANCELLED,
@@ -59,6 +72,9 @@ _TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
     BookingStatus.CANCELLED: set(),
     BookingStatus.COMPLETED: set(),
     BookingStatus.NO_SHOW: set(),
+    BookingStatus.OWNER_ABSENT: set(),
+    BookingStatus.UNREPORTED: set(),
+    BookingStatus.EXPIRED: set(),
 }
 # Spec §4.7: the seller gets buyer contact details only from level 3 (continue transaction) on
 _CONTACT_LEVEL = 3
@@ -107,6 +123,56 @@ def _transition(booking: Booking, to: BookingStatus) -> BookingStatus:
     return before
 
 
+def expire_unanswered(db: Session, now: datetime | None = None) -> int:
+    """Periodic job: what the owner did not answer before the viewing time can no longer happen.
+
+    - A request whose viewing time has come -> EXPIRED; the buyer is told (in the chat, with a way to find
+      another time) and a "seller did not answer" case, if any, closes.
+    - A new time asked for on a confirmed viewing, now passed -> the request lapses; the confirmed viewing stays.
+    Returns how many were closed.
+    """
+    now = now or _now()
+    rows = db.scalars(
+        select(Booking)
+        .where(
+            or_(
+                and_(Booking.status == BookingStatus.REQUESTED, Booking.start_at <= now),
+                and_(Booking.status == BookingStatus.RESCHEDULE_REQUESTED, Booking.proposed_start_at <= now),
+            )
+        )
+        .with_for_update(skip_locked=True)
+    ).all()
+    for booking in rows:
+        if booking.status == BookingStatus.REQUESTED:
+            before = _transition(booking, BookingStatus.EXPIRED)
+            _audit_transition(db, None, "booking.expired", booking, before)
+            escalation_service.settle_no_response(
+                db, None, booking.id, "Giờ xem đã qua mà chủ căn chưa trả lời: yêu cầu tự hết hạn."
+            )
+            notification_service.viewing_expired(db, booking)
+        else:
+            before = _transition(booking, BookingStatus.CONFIRMED)
+            lapsed = booking.proposed_start_at
+            booking.proposed_start_at = booking.proposed_end_at = None
+            _audit_transition(
+                db, None, "booking.reschedule_lapsed", booking, before, lapsed=lapsed.isoformat() if lapsed else None
+            )
+            notification_service.reschedule_lapsed(db, booking)
+        _sync_deal(db, None, booking)
+    db.commit()
+    return len(rows)
+
+
+def respond_by(booking: Booking) -> datetime:
+    """When the seller must have answered a request: `seller_response_hours` after it was sent, but never later
+    than `seller_response_lead_minutes` before the viewing (a request for tomorrow cannot wait 24 hours)."""
+    s = get_settings()
+    return min(
+        booking.created_at + timedelta(hours=s.seller_response_hours),
+        booking.start_at - timedelta(minutes=s.seller_response_lead_minutes),
+    )
+
+
 def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None) -> BookingOut:
     prop = booking.property
     deal = booking.deal
@@ -137,8 +203,12 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
         created_via=booking.created_via,
         customer_note=booking.customer_note,
         rejection_reason=booking.rejection_reason,
+        suggested_starts=booking.suggested_starts or [],
+        closed_by_system=booking.status == BookingStatus.REJECTED and booking.rejection_reason == SUPERSEDED_REASON,
         responded_at=booking.responded_at,
         created_at=booking.created_at,
+        respond_by=respond_by(booking) if booking.status == BookingStatus.REQUESTED else None,
+        deal_status=deal.status,
     )
 
 
@@ -257,6 +327,7 @@ def _close_overlapping(db: Session, confirmed: Booking) -> None:
             other.responded_at = _now()
             other.rejection_reason = SUPERSEDED_REASON
             _audit_transition(db, None, "booking.superseded", other, before, reason=SUPERSEDED_REASON)
+            escalation_service.settle_no_response(db, None, other.id, "Chủ căn đã nhận một lịch xem khác vào giờ này.")
             _sync_deal(db, None, other)
             free = [s.start_at for s in list_slots(db, other.property_id)[:3]]
             notification_service.viewing_superseded(db, other, free)
@@ -313,6 +384,11 @@ def _resolve_time(
             )
     if start_at <= _now():
         raise BusinessRuleViolationError("This viewing time has already started")
+    notice = get_settings().viewing_min_notice_minutes
+    if start_at < _now() + timedelta(minutes=notice):
+        raise BusinessRuleViolationError(
+            f"Book a viewing at least {notice} minutes ahead", details={"min_notice_minutes": notice}
+        )
     return slot, start_at, end_at
 
 
@@ -329,6 +405,7 @@ def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     booking.proposed_start_at = booking.proposed_end_at = None
     released = hold_service.release(db, actor, booking.id, "cancelled")
     _audit_transition(db, actor, "booking.cancel", booking, before)
+    escalation_service.settle_no_response(db, actor, booking.id, "Người mua đã hủy yêu cầu xem.")
     _sync_deal(db, actor, booking)
     notification_service.viewing_cancelled(db, booking, actor, hold_released=released)
     db.commit()
@@ -432,6 +509,7 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     except TimeConflictError as e:
         _raise_slot_taken(db, e, property_id)
     _audit_transition(db, actor, "booking.reschedule_approve" if rescheduling else "booking.approve", booking, before)
+    escalation_service.settle_no_response(db, actor, booking.id, "Chủ căn đã xác nhận lịch xem.")
     _sync_deal(db, actor, booking)
     notification_service.viewing_confirmed(db, booking, rescheduled=rescheduling)
     _close_overlapping(db, booking)
@@ -439,10 +517,22 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     return to_out(_load(db, booking.id), actor)
 
 
-def reject(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOut:
+def reject(
+    db: Session,
+    actor: Actor,
+    booking_id: int,
+    reason: str,
+    *,
+    suggested_starts: list[datetime] | None = None,
+    close_time: bool = False,
+) -> BookingOut:
+    """Decline a request (or a new time asked for). The owner may offer up to three other times of their own
+    (the buyer books one in a tap) and may close the declined time so nobody else asks for it."""
     if actor.role != UserRole.OWNER:
         raise ForbiddenError("Only the property owner can reject a viewing")
     booking = _load_for_owner(db, actor, booking_id)
+    if suggested_starts and booking.status != BookingStatus.REQUESTED:
+        raise BusinessRuleViolationError("Other times can be suggested for a new request only")
     if booking.status == BookingStatus.RESCHEDULE_REQUESTED:
         # Declining a new time keeps the viewing (and its hold) at the original time
         before = _transition(booking, BookingStatus.CONFIRMED)
@@ -453,12 +543,34 @@ def reject(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOu
         notification_service.reschedule_declined(db, booking, reason)
         db.commit()
         return to_out(booking, actor)
+    offered = (
+        availability_service.require_offerable(db, booking.property_id, suggested_starts) if suggested_starts else []
+    )
     before = _transition(booking, BookingStatus.REJECTED)
     booking.responded_at = _now()
     booking.rejection_reason = reason
-    _audit_transition(db, actor, "booking.reject", booking, before, reason=reason)
+    booking.suggested_starts = offered or None
+    db.flush()
+    closed = (
+        availability_service.close_time(db, actor, booking.property_id, booking.start_at, booking.end_at)
+        if close_time
+        else 0
+    )
+    _audit_transition(
+        db,
+        actor,
+        "booking.reject",
+        booking,
+        before,
+        reason=reason,
+        suggested_starts=[t.isoformat() for t in offered],
+        closed_slots=closed,
+    )
+    escalation_service.settle_no_response(
+        db, actor, booking.id, "Chủ căn đã trả lời: không nhận lịch" + (", đề xuất giờ khác." if offered else ".")
+    )
     _sync_deal(db, actor, booking)
-    notification_service.viewing_rejected(db, booking, reason)
+    notification_service.viewing_rejected(db, booking, reason, offered)
     db.commit()
     return to_out(booking, actor)
 
@@ -475,6 +587,15 @@ def complete(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     _audit_transition(db, actor, "booking.complete", booking, before)
     _sync_deal(db, actor, booking)
     notification_service.cancel_reminders(db, booking.id)
+    notification_service.notify(
+        db,
+        booking.customer_id,
+        "VIEWING_COMPLETED",
+        "Bạn thấy căn thế nào?",
+        f"Buổi xem {booking.property.unit_code} đã hoàn tất. Cho chủ căn và trợ lý biết bạn có quan tâm không "
+        "trong mục Hoạt động.",
+        booking=booking,
+    )
     db.commit()
     return to_out(booking, actor)
 
@@ -527,6 +648,22 @@ _ACTIVITY_KIND = {
     "booking.cancel": "CANCELLED",
     "booking.complete": "COMPLETED",
     "booking.superseded": "SUPERSEDED",
+    "booking.no_show": "NO_SHOW",
+    "booking.unreported": "UNREPORTED",
+    "booking.expired": "EXPIRED",
+    "booking.reschedule_lapsed": "RESCHEDULE_LAPSED",
+    "booking.dispute": "DISPUTED",
+    "booking.feedback": "FEEDBACK",
+    "booking.outcome_by_operator": "OUTCOME",
+}
+
+# What an event says, when it depends on the details (the buyer's answer, the operator's finding)
+_KIND_BY_DETAIL = {
+    ("FEEDBACK", "INTERESTED"): "INTERESTED",
+    ("FEEDBACK", "NOT_SUITABLE"): "NOT_SUITABLE",
+    ("OUTCOME", "COMPLETED"): "COMPLETED",
+    ("OUTCOME", "NO_SHOW"): "NO_SHOW",
+    ("OUTCOME", "OWNER_ABSENT"): "OWNER_ABSENT",
 }
 
 
@@ -572,7 +709,10 @@ def activity_for(db: Session, actor: Actor, limit: int = 200) -> list[ActivityOu
             ActivityOut(
                 id=row.id,
                 at=row.created_at,
-                kind=_ACTIVITY_KIND[row.action],
+                kind=_KIND_BY_DETAIL.get(
+                    (_ACTIVITY_KIND[row.action], after.get("interest") or after.get("status")),
+                    _ACTIVITY_KIND[row.action],
+                ),
                 by=by,
                 booking_id=b.id,
                 property_id=b.property_id,

@@ -4,9 +4,10 @@ from fastapi import APIRouter
 
 from src.core.deps import AnyActor, DbSession, OperatorActor
 from src.db.models import EscalationStatus
-from src.models.escalation import EscalationOut, ResolveRequest
+from src.models.booking import BookingOut, ViewingOutcome
+from src.models.escalation import CaseContext, EscalationOut, ResolveRequest
 from src.models.ownership import OperatorNote, OwnershipCaseOut, UnlockRequest
-from src.services import escalation_service, ownership_support_service
+from src.services import escalation_service, ownership_support_service, viewing_outcome_service
 
 router = APIRouter(tags=["escalations"])
 
@@ -22,6 +23,12 @@ def queue(actor: OperatorActor, db: DbSession, status: EscalationStatus | None =
     return escalation_service.list_queue(db, status)
 
 
+@router.get("/operator/escalations/{escalation_id}/context", response_model=CaseContext)
+def case_context(escalation_id: int, actor: OperatorActor, db: DbSession) -> CaseContext:
+    """The case in plain words: who, which home and viewing, and the end of the buyer's chat with the assistant."""
+    return escalation_service.case_context(db, escalation_id)
+
+
 @router.post("/operator/escalations/{escalation_id}/assign", response_model=EscalationOut)
 def assign(escalation_id: int, actor: OperatorActor, db: DbSession) -> EscalationOut:
     return escalation_service.assign(db, actor, escalation_id)
@@ -29,12 +36,22 @@ def assign(escalation_id: int, actor: OperatorActor, db: DbSession) -> Escalatio
 
 @router.post("/operator/escalations/{escalation_id}/resolve", response_model=EscalationOut)
 def resolve(escalation_id: int, data: ResolveRequest, actor: OperatorActor, db: DbSession) -> EscalationOut:
-    return escalation_service.close(db, actor, escalation_id, data.resolution)
+    return escalation_service.close(
+        db, actor, escalation_id, data.resolution, notify_buyer=data.notify_buyer, notify_seller=data.notify_seller
+    )
 
 
 @router.post("/operator/escalations/{escalation_id}/dismiss", response_model=EscalationOut)
 def dismiss(escalation_id: int, data: ResolveRequest, actor: OperatorActor, db: DbSession) -> EscalationOut:
-    return escalation_service.close(db, actor, escalation_id, data.resolution, dismissed=True)
+    return escalation_service.close(
+        db,
+        actor,
+        escalation_id,
+        data.resolution,
+        dismissed=True,
+        notify_buyer=data.notify_buyer,
+        notify_seller=data.notify_seller,
+    )
 
 
 # ---------- Ownership support cases (red book verification the seller could not finish alone) ----------
@@ -61,3 +78,9 @@ def verify_red_book(escalation_id: int, data: OperatorNote, actor: OperatorActor
 def revoke_red_book(escalation_id: int, data: OperatorNote, actor: OperatorActor, db: DbSession) -> OwnershipCaseOut:
     """Take back a wrong verification; its listing comes off the market and its viewings are cancelled."""
     return ownership_support_service.revoke(db, actor, escalation_id, data.note)
+
+
+@router.post("/operator/escalations/{escalation_id}/viewing-outcome", response_model=BookingOut)
+def record_viewing_outcome(escalation_id: int, data: ViewingOutcome, actor: OperatorActor, db: DbSession) -> BookingOut:
+    """A viewing dispute: what really happened, after calling both sides. Closes the case and tells both."""
+    return viewing_outcome_service.record_outcome(db, actor, escalation_id, data.outcome, data.note.strip())

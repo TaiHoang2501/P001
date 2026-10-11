@@ -151,6 +151,9 @@ nào chỉ nằm ở web.
     (`/bookings/activity`) đọc từ `audit_logs`.
   - `deal` tạo mã `VH-yyyy-xxxxx` và cập nhật trạng thái Deal, `hold` giữ căn cho buổi xem sau khi chủ căn xác nhận,
     `pass` cấp và kiểm tra mã QR vào cửa.
+  - `viewing_outcome` sau giờ xem: chủ căn ghi "Đã xem xong" / "Khách không đến" (quên thì được nhắc, quá 48h tự đóng
+    `UNREPORTED`); người mua cho biết Quan tâm / Chưa phù hợp; người mua không đồng ý kết quả → ca `VIEWING_DISPUTE`
+    cho Chủ đầu tư gọi hai bên và ghi kết quả.
   - `ownership` đối chiếu sổ đỏ + OTP (thành công → người bán `VERIFIED`), `ownership_support` các ca người bán không
     tự xác thực được (mở khóa, cập nhật SĐT, xác thực thủ công, thu hồi), `media` ảnh tải từ máy (lưu trong DB,
     giấy tờ hỗ trợ là riêng tư), `seller` trạng thái người bán, `notification` thông báo trong web,
