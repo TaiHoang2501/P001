@@ -13,6 +13,7 @@ No automatic penalties: counts of no-shows / absences are only shown to the oper
 
 from datetime import UTC, datetime, timedelta
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -48,6 +49,11 @@ _OUTCOME_STATUS = {
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _local(t: datetime) -> datetime:
+    """Times written into text are in the local time zone (the database keeps UTC)."""
+    return t.astimezone(ZoneInfo(get_settings().timezone))
 
 
 def _label(b: Booking) -> str:
@@ -177,7 +183,7 @@ def dispute(db: Session, actor: Actor, booking_id: int, claim: Claim, note: str)
     escalation_service.create(
         db,
         type=EscalationType.VIEWING_DISPUTE,
-        summary=f"Người mua báo {what}: {_label(booking)}, {booking.start_at:%H:%M %d/%m}",
+        summary=f"Người mua báo {what}: {_label(booking)}, {_local(booking.start_at):%H:%M %d/%m}",
         raised_by=ActorType.USER,
         actor=actor,
         requester_id=actor.id,

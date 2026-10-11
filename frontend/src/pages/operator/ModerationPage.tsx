@@ -27,7 +27,7 @@ export function ModerationPage() {
     <div>
       <PageHeader
         title="Duyệt tin đăng"
-        subtitle="Người bán đã xác thực sổ đỏ / sổ hồng; kiểm tra ảnh, giá và mô tả. Chỉ tin được duyệt mới được AI gợi ý cho người mua."
+        subtitle="Chủ căn đã xác thực sổ đỏ / sổ hồng; kiểm tra ảnh, giá và mô tả. Chỉ tin được duyệt mới được AI gợi ý cho người mua."
       />
       {pending.isPending && <Spinner />}
       {pending.isError && <ErrorBox error={pending.error} onRetry={() => pending.refetch()} />}
@@ -63,12 +63,31 @@ function ModerationRow({ property: p }: { property: Property }) {
             {p.project_name} · {p.building_name} · {p.unit_code}
           </h3>
           <p className="mt-1 text-sm">
-            <span className="font-semibold">{formatVnd(p.price_vnd)}</span> · {formatArea(p.area_m2)} · {bedroomsLabel(p.bedrooms)} · Tầng{" "}
+            <span className="font-semibold">{formatVnd(p.price_vnd)}</span>
+            {/* Price per m², to spot an odd price at a glance */}
+            {Number(p.area_m2) > 0 && (
+              <span className="text-muted">
+                {" "}
+                (≈ {(p.price_vnd / Number(p.area_m2) / 1e6).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} triệu/m²)
+              </span>
+            )}{" "}
+            · {formatArea(p.area_m2)} · {bedroomsLabel(p.bedrooms)} · Tầng{" "}
             {p.floor} · {DIRECTION[p.direction]} · View {VIEW[p.view]} · {FURNISHING[p.furnishing]} · {LEGAL[p.legal_status]}
           </p>
           {p.description && <p className="mt-2 text-sm text-muted">{p.description}</p>}
           <p className="mt-1 text-xs text-muted">
-            Chủ căn #{p.owner_id} · tạo lúc {formatDateTime(p.created_at)}
+            Chủ căn {p.owner_name ?? `#${p.owner_id}`}
+            {p.owner_phone && (
+              <>
+                {" "}
+                (
+                <a href={`tel:${p.owner_phone}`} className="underline-offset-2 hover:underline">
+                  {p.owner_phone}
+                </a>
+                )
+              </>
+            )}{" "}
+            · gửi duyệt lúc {formatDateTime(p.created_at)}
           </p>
           <Evidence property={p} />
         </div>
@@ -92,7 +111,7 @@ function ModerationRow({ property: p }: { property: Property }) {
           }}
         >
           <label htmlFor={`reason-${p.id}`} className="block text-sm font-semibold">
-            Lý do từ chối <span className="font-normal text-muted">· người bán thấy ngay trên tin và sửa theo</span>
+            Lý do từ chối <span className="font-normal text-muted">· chủ căn thấy ngay trên tin và sửa theo</span>
           </label>
           {/* Common reasons, one click each; several can be combined, details added below */}
           <div className="flex flex-wrap gap-1.5">

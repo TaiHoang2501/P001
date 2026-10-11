@@ -106,6 +106,13 @@ const CASE_BY_TITLE: Record<string, string> = {
   "Tranh chấp kết quả buổi xem": "VIEWING_DISPUTE",
   "Khách cần hỗ trợ": "OTHER",
 };
+const CASE_LABEL: Record<string, string> = Object.fromEntries(Object.entries(CASE_BY_TITLE).map(([label, type]) => [type, label]));
+
+/** A notification's title as shown; older ones named the kind of case by its code ("Cần xử lý: SELLER_NO_RESPONSE"). */
+export function noteTitle(n: { title: string }): string {
+  const m = /^Cần xử lý: ([A-Z_]+)$/.exec(n.title);
+  return m ? `Ca mới: ${CASE_LABEL[m[1]] ?? "Sự cố hệ thống"}` : n.title;
+}
 const CASE_GROUPS = new Set(["SELLER_NO_RESPONSE", "NO_COMMON_SLOT", "OWNERSHIP_SUPPORT", "VIEWING_DISPUTE", "OTHER"]);
 
 /** The operator's group for a notification: the kind of case it opens (system failures, conflicts... together). */

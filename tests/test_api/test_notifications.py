@@ -122,7 +122,7 @@ async def test_accepted_reschedule_moves_reminders(client, db):
 @pytest.mark.asyncio
 async def test_rejection_notifies_buyer(client):
     tuan, an, booking = await _booked(client)
-    await client.post(f"/api/v1/owner/bookings/{booking['id']}/reject", json={"reason": "Bận việc"}, headers=tuan)
+    await client.post(f"/api/v1/owner/bookings/{booking['id']}/reject", json={"reason": "Bận việc cả tuần"}, headers=tuan)
     [n] = (await client.get("/api/v1/notifications", headers=an)).json()
     assert n["event_type"] == "VIEWING_REJECTED"
     assert "Bận việc" in n["body"]

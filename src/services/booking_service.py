@@ -194,6 +194,8 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
         # The seller always sees who asks to view (product decision); the phone stays hidden until level 3
         customer_name=booking.customer.full_name,
         customer_phone=booking.customer.phone if show_contact else None,
+        owner_name=prop.owner.full_name if viewer.role == UserRole.INVESTOR_OPERATOR else None,
+        owner_phone=prop.owner.phone if viewer.role == UserRole.INVESTOR_OPERATOR else None,
         start_at=booking.start_at,
         end_at=booking.end_at,
         status=booking.status,
@@ -410,6 +412,18 @@ def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     notification_service.viewing_cancelled(db, booking, actor, hold_released=released)
     db.commit()
     return to_out(booking, actor)
+
+
+def operator_cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
+    """The operator's manual fallback, only before the viewing: once its time has come, what happened is recorded
+    after the viewing (outcome), not cancelled."""
+    booking = _load(db, booking_id)
+    if booking.start_at <= _now():
+        raise BusinessRuleViolationError(
+            "Buổi xem đã tới giờ nên không hủy được; kết quả buổi xem do chủ căn ghi nhận.",
+            details={"reason": "VIEWING_STARTED"},
+        )
+    return cancel(db, actor, booking_id)
 
 
 def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleRequest) -> BookingOut:

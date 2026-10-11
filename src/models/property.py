@@ -103,6 +103,9 @@ class PropertyOut(PropertyBase):
     verified_red_book: bool = False
     # Its code, for the seller and the investor (not shown to buyers)
     red_book_code: str | None = None
+    # The owner, for the operator reviewing the listing (never sent to buyers)
+    owner_name: str | None = None
+    owner_phone: str | None = None
     created_at: datetime
     # Buyers only get public media; the owner and operators also see private documents
     media: list[MediaOut] = Field(default_factory=list)

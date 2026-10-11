@@ -222,8 +222,8 @@ function OtpForm({
 
   const send = (e: FormEvent) => {
     e.preventDefault();
-    if (!/^0[1-9]\d{8,9}$/.test(phone)) {
-      setPhoneError("Số điện thoại gồm 10–11 chữ số và bắt đầu bằng 0, ví dụ 0912 345 678.");
+    if (!/^0[35789]\d{8}$/.test(phone)) {
+      setPhoneError("Nhập số di động 10 chữ số, bắt đầu bằng 03, 05, 07, 08 hoặc 09, ví dụ 0912 345 678.");
       return;
     }
     setPhoneError(null);

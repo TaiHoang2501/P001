@@ -8,7 +8,7 @@ Operators take, resolve or dismiss them; the requester is told the outcome.
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import Integer, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,7 @@ from src.db.models import (
     EscalationStatus,
     EscalationType,
     MessageRole,
+    Notification,
     Property,
     User,
     UserRole,
@@ -104,14 +105,13 @@ def escalate_unanswered_requests(db: Session, now: datetime | None = None) -> in
     stale = db.scalars(
         select(Booking).where(
             Booking.status == BookingStatus.REQUESTED,
+            # Only viewings still ahead: nobody can rescue one whose time has come (it expires by itself, see
+            # booking_service.expire_unanswered)
+            Booking.start_at > now,
             # Past the answer deadline: 24 h after the request, or 1 h before the viewing if that comes first
             or_(
                 Booking.created_at <= cutoff,
-                # (only viewings still ahead: long-past requests are not sent to the queue all at once)
-                and_(
-                    Booking.start_at > now,
-                    Booking.start_at <= now + timedelta(minutes=s.seller_response_lead_minutes),
-                ),
+                Booking.start_at <= now + timedelta(minutes=s.seller_response_lead_minutes),
             ),
             ~select(Escalation.id)
             .where(Escalation.booking_id == Booking.id, Escalation.type == EscalationType.SELLER_NO_RESPONSE)
@@ -187,7 +187,57 @@ def settle_no_response(db: Session, actor: Actor | None, booking_id: int, outcom
             before={"status": before},
             after={"status": esc.status, "resolution": outcome},
         )
+    if cases:
+        db.flush()
+        retire_closed_case_notices(db)
     return len(cases)
+
+
+_SETTLED_BY_STATUS = {
+    BookingStatus.CONFIRMED: "Chủ căn đã xác nhận lịch xem.",
+    BookingStatus.RESCHEDULE_REQUESTED: "Chủ căn đã xác nhận lịch xem.",
+    BookingStatus.REJECTED: "Chủ căn đã trả lời yêu cầu xem (từ chối hoặc đã nhận lịch khác vào giờ này).",
+    BookingStatus.CANCELLED: "Người mua đã hủy yêu cầu xem.",
+    BookingStatus.EXPIRED: "Đã tới giờ xem mà chủ căn chưa trả lời; yêu cầu tự hết hạn và người mua đã được báo.",
+}
+
+
+def settle_stale_cases(db: Session) -> int:
+    """Periodic job: "seller did not answer" cases whose request is no longer waiting (answered, cancelled,
+    expired), e.g. left over from before such cases closed by themselves. Commits; returns how many closed."""
+    rows = db.execute(
+        select(Escalation.booking_id, Booking.status)
+        .join(Booking, Booking.id == Escalation.booking_id)
+        .where(
+            Escalation.type == EscalationType.SELLER_NO_RESPONSE,
+            Escalation.status.in_(OPEN_ESCALATION_STATUSES),
+            Booking.status != BookingStatus.REQUESTED,
+        )
+    ).all()
+    closed = sum(
+        settle_no_response(db, None, booking_id, _SETTLED_BY_STATUS.get(status, "Yêu cầu xem đã được xử lý."))
+        for booking_id, status in rows
+    )
+    db.commit()
+    return closed
+
+
+def retire_closed_case_notices(db: Session) -> int:
+    """The operators' notices about cases that are closed no longer wait to be read: the bell counts work still
+    to do. No commit; returns how many notices were marked read."""
+    closed = select(Escalation.id).where(Escalation.status.not_in(OPEN_ESCALATION_STATUSES))
+    result = db.execute(
+        update(Notification)
+        .where(
+            Notification.event_type == "ESCALATION_OPENED",
+            Notification.read_at.is_(None),
+            Notification.user_id.in_(select(User.id).where(User.role == UserRole.INVESTOR_OPERATOR)),
+            Notification.payload["escalation_id"].astext.cast(Integer).in_(closed),
+        )
+        .values(read_at=datetime.now(UTC))
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount or 0
 
 
 def _out(db: Session, esc: Escalation) -> EscalationOut:
@@ -318,6 +368,11 @@ def close(
     esc = _load(db, escalation_id)
     if esc.status not in OPEN_ESCALATION_STATUSES:
         raise StateConflictError(f"Escalation is already {esc.status.value}")
+    if esc.status == EscalationStatus.IN_PROGRESS and esc.assigned_to not in (None, actor.id):
+        raise StateConflictError(
+            'Ca này đang do nhân viên khác xử lý; bấm "Nhận lại ca" nếu bạn tiếp quản.',
+            details={"reason": "ASSIGNED_TO_OTHER", "assigned_to": esc.assigned_to},
+        )
     before = esc.status
     esc.status = EscalationStatus.DISMISSED if dismissed else EscalationStatus.RESOLVED
     esc.resolution = resolution
@@ -352,6 +407,8 @@ def close(
             payload={"escalation_id": esc.id},
         )
     audit.record(db, actor, "escalation.notify", "escalation", esc.id, after={"told": sorted(told)})
+    db.flush()
+    retire_closed_case_notices(db)
     db.commit()
     return _out(db, esc)
 

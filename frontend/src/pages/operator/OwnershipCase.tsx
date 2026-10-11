@@ -70,12 +70,12 @@ export function OwnershipCase({ escalation: e }: { escalation: Escalation }) {
         </p>
       )}
       <section>
-        <h4 className="font-semibold">Yêu cầu của người bán</h4>
+        <h4 className="font-semibold">Yêu cầu của người gửi</h4>
         <dl className="mt-1 space-y-0.5">
           <Row label="Vấn đề" value={reason?.label ?? ctx.reason ?? ""} />
           <Row label="Người đứng tên" value={ctx.red_book_holder_name ?? ""} />
           <Row label="Mã sổ / hợp đồng" value={ctx.red_book_code ?? ""} mono />
-          {seller && <Row label="Người bán" value={`${seller.full_name} · ${seller.phone ?? "không có SĐT"} · #${seller.id}`} />}
+          {seller && <Row label="Người gửi yêu cầu" value={`${seller.full_name} · ${seller.phone ?? "không có SĐT"} · #${seller.id}`} />}
         </dl>
         {ctx.note && <p className="mt-2 rounded-lg bg-white px-3 py-2">“{ctx.note}”</p>}
         <Documents keys={ctx.documents ?? []} />
@@ -119,7 +119,7 @@ export function OwnershipCase({ escalation: e }: { escalation: Escalation }) {
               <button type="button" className="btn-secondary btn-sm" disabled={busy || (phone !== "" && phone.length < 10)} onClick={() => unlock.mutate()}>
                 {phone ? "Cập nhật SĐT & mở khóa" : "Mở khóa sổ"}
               </button>
-              <span className="text-xs text-muted">Người bán tự làm lại bước OTP</span>
+              <span className="text-xs text-muted">Người gửi tự làm lại bước OTP</span>
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">

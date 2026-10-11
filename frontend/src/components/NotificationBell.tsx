@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 import { api, call } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { formatDateTime } from "../lib/format";
-import { noteGroupOf, noteGroups, notificationTarget } from "../lib/notifications";
+import { noteGroupOf, noteGroups, noteTitle, notificationTarget } from "../lib/notifications";
 
 /** In-app notifications (spec §4.19): viewing requests, confirmations, reminders, escalations. */
 export function NotificationBell() {
@@ -132,7 +132,7 @@ export function NotificationBell() {
                       {latest && (
                         <span className="mt-0.5 block truncate text-xs text-muted">
                           {/* The operator's titles only repeat the kind of case: show what the case is about */}
-                          {role === "INVESTOR_OPERATOR" && latest.body ? latest.body : latest.title}
+                          {role === "INVESTOR_OPERATOR" && latest.body ? latest.body : noteTitle(latest)}
                           {latest.sent_at && ` · ${formatDateTime(latest.sent_at)}`}
                         </span>
                       )}
@@ -182,7 +182,7 @@ export function NotificationBell() {
                         />
                         <span className="min-w-0 flex-1">
                           <span className={`block ${unread ? "font-semibold" : "font-medium"}`}>
-                            {n.title}
+                            {noteTitle(n)}
                             {unread && <span className="sr-only"> (chưa đọc)</span>}
                           </span>
                           {n.body && <span className="block text-muted">{n.body}</span>}

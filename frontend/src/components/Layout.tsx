@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
+import { api, call } from "../api/client";
 import type { Role } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { ROLE } from "../lib/format";
 import { SellerShell } from "../pages/owner/SellerShell";
 import { NotificationBell } from "./NotificationBell";
 
-type NavItem = { to: string; label: string; end?: boolean };
+type NavItem = { to: string; label: string; end?: boolean; count?: "listings" | "cases" };
 
 const NAV: Record<Role | "GUEST", NavItem[]> = {
   GUEST: [],
@@ -16,11 +18,28 @@ const NAV: Record<Role | "GUEST", NavItem[]> = {
   // Sellers have their own shell (SellerShell): its top bar holds their pages
   OWNER: [],
   INVESTOR_OPERATOR: [
-    { to: "/operator", label: "Duyệt tin", end: true },
-    { to: "/operator/escalations", label: "Ngoại lệ" },
-    { to: "/operator/bookings", label: "Giám sát lịch xem" },
+    { to: "/operator", label: "Duyệt tin", end: true, count: "listings" },
+    { to: "/operator/escalations", label: "Ngoại lệ", count: "cases" },
+    { to: "/operator/bookings", label: "Lịch xem" },
   ],
 };
+
+/** The operator's work still to do: listings waiting for review and open cases (same queries as their pages). */
+function useOperatorCounts(enabled: boolean): Record<"listings" | "cases", number | undefined> {
+  const listings = useQuery({
+    queryKey: ["moderation"],
+    queryFn: () => call(api.GET("/api/v1/operator/properties", { params: { query: { status: "PENDING_REVIEW" } } })),
+    enabled,
+    refetchInterval: 60_000,
+  });
+  const cases = useQuery({
+    queryKey: ["escalations", false],
+    queryFn: () => call(api.GET("/api/v1/operator/escalations", { params: { query: {} } })),
+    enabled,
+    refetchInterval: 60_000,
+  });
+  return { listings: listings.data?.length, cases: cases.data?.length };
+}
 
 export function Layout() {
   const { user, logout } = useAuth();
@@ -29,11 +48,34 @@ export function Layout() {
   const items = NAV[user?.role ?? "GUEST"];
   const path = useLocation().pathname;
   const sellerPage = user?.role === "OWNER" && path.startsWith("/owner");
+  const counts = useOperatorCounts(user?.role === "INVESTOR_OPERATOR");
+  // The browser tab says which page this is, and how much is waiting there ("(4) Ngoại lệ · BookingBot")
+  const current = [...items].sort((a, b) => b.to.length - a.to.length).find((i) => (i.end ? path === i.to : path.startsWith(i.to)));
+  const waiting = current?.count ? counts[current.count] : undefined;
+  useEffect(() => {
+    if (sellerPage || !current) return;
+    document.title = `${waiting ? `(${waiting}) ` : ""}${current.label} · BookingBot`;
+    return () => {
+      document.title = "BookingBot";
+    };
+  }, [sellerPage, current, waiting]);
 
   if (sellerPage) return <SellerShell />;
 
+  const label = (i: NavItem) => {
+    const n = i.count ? counts[i.count] : undefined;
+    return (
+      <>
+        {i.label}
+        {!!n && (
+          <span className="ml-1.5 rounded-full bg-brand-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">{n}</span>
+        )}
+      </>
+    );
+  };
+
   const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `rounded-lg px-3 py-2 text-sm font-medium ${isActive ? "bg-brand-50 text-brand-700" : "text-muted hover:text-ink"}`;
+    `whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${isActive ? "bg-brand-50 text-brand-700" : "text-muted hover:text-ink"}`;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -53,17 +95,17 @@ export function Layout() {
           )}
 
           <nav
-            className="hidden flex-1 items-center gap-1 md:flex"
+            className="hidden flex-1 items-center gap-1 lg:flex"
             aria-label="Chính"
           >
             {items.map((i) => (
               <NavLink key={i.to} to={i.to} end={i.end} className={linkClass}>
-                {i.label}
+                {label(i)}
               </NavLink>
             ))}
           </nav>
 
-          <div className="ml-auto hidden items-center gap-3 md:flex">
+          <div className="ml-auto hidden items-center gap-3 lg:flex">
             {user ? (
               <>
                 <NotificationBell />
@@ -96,13 +138,13 @@ export function Layout() {
           </div>
 
           {user && (
-            <div className="ml-auto md:hidden">
+            <div className="ml-auto lg:hidden">
               <NotificationBell />
             </div>
           )}
           <button
             type="button"
-            className={`btn-secondary btn-sm md:hidden ${user ? "" : "ml-auto"}`}
+            className={`btn-secondary btn-sm lg:hidden ${user ? "" : "ml-auto"}`}
             aria-expanded={open}
             aria-controls="mobile-nav"
             onClick={() => setOpen((v) => !v)}
@@ -114,7 +156,7 @@ export function Layout() {
         {open && (
           <nav
             id="mobile-nav"
-            className="flex flex-col gap-1 border-t border-line px-4 py-3 md:hidden"
+            className="flex flex-col gap-1 border-t border-line px-4 py-3 lg:hidden"
             aria-label="Chính"
           >
             {items.map((i) => (
@@ -125,7 +167,7 @@ export function Layout() {
                 className={linkClass}
                 onClick={() => setOpen(false)}
               >
-                {i.label}
+                {label(i)}
               </NavLink>
             ))}
             <div className="mt-2 flex gap-2 border-t border-line pt-3">

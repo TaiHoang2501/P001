@@ -94,6 +94,9 @@ class BookingOut(BaseModel):
     buyer_budget_max_vnd: int | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
+    # The owner, for the operator (who calls both sides when handling a problem); hidden from the buyer
+    owner_name: str | None = None
+    owner_phone: str | None = None
     start_at: datetime
     end_at: datetime
     status: BookingStatus
@@ -194,7 +197,8 @@ class RescheduleRequest(BaseModel):
 
 
 class BookingRejectRequest(BaseModel):
-    reason: str = Field(..., min_length=3, max_length=1000)
+    # The buyer reads it: a few words that mean something (the quick reasons are longer than this)
+    reason: str = Field(..., min_length=10, max_length=1000)
     # "Đề xuất giờ khác": up to three start times from the owner's own free times, sent to the buyer
     suggested_starts: list[datetime] = Field(default_factory=list, max_length=3)
     # The owner is busy at that time: take it out of their viewing times so nobody else asks for it

@@ -878,7 +878,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel Booking
-         * @description Manual fallback: operator cancels a stuck booking.
+         * @description Manual fallback: operator cancels a stuck booking (before its viewing time).
          */
         post: operations["cancel_booking_api_v1_operator_bookings__booking_id__cancel_post"];
         delete?: never;
@@ -1501,6 +1501,10 @@ export interface components {
             customer_name?: string | null;
             /** Customer Phone */
             customer_phone?: string | null;
+            /** Owner Name */
+            owner_name?: string | null;
+            /** Owner Phone */
+            owner_phone?: string | null;
             /**
              * Start At
              * Format: date-time
@@ -2239,6 +2243,10 @@ export interface components {
             verified_red_book: boolean;
             /** Red Book Code */
             red_book_code?: string | null;
+            /** Owner Name */
+            owner_name?: string | null;
+            /** Owner Phone */
+            owner_phone?: string | null;
             /**
              * Created At
              * Format: date-time

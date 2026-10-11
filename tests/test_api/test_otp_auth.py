@@ -207,9 +207,10 @@ async def test_phone_written_with_spaces_or_plus84_is_the_same_number(client):
     for written in ("0918 765 432", "+84 918 765 432", "84918765432"):
         r = await client.post("/api/v1/auth/otp/request", json={"target": written, "role": "OWNER"})
         assert r.status_code == 202, (written, r.text)
-    # Not a phone number
-    r = await client.post("/api/v1/auth/otp/request", json={"target": "0012345678"})
-    assert r.status_code == 422
+    # Not a mobile number (the code goes by SMS): bad prefix, old 11-digit or landline style
+    for wrong in ("0012345678", "0123456789", "01234567890", "0241234567"):
+        r = await client.post("/api/v1/auth/otp/request", json={"target": wrong})
+        assert r.status_code == 422, wrong
 
 
 @pytest.mark.asyncio
