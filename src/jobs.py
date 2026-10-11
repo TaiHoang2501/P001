@@ -36,12 +36,18 @@ def run_once() -> None:
         reminders = notification_service.deliver_due(db)
         if reminders:
             logger.info("Delivered %d reminder(s)", reminders)
-        escalated = escalation_service.escalate_unanswered_requests(db)
-        if escalated:
-            logger.info("Escalated %d unanswered viewing request(s)", escalated)
+        # Requests whose time has come close first, so none of them is sent to the queue on its way out
         expired = booking_service.expire_unanswered(db)
         if expired:
             logger.info("Closed %d viewing request(s) past their time", expired)
+        escalated = escalation_service.escalate_unanswered_requests(db)
+        if escalated:
+            logger.info("Escalated %d unanswered viewing request(s)", escalated)
+        settled = escalation_service.settle_stale_cases(db)
+        if settled:
+            logger.info("Closed %d case(s) whose request was dealt with", settled)
+        escalation_service.retire_closed_case_notices(db)
+        db.commit()
         reminded, unreported = viewing_outcome_service.remind_and_close(db)
         if reminded or unreported:
             logger.info("Viewing outcomes: %d owner reminder(s), %d closed unreported", reminded, unreported)

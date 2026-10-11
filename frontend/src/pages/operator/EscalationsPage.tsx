@@ -53,7 +53,7 @@ export function EscalationsPage() {
     <div>
       <PageHeader
         title="Hàng đợi ngoại lệ"
-        subtitle="Các trường hợp AI, hệ thống hoặc người dùng chuyển cho người xử lý (kể cả hỗ trợ xác thực sổ đỏ / sổ hồng); người gửi được báo kết quả khi bạn đóng."
+        subtitle="Các trường hợp AI, hệ thống hoặc người dùng chuyển cho nhân viên Chủ đầu tư (kể cả hỗ trợ xác thực sổ đỏ / sổ hồng); người gửi được báo kết quả khi bạn đóng."
         action={
           <button type="button" className="btn-secondary btn-sm" onClick={() => setShowClosed((v) => !v)}>
             {showClosed ? "Xem đang mở" : "Xem đã xử lý"}
@@ -71,6 +71,9 @@ export function EscalationsPage() {
     </div>
   );
 }
+
+// Same as the server's rule for the outcome note
+const MIN_NOTE = 10;
 
 function EscalationRow({ escalation: e, opened = false }: { escalation: Escalation; opened?: boolean }) {
   const flash = useJumpFlash(opened);
@@ -101,6 +104,11 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
   });
   const open = e.status === "OPEN" || e.status === "IN_PROGRESS";
   const busy = assign.isPending || resolve.isPending || dismiss.isPending;
+  // A colleague has taken this case: it is theirs to close, unless this operator takes it over
+  const othersCase = e.status === "IN_PROGRESS" && e.assigned_to !== null && e.assigned_to !== user?.id;
+  // The people told read this note: a few meaningful words, the same rule for both buttons
+  const noteReady = resolution.trim().length >= MIN_NOTE;
+  const canClose = noteReady && !othersCase && !busy;
   const error = assign.error ?? resolve.error ?? dismiss.error;
 
   return (
@@ -124,16 +132,29 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
             {RAISED_BY[e.raised_by]} · {formatDateTime(e.created_at)}
           </p>
           {e.resolution && <p className="mt-1 text-sm text-emerald-800">Kết quả: {e.resolution}</p>}
+          {!open && e.resolved_at && (
+            <p className="mt-1 text-xs text-muted">
+              {e.assigned_to_name ? `${e.assigned_to_name} · ` : "Hệ thống tự đóng · "}
+              {formatDateTime(e.resolved_at)}
+            </p>
+          )}
         </div>
-        {e.status === "OPEN" && (
+        {(e.status === "OPEN" || othersCase) && (
           <button
             type="button"
             className="btn-secondary btn-sm"
             disabled={busy}
-            title="Ghi tên bạn vào ca, để đồng nghiệp biết ca này đã có người lo"
-            onClick={() => assign.mutate()}
+            title={
+              othersCase
+                ? "Chuyển ca sang tên bạn (khi đồng nghiệp vắng hoặc nhờ bạn làm tiếp)"
+                : "Ghi tên bạn vào ca, để đồng nghiệp biết ca này đã có người lo"
+            }
+            onClick={() => {
+              if (!othersCase || window.confirm(`${e.assigned_to_name ?? "Đồng nghiệp"} đang xử lý ca này. Bạn nhận lại?`))
+                assign.mutate();
+            }}
           >
-            Nhận xử lý
+            {othersCase ? "Nhận lại ca" : "Nhận xử lý"}
           </button>
         )}
       </div>
@@ -156,7 +177,7 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
             id={`res-${e.id}`}
             className="input w-full"
             required
-            minLength={3}
+            minLength={MIN_NOTE}
             placeholder={
               e.type === "OWNERSHIP_SUPPORT"
                 ? "VD: Giấy ủy quyền chưa công chứng, vui lòng bổ sung"
@@ -182,15 +203,22 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
               )}
             </div>
           )}
+          {othersCase ? (
+            <p className="text-xs text-amber-800">
+              {e.assigned_to_name ?? "Đồng nghiệp"} đang xử lý ca này; bấm “Nhận lại ca” nếu bạn làm tiếp.
+            </p>
+          ) : (
+            !noteReady && <p className="text-xs text-muted">Ghi ít nhất {MIN_NOTE} ký tự: đây là lời nhắn người được báo sẽ đọc.</p>
+          )}
           <div className="flex flex-wrap items-center gap-2">
-            <button type="submit" className="btn-primary btn-sm" disabled={busy}>
+            <button type="submit" className="btn-primary btn-sm" disabled={!canClose}>
               Đã xử lý
             </button>
             <span className="text-xs text-muted">đã giải quyết xong</span>
             <button
               type="button"
               className="btn-secondary btn-sm ml-2"
-              disabled={busy || resolution.trim().length < 3}
+              disabled={!canClose}
               onClick={() => dismiss.mutate()}
             >
               Bỏ qua

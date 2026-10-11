@@ -2,6 +2,7 @@
 the operator settles a disagreement, and viewings nobody recorded close without blaming anyone."""
 
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -94,6 +95,10 @@ async def test_no_show_disputed_then_settled_by_the_operator(client, db):
         if e["type"] == "VIEWING_DISPUTE"
     )
     assert case["booking_id"] == booking["id"] and case["context"]["buyer_no_shows"] >= 1
+    # The viewing time in the case is local time, as everywhere else (operator report B1)
+    db.expire_all()
+    local = db.get(Booking, booking["id"]).start_at.astimezone(ZoneInfo("Asia/Ho_Chi_Minh"))
+    assert case["summary"].endswith(f"{local:%H:%M %d/%m}")
     r = await client.post(
         f"/api/v1/operator/escalations/{case['id']}/viewing-outcome",
         json={"outcome": "VIEWED", "note": "Bảo vệ toà nhà xác nhận khách có đến"},

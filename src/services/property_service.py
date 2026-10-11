@@ -281,7 +281,12 @@ def owner_overview(db: Session, actor: Actor) -> OwnerOverview:
 def list_by_status(db: Session, status: PropertyStatus) -> list[PropertyOut]:
     """Operator moderation queue."""
     stmt = _base_query().where(Property.status == status).order_by(Property.updated_at.asc())
-    return [to_out(p, include_private=True) for p in db.scalars(stmt)]
+    out = []
+    for p in db.scalars(stmt):
+        item = to_out(p, include_private=True)
+        item.owner_name, item.owner_phone = p.owner.full_name, p.owner.phone
+        out.append(item)
+    return out
 
 
 # ---------- Owner writes ----------

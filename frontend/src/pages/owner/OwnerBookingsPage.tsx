@@ -587,9 +587,10 @@ function RequestDetail({
                 id={`reason-${b.id}`}
                 className="min-w-0 flex-1 rounded-full border border-ink/10 bg-paper px-4 py-2 outline-none focus:border-brand-500"
                 required
-                minLength={3}
+                minLength={10}
+                title="Người mua sẽ đọc lý do này: viết ít nhất 10 ký tự, ví dụ “Tuần này tôi đi công tác”."
                 autoFocus
-                placeholder="Hoặc tự nhập lý do"
+                placeholder="Hoặc tự nhập lý do (ít nhất 10 ký tự)"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />

@@ -77,7 +77,17 @@ function Badge({ className, children, title }: { className: string; children: Re
   );
 }
 
-export function BookingBadge({ status }: { status: BookingStatus }) {
+export function BookingBadge({ status, startAt }: { status: BookingStatus; startAt?: string }) {
+  // Given the viewing time: a confirmed viewing whose time has passed waits for its outcome to be recorded
+  if (startAt && (status === "CONFIRMED" || status === "RESCHEDULE_REQUESTED") && Date.parse(startAt) <= Date.now())
+    return (
+      <Badge
+        className="bg-amber-100 text-amber-900"
+        title="Giờ xem đã qua; chờ chủ căn bấm “Đã xem xong” hoặc “Khách không đến”. Sau 48 giờ không ai ghi nhận thì lịch tự đóng."
+      >
+        Chờ ghi nhận kết quả
+      </Badge>
+    );
   return (
     <Badge className={BOOKING_TONE[status]} title={BOOKING_STATUS_HINT[status]}>
       {BOOKING_STATUS[status]}

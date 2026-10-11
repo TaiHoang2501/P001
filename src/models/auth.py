@@ -5,8 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.db.models import UserRole, UserStatus
 
-# 0 + a non-zero digit + 8-9 more ("0012345678" is not a phone number)
-PHONE_PATTERN = r"^0[1-9]\d{8,9}$"
+# A Vietnamese mobile number (the sign-in code goes to it by SMS): 10 digits, 03 / 05 / 07 / 08 / 09
+# ("0012345678" or "0123456789" is not one)
+PHONE_PATTERN = r"^0[35789]\d{8}$"
 _PHONE_RE = re.compile(PHONE_PATTERN)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 

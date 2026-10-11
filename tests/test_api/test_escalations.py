@@ -142,7 +142,7 @@ async def test_operator_takes_and_resolves_and_buyer_sees_outcome(client, db):
     assert "ESCALATION_RESOLVED" in events
 
     # Closed cases cannot be closed again
-    r = await client.post(f"/api/v1/operator/escalations/{esc_id}/dismiss", json={"resolution": "x" * 5}, headers=op)
+    r = await client.post(f"/api/v1/operator/escalations/{esc_id}/dismiss", json={"resolution": "x" * 10}, headers=op)
     assert r.status_code == 409
 
 
@@ -245,3 +245,75 @@ def test_request_left_unanswered_past_its_time_expires(db):
     assert db.query(Notification).filter_by(user_id=BUYER_ID, event_type="VIEWING_EXPIRED").count() == 1
     assert db.query(Escalation).one().status.value == "RESOLVED"
     assert booking_service.expire_unanswered(db) == 0  # once
+
+
+def test_viewing_whose_time_has_come_is_not_sent_to_the_queue(db):
+    """Nobody can rescue it any more: it expires by itself instead (operator report B3)."""
+    booking_id = _request(db)
+    booking = db.get(Booking, booking_id)
+    booking.created_at = datetime.now(UTC) - timedelta(days=2)
+    booking.start_at = datetime.now(UTC) - timedelta(hours=1)
+    booking.end_at = booking.start_at + timedelta(minutes=30)
+    db.commit()
+    assert escalation_service.escalate_unanswered_requests(db) == 0
+
+
+def test_left_over_case_closes_and_its_notices_stop_waiting(db):
+    """A "seller did not answer" case still open although its request was dealt with (e.g. from older code)
+    closes by itself, and the operators' notice about it no longer counts as unread (operator report B4, B6)."""
+    from src.db.models import BookingStatus
+
+    booking_id = _request(db)
+    db.get(Booking, booking_id).created_at = datetime.now(UTC) - timedelta(hours=25)
+    db.commit()
+    escalation_service.escalate_unanswered_requests(db)
+    # Older code rejected the request without closing the case
+    db.get(Booking, booking_id).status = BookingStatus.REJECTED
+    db.commit()
+
+    assert escalation_service.settle_stale_cases(db) == 1
+    db.expire_all()
+    esc = db.query(Escalation).one()
+    assert esc.status == EscalationStatus.RESOLVED and "trả lời" in esc.resolution
+    note = db.query(Notification).filter_by(event_type="ESCALATION_OPENED", user_id=7).one()
+    assert note.read_at is not None
+    assert escalation_service.settle_stale_cases(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_case_a_colleague_took_is_not_closed_over_their_head(client, db):
+    """Operator report B5: the outcome needs a real note, and a colleague's case is taken over before closing."""
+    esc_id = agent_api.create_human_escalation(BUYER_ID, "OTHER", "Muốn nói chuyện với nhân viên")["data"]["id"]
+    esc = db.get(Escalation, esc_id)
+    esc.status, esc.assigned_to = EscalationStatus.IN_PROGRESS, OWNER_ID  # someone else's name on it
+    db.commit()
+    op = await auth(client, OPERATOR)
+    note = {"resolution": "Đã gọi điện tư vấn cho khách"}
+
+    r = await client.post(f"/api/v1/operator/escalations/{esc_id}/resolve", json={"resolution": "ok"}, headers=op)
+    assert r.status_code == 422
+    r = await client.post(f"/api/v1/operator/escalations/{esc_id}/resolve", json=note, headers=op)
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "ASSIGNED_TO_OTHER"
+
+    assert (await client.post(f"/api/v1/operator/escalations/{esc_id}/assign", headers=op)).status_code == 200
+    r = await client.post(f"/api/v1/operator/escalations/{esc_id}/resolve", json=note, headers=op)
+    assert r.status_code == 200, r.text
+    # Its notice to the operators is no longer waiting to be read
+    db.expire_all()
+    assert all(n.read_at for n in db.query(Notification).filter_by(event_type="ESCALATION_OPENED"))
+
+
+@pytest.mark.asyncio
+async def test_operator_cannot_cancel_a_viewing_whose_time_has_come(client, db):
+    """Operator report B2: afterwards the owner records what happened; the operator's cancel is for before."""
+    booking_id = _request(db)
+    op = await auth(client, OPERATOR)
+    booking = db.get(Booking, booking_id)
+    booking.start_at = datetime.now(UTC) - timedelta(minutes=10)
+    booking.end_at = booking.start_at + timedelta(minutes=30)
+    db.commit()
+    r = await client.post(f"/api/v1/operator/bookings/{booking_id}/cancel", headers=op)
+    assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "VIEWING_STARTED"
+    # The list gives the operator both people to call
+    row = next(b for b in (await client.get("/api/v1/operator/bookings", headers=op)).json() if b["id"] == booking_id)
+    assert row["owner_name"] and row["owner_phone"] and row["customer_phone"]

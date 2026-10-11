@@ -19,7 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from src.config import get_settings
@@ -27,13 +27,17 @@ from src.core.security import hash_password
 from src.db.models import (
     AvailabilitySlot,
     Base,
+    Booking,
     Building,
     BuyerProfile,
     Deal,
     Direction,
+    Escalation,
+    EscalationType,
     Furnishing,
     LegalStatus,
     MediaKind,
+    Notification,
     OwnershipVerificationStatus,
     Project,
     Property,
@@ -157,8 +161,8 @@ def _properties(rng: random.Random, buildings: list[Building]) -> list[Property]
     # Moderation queue + draft + an unverified owner (must never appear in search)
     extra = [
         (5, PropertyStatus.PENDING_REVIEW, "Căn 2PN view công viên, đang chờ duyệt tin."),
-        (4, PropertyStatus.PENDING_REVIEW, "Căn 3PN góc, chờ Ban quản trị duyệt."),
-        (4, PropertyStatus.PENDING_REVIEW, "Căn 2PN, chờ Ban quản trị duyệt."),
+        (4, PropertyStatus.PENDING_REVIEW, "Căn 3PN góc, chờ Chủ đầu tư duyệt."),
+        (4, PropertyStatus.PENDING_REVIEW, "Căn 2PN, chờ Chủ đầu tư duyệt."),
         (6, PropertyStatus.AVAILABLE, "Tin của chủ nhà chưa xác minh - không được hiển thị."),
     ]
     for j, (owner_id, status, desc) in enumerate(extra):
@@ -1012,7 +1016,13 @@ def ensure_red_book_units(db: Session) -> str:
     db.execute(
         update(Property)
         .where(Property.description == "Bản nháp, chưa gửi duyệt.")
-        .values(description="Căn 2PN, chờ Ban quản trị duyệt.")
+        .values(description="Căn 2PN, chờ Chủ đầu tư duyệt.")
+    )
+    # One name for the investor's staff everywhere ("Chủ đầu tư"), also in the old seed's descriptions
+    db.execute(
+        update(Property)
+        .where(Property.description.like("%chờ Ban quản trị duyệt.%"))
+        .values(description=func.replace(Property.description, "Ban quản trị", "Chủ đầu tư"))
     )
     # Listings of the old seed with placeholder units ("S1.08-X02", all 70 m² at 3,5 tỷ on floor 10)
     taken = set(db.scalars(select(Property.unit_code)))
@@ -1036,11 +1046,36 @@ def ensure_red_book_units(db: Session) -> str:
             _copy_unit(prop.verification, prop)
     for prop in db.scalars(select(Property).where(Property.description.like("Căn % m² tầng %"))):
         prop.description = _SEEDED_AREA.sub(r",", prop.description)
+    _fix_case_texts(db)
     db.commit()
     return (
         f"{created} red book(s) added for older listings, {filled} given their home's facts, "
         f"{removed} document(s) removed, {drafts} draft(s) sent for review"
     )
+
+
+_DISPUTE_TIME = re.compile(r", \d{2}:\d{2} \d{2}/\d{2}$")
+
+
+def _fix_case_texts(db: Session) -> None:
+    """Texts written by older code: a viewing dispute gave the viewing time in UTC, and the operators' notices
+    named the kind of case by its code ("Cần xử lý: SELLER_NO_RESPONSE")."""
+    from src.services import escalation_service
+
+    tz = ZoneInfo(get_settings().timezone)
+    for esc, start_at in db.execute(
+        select(Escalation, Booking.start_at)
+        .join(Booking, Booking.id == Escalation.booking_id)
+        .where(Escalation.type == EscalationType.VIEWING_DISPUTE)
+    ).all():
+        fixed = _DISPUTE_TIME.sub(f", {start_at.astimezone(tz):%H:%M %d/%m}", esc.summary)
+        if fixed != esc.summary:
+            esc.summary = fixed
+    labels = {k.value: v for k, v in escalation_service.ESCALATION_LABELS.items()}
+    for note in db.scalars(select(Notification).where(Notification.title.like("Cần xử lý: %"))):
+        label = labels.get(note.title.removeprefix("Cần xử lý: "))
+        if label is not None:
+            note.title = f"Ca mới: {label}"
 
 
 def ensure_sellers_verified(db: Session) -> int:

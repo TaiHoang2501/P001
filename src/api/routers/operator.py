@@ -53,5 +53,5 @@ def all_bookings(actor: OperatorActor, db: DbSession, status: BookingStatus | No
 
 @router.post("/bookings/{booking_id}/cancel", response_model=BookingOut)
 def cancel_booking(booking_id: int, actor: OperatorActor, db: DbSession) -> BookingOut:
-    """Manual fallback: operator cancels a stuck booking."""
-    return booking_service.cancel(db, actor, booking_id)
+    """Manual fallback: operator cancels a stuck booking (before its viewing time)."""
+    return booking_service.operator_cancel(db, actor, booking_id)

@@ -28,7 +28,7 @@ class EscalationOut(BaseModel):
 
 
 class ResolveRequest(BaseModel):
-    resolution: str = Field(..., min_length=3, max_length=2000, description="What was done / what the people are told")
+    resolution: str = Field(..., min_length=10, max_length=2000, description="What was done / what the people are told")
     # Who is told the outcome; None = the default for the kind of case (see CaseContext.notify_*_default)
     notify_buyer: bool | None = None
     notify_seller: bool | None = None
