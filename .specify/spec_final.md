@@ -972,34 +972,7 @@ Hệ thống được thiết kế theo mô hình đám mây phân tán hiện �
 
 ---
 
-# §10. Danh mục Các Câu hỏi Mở Cần Hoàn thiện Tiếp
-
-1. Chủ đầu tư sẽ thu hút nguồn căn hộ thứ cấp từ những kênh truyền thông nội bộ nào?
-2. Chủ nhà đăng tin bán căn hộ có được miễn phí hoàn toàn trong giai đoạn đầu hay không?
-3. Mức phí dịch vụ hỗ trợ thủ tục giao dịch của Chủ đầu tư dự kiến là bao nhiêu?
-4. Bên nào sẽ chịu trách nhiệm chi trả khoản phí dịch vụ này (Người mua, Chủ nhà hay chia đôi)?
-5. Phí dịch vụ sẽ được tính theo từng giao dịch thành công hay theo gói dịch vụ định kỳ?
-6. Nếu Người mua và Chủ nhà tự ý giao dịch riêng ngoài hệ thống thì cơ chế đối soát nguồn gốc được thực hiện như thế nào?
-7. Khoảng thời gian ghi nhận nguồn gốc giao dịch phát sinh từ nền tảng là bao lâu (ví dụ: 60 ngày hay 90 ngày)?
-8. Nếu Chủ nhà không bấm duyệt yêu cầu xem nhà trong bao lâu thì hệ thống tự động chuyển cho nhân viên hỗ trợ gọi điện can thiệp?
-9. Thông tin cá nhân giữa Người mua và Chủ nhà được mở ở cấp độ chi tiết nào sau khi buổi xem nhà kết thúc?
-10. Khi nào thì hệ thống cho phép kích hoạt phòng chat trực tiếp giữa hai bên?
-11. Khi nào thì Chủ nhà được phép nhìn thấy số điện thoại của Người mua?
-12. Thời lượng tiêu chuẩn cho một buổi xem nhà là bao lâu (ví dụ: 30 phút hay 45 phút)?
-13. Có cần khoảng thời gian đệm cách nhau giữa hai lượt xem nhà liên tiếp hay không (ví dụ: nghỉ 15 phút)?
-14. Nếu một căn hộ nhận được yêu cầu xem từ nhiều người mua cùng lúc thì quy tắc ưu tiên xếp lịch sẽ ra sao?
-15. Chính sách xử lý đối với các trường hợp người mua hoặc chủ nhà vắng mặt không đến xem (No-show) là gì?
-16. Nhân viên hỗ trợ xử lý ngoại lệ sẽ trực thuộc ban quản lý tòa nhà hay phòng chăm sóc khách hàng của Chủ đầu tư?
-17. Chuyên viên thủ tục giao dịch sẽ tham gia tiếp nhận hồ sơ từ thời điểm nào?
-18. Lựa chọn đơn vị cung cấp dịch vụ gửi tin nhắn SMS hoặc tin nhắn Zalo ZNS nào tại Việt Nam?
-19. Chính sách lưu trữ và thời hạn xóa dữ liệu tin nhắn hội thoại cá nhân là bao lâu để bảo đảm tuân thủ Nghị định 13/2023/NĐ-CP?
-20. Mức số liệu cơ sở hiện tại về số cuộc gọi làm phiền mà một người mua nhà phải nhận là bao nhiêu?
-21. Thời gian trung bình hiện nay từ lúc khách phát sinh nhu cầu đến lúc được đi xem nhà thực tế là bao nhiêu ngày?
-22. Những chính sách ưu đãi thiết thực nào sẽ giữ chân Người mua và Chủ nhà tiếp tục hoàn tất giao dịch trong hệ thống thay vì giao dịch ngoài?
-
----
-
-# §11. Ranh giới Chốt chặn của Phiên bản Thử nghiệm (MVP Boundary)
+# §10. Ranh giới Chốt chặn của Phiên bản Thử nghiệm (MVP Boundary)
 
 ## Các tính năng BẮT BUỘC PHẢI CÓ (Must Have):
 - Xác thực đăng nhập cho Người mua bằng số điện thoại và mã OTP.
@@ -1038,7 +1011,7 @@ Hệ thống được thiết kế theo mô hình đám mây phân tán hiện �
 
 ---
 
-# §12. Định nghĩa Sản phẩm Cốt lõi & Luồng Trình diễn Tiêu biểu
+# §11. Định nghĩa Sản phẩm Cốt lõi & Luồng Trình diễn Tiêu biểu
 
 ## Định nghĩa sản phẩm trong một câu duy nhất:
 > **BookingBot AI Agent là trợ lý thông minh giúp khách hàng tìm đúng căn hộ Vinhomes ưng ý, kết nối trực tiếp với chủ sở hữu chính chủ và tự động sắp xếp lịch hẹn xem nhà mượt mà, chấm dứt hoàn toàn sự phụ thuộc vào môi giới rác và các cuộc gọi làm phiền; đồng thời giúp Chủ đầu tư làm sạch nguồn cung, bảo chứng pháp lý, loại trừ trùng lịch và kiểm soát an toàn toàn bộ hành trình giao dịch.**
