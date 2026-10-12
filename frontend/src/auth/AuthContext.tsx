@@ -39,6 +39,17 @@ export function areaOf(pathname: string): Area | null {
 }
 
 const storageKey = (area: Area) => `bookingbot.session.${area}`;
+// Set when the API turned the session down (expired), so the sign-in page can say why it is shown
+const expiredKey = (area: Area) => `bookingbot.expired.${area}`;
+
+/** Did this area's session just expire (the user was signed out by the API, not by choice)? */
+export function sessionExpired(area: Area): boolean {
+  try {
+    return sessionStorage.getItem(expiredKey(area)) === "1";
+  } catch {
+    return false;
+  }
+}
 // Before sign-ins were kept per area, one session was shared by the whole site
 const LEGACY_KEY = "bookingbot.session";
 
@@ -93,6 +104,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Saved for the area of the account (normally the area of the sign-in page)
       const target = next ? ROLE_AREA[next.user.role] : area;
       if (target) saveSession(target, next);
+      if (next && target) {
+        try {
+          sessionStorage.removeItem(expiredKey(target));
+        } catch {
+          // Storage blocked: nothing to clear
+        }
+      }
       setState({ area, session: next && (!area || target === area) ? next : null });
       queryClient.clear(); // never show one user's cached data to another
     },
@@ -102,8 +120,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => apply(null), [apply]);
 
   useEffect(() => {
-    setUnauthorizedHandler(logout);
-  }, [logout]);
+    setUnauthorizedHandler(() => {
+      if (area) {
+        try {
+          sessionStorage.setItem(expiredKey(area), "1");
+        } catch {
+          // Storage blocked: the sign-in page just won't say the session expired
+        }
+      }
+      logout();
+    });
+  }, [logout, area]);
 
   const login = useCallback(
     async (identifier: string, password: string) => {
@@ -119,6 +146,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       call(
         api.POST("/api/v1/auth/otp/request", {
           body: { target, role: opts.role ?? null, purpose: opts.purpose ?? "login" },
+          // Never leave the "Đang gửi mã..." button spinning: give up after 20 s and say so
+          signal: AbortSignal.timeout(20_000),
         }),
       ),
     [],

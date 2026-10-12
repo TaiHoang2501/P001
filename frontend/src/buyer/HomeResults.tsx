@@ -68,10 +68,19 @@ function Checks({ checks, limit }: { checks: Check[]; limit?: number }) {
   );
 }
 
-function Score({ score }: { score: number }) {
+/** "Khớp 3/4 tiêu chí": counted over the criteria the search checked, so a missed one always shows. */
+function matchLabel(rec: Recommendation): string {
+  const total = rec.matched.length + rec.unmatched.length;
+  return `Khớp ${rec.matched.length}/${total} tiêu chí`;
+}
+
+function Score({ rec }: { rec: Recommendation }) {
+  const all = rec.unmatched.length === 0;
   return (
-    <span className="shrink-0 rounded-full bg-leaf px-2 py-0.5 text-[11px] font-bold text-leaf-ink">
-      Khớp {Math.round(score * 100)}%
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${all ? "bg-leaf text-leaf-ink" : "bg-amber-100 text-amber-900"}`}
+    >
+      {matchLabel(rec)}
     </span>
   );
 }
@@ -154,11 +163,12 @@ export function HomeCard({
   const scored = rec.matched.length + rec.unmatched.length > 0;
   return (
     <article className="flex gap-3 rounded-2xl bg-canvas p-3 transition hover:shadow-md">
-      <PropertyImage src={imagesOf(p)[0]?.url} alt={`Căn ${p.unit_code}`} className="size-20 shrink-0 rounded-xl" />
+      <PropertyImage src={imagesOf(p)[0]?.url} alt={`Căn ${p.unit_code}`} className="size-16 shrink-0 rounded-xl sm:size-20" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <h3 className="truncate font-display text-lg font-bold leading-tight">{p.unit_code}</h3>
-          {scored && <Score score={rec.match_score} />}
+        {/* On a narrow phone the match label goes under the unit code instead of cutting it off */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h3 className="whitespace-nowrap font-display text-lg font-bold leading-tight">{p.unit_code}</h3>
+          {scored && <Score rec={rec} />}
         </div>
         <p className="truncate text-xs text-muted">
           {p.building_name} · {p.project_name}
@@ -168,14 +178,14 @@ export function HomeCard({
           {DIRECTION[p.direction]}
         </p>
         {scored && <Checks checks={matchChecks(rec, project)} limit={4} />}
-        <div className="mt-auto flex items-end justify-between gap-2 pt-1">
+        <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-1">
           <div>
-            <p className="font-display text-xl font-bold leading-none">{formatVnd(p.price_vnd)}</p>
-            <p className="mt-0.5 text-[11px] font-semibold text-leaf-ink">✓ Chủ căn đã xác thực</p>
+            <p className="whitespace-nowrap font-display text-xl font-bold leading-none">{formatVnd(p.price_vnd)}</p>
+            <p className="mt-0.5 whitespace-nowrap text-[11px] font-semibold text-leaf-ink">✓ Chủ căn đã xác thực</p>
           </div>
           <button
             type="button"
-            className="rounded-full bg-brand-600 px-4 py-1.5 font-display text-sm font-bold text-canvas hover:bg-brand-700"
+            className="whitespace-nowrap rounded-full bg-brand-600 px-4 py-1.5 font-display text-sm font-bold text-canvas hover:bg-brand-700"
             onClick={() => onOpen(p.id, p.unit_code)}
           >
             Xem chi tiết
@@ -186,7 +196,7 @@ export function HomeCard({
   );
 }
 
-/** The next free viewing times of a home (seller's slots, 08:00–20:00 over the coming week). */
+/** The next free viewing times of a home (seller's slots, 08:00–20:00 from today over the coming week). */
 function useNextTimes(propertyId: number) {
   return useQuery({
     queryKey: ["next-times", propertyId],
@@ -194,7 +204,7 @@ function useNextTimes(propertyId: number) {
       call(
         api.POST("/api/v1/properties/{property_id}/viewing-times", {
           params: { path: { property_id: propertyId } },
-          body: { windows: [{ start_at: vnIso(vnToday(1), "08:00"), end_at: vnIso(vnToday(7), "20:00") }] },
+          body: { windows: [{ start_at: vnIso(vnToday(0), "08:00"), end_at: vnIso(vnToday(7), "20:00") }] },
         }),
       ),
   });
@@ -294,7 +304,7 @@ export function HomeDetail({
           <div>
             {rec && rec.matched.length + rec.unmatched.length > 0 && (
               <span className="rounded-full bg-leaf px-2.5 py-0.5 text-xs font-bold text-leaf-ink">
-                Khớp {Math.round(rec.match_score * 100)}% với nhu cầu
+                {matchLabel(rec)} của bạn
               </span>
             )}
             <h2 className="mt-1 font-display text-4xl font-bold leading-tight">{p.unit_code}</h2>
@@ -362,7 +372,7 @@ export function HomeDetail({
           <p className="truncate font-display font-bold">
             {p.unit_code} · {formatVnd(p.price_vnd)}
           </p>
-          <p className="text-xs text-muted">Chủ căn chỉ thấy mã người mua và khoảng ngân sách của bạn.</p>
+          <p className="text-xs text-muted">Chủ căn chỉ thấy tên và khoảng ngân sách của bạn; số điện thoại luôn được ẩn.</p>
         </div>
         <button
           type="button"

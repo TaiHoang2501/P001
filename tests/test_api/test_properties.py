@@ -97,8 +97,12 @@ async def test_listing_goes_straight_to_review_then_approved(client):
     assert r.json()["error"]["code"] == "STATE_CONFLICT"
 
     # Approved listings can no longer be edited freely
-    r = await client.patch(f"/api/v1/owner/properties/{pid}", json={"price_vnd": 1}, headers=owner)
+    r = await client.patch(f"/api/v1/owner/properties/{pid}", json={"price_vnd": 3_000_000_000}, headers=owner)
     assert r.status_code == 409
+    # A price that is not a home price is refused outright (1 đồng, 5.000 tỷ)
+    for price in (1, 5_000_000_000_000):
+        r = await client.patch(f"/api/v1/owner/properties/{pid}", json={"price_vnd": price}, headers=owner)
+        assert r.status_code == 422
 
 
 @pytest.mark.asyncio

@@ -60,12 +60,13 @@ const FRIENDLY: Record<string, string> = {
   ALREADY_EXISTS: "Dữ liệu đã tồn tại.",
   STATE_CONFLICT: "Trạng thái hiện tại không cho phép thao tác này.",
   SLOT_UNAVAILABLE: "Khung giờ này vừa có người đặt. Vui lòng chọn khung giờ khác.",
-  OWNERSHIP_NOT_MATCHED: "Họ tên hoặc mã số sổ đỏ không khớp với dữ liệu của Chủ đầu tư.",
+  OWNERSHIP_NOT_MATCHED: "Họ tên hoặc mã số sổ đỏ / sổ hồng không khớp với dữ liệu của Chủ đầu tư.",
   OTP_INVALID: "Mã OTP không đúng hoặc đã hết hạn.",
   PHONE_IN_USE: "Số điện thoại này đã tồn tại trên hệ thống. Vui lòng nhập số điện thoại khác.",
   BUSINESS_RULE_VIOLATION: "Thao tác không hợp lệ.",
   VALIDATION_ERROR: "Dữ liệu nhập chưa hợp lệ.",
   NETWORK_ERROR: "Không kết nối được máy chủ.",
+  TIMEOUT: "Máy chủ phản hồi quá lâu. Vui lòng bấm thử lại.",
 };
 
 export function errorMessage(err: unknown): string {
@@ -76,6 +77,11 @@ export function errorMessage(err: unknown): string {
     const active = err.details.active;
     if (err.code === "STATE_CONFLICT" && typeof active === "number")
       return `Căn còn ${active} lịch xem đang chờ hoặc đã hẹn. Hãy trả lời, đổi hoặc hoàn tất các lịch đó trước.`;
+    // Sign-in code: what to do next
+    if (err.code === "INVALID_CREDENTIALS" && err.details.new_code_needed === true)
+      return "Mã này không còn dùng được (nhập sai quá nhiều lần hoặc đã hết hạn). Bấm “Gửi lại mã” để nhận mã mới.";
+    const left = err.details.attempts_left;
+    if (err.code === "INVALID_CREDENTIALS" && typeof left === "number") return `Mã không đúng. Còn ${left} lần thử.`;
     const wait = err.details.retry_after_minutes;
     if (err.code === "RATE_LIMITED" && typeof wait === "number")
       return `Bạn đã yêu cầu mã quá nhiều lần mà chưa nhập. Vui lòng thử lại sau ${wait} phút.`;
@@ -104,7 +110,8 @@ export async function call<T>(request: Promise<{ data?: T; error?: unknown; resp
   let result: { data?: T; error?: unknown; response: Response };
   try {
     result = await request;
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") throw new ApiError("TIMEOUT", "Timed out", 0);
     throw new ApiError("NETWORK_ERROR", "Network error", 0);
   }
   if (!result.response.ok) throw toApiError(result.error, result.response.status);

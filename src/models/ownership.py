@@ -68,13 +68,13 @@ SupportReason = Literal[
 
 SUPPORT_REASON_LABEL: dict[str, str] = {
     "NO_OTP": "Không nhận được mã OTP (chủ sở hữu đã đổi số điện thoại)",
-    "LOCKED": "Sổ đỏ bị khóa do nhập sai OTP",
+    "LOCKED": "Sổ đỏ / sổ hồng bị khóa do nhập sai OTP",
     "MISMATCH": "Thông tin đúng nhưng hệ thống báo không khớp",
     "PROXY": "Bán thay chủ sở hữu (có giấy ủy quyền)",
     "CO_OWNER": "Sổ đồng sở hữu",
     "INHERITANCE": "Thừa kế, chưa sang tên",
-    "NO_RED_BOOK": "Căn chưa có sổ đỏ (chỉ có hợp đồng mua bán)",
-    "CLAIMED_BY_OTHER": "Sổ đỏ đã bị một tài khoản khác xác thực",
+    "NO_RED_BOOK": "Căn chưa có sổ đỏ / sổ hồng (chỉ có hợp đồng mua bán)",
+    "CLAIMED_BY_OTHER": "Sổ đỏ / sổ hồng đã bị một tài khoản khác xác thực",
     "OTHER": "Lý do khác",
 }
 
@@ -117,6 +117,13 @@ class OwnershipCaseOut(BaseModel):
     seller: SupportSeller | None
     # None: the code is not in the investor's records (e.g. no red book yet)
     red_book: RedBookState | None
+    # The holder's name on the red book (investor's records, or as the seller typed it when there is no record)
+    holder_name: str | None = None
+    # False: whoever sent the case is not the person on the red book (selling for someone else: needs a power of
+    # attorney); the operator is warned
+    sender_is_holder: bool = True
+    # Documents attached to the case: verifying by hand is only possible with them
+    has_documents: bool = False
 
 
 class UnlockRequest(BaseModel):

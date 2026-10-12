@@ -1,0 +1,102 @@
+name: Deploy to Cloud Run
+
+# Runs the API on Google Cloud Run next to Render (render.yaml); both use the same Dockerfile and Neon database.
+# Does nothing until the GCP_* repository variables exist — create them with scripts/gcp-setup.sh.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # Workload Identity Federation: GitHub OIDC token -> short-lived GCP credentials
+
+concurrency:
+  group: deploy-cloudrun
+  cancel-in-progress: false
+
+env:
+  SERVICE: bookingbot-api
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    if: vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/bookingbot/bookingbot-api:${{ github.sha }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Log in to Artifact Registry
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=cloudrun
+          cache-to: type=gha,scope=cloudrun,mode=max
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ vars.GCP_REGION }}
+          image: ${{ env.IMAGE }}
+          # Same settings as render.yaml; DATABASE_URL, GOOGLE_API_KEY and JWT_SECRET come from Secret Manager
+          env_vars: |-
+            APP_ENV=production
+            CORS_ORIGINS=${{ vars.CLOUD_RUN_CORS_ORIGINS }}
+            LLM_PROVIDER=google
+            MODEL_NAME=gemini-flash-lite-latest
+            MODEL_FALLBACK_NAME=gemini-flash-latest
+            OTP_EXPOSE_CODE=true
+            # Uploaded photos are served by this API; the web app on Vercel needs its full address
+            PUBLIC_API_URL=https://bookingbot-api-wlvipunyga-as.a.run.app
+            SEED_DEMO_DATA=true
+            TIMEZONE=Asia/Ho_Chi_Minh
+          secrets: |-
+            DATABASE_URL=DATABASE_URL:latest
+            GOOGLE_API_KEY=GOOGLE_API_KEY:latest
+            JWT_SECRET=JWT_SECRET:latest
+          # max-instances=1: hold expiry, reminders and follow-ups run in-process (src/jobs.py) and must not
+          # run twice. min-instances=0 keeps it free, but like Render's free plan those jobs pause while idle;
+          # set min-instances=1 plus --no-cpu-throttling to keep them running (billed around the clock).
+          # Long timeout: the AI chat streams over SSE.
+          flags: >-
+            --service-account=${{ vars.GCP_RUNTIME_SA }}
+            --allow-unauthenticated
+            --port=8000
+            --cpu=1
+            --memory=512Mi
+            --min-instances=0
+            --max-instances=1
+            --concurrency=80
+            --timeout=300
+            --cpu-boost
+
+      - name: Smoke Test
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${{ steps.deploy.outputs.url }}/health"
+
+      - name: Summary
+        run: echo "Deployed ${{ env.IMAGE }} to ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"

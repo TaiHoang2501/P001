@@ -74,3 +74,33 @@ def test_showcase_adds_every_case_once(db):
         db.scalar(select(func.count()).select_from(Booking)),
         db.scalar(select(func.count()).select_from(Escalation)),
     )
+
+
+def test_rich_demo_gives_the_demo_buyer_and_seller_every_case_once(db):
+    from src.db.models import Deal, DealStatus
+    from src.db.seed import RICH_DEMO_BUYER_PHONE, ensure_rich_demo, ensure_slots
+
+    _deploy_seed(db)
+    ensure_slots(db, 14)
+    result = ensure_rich_demo(db)
+    assert "An: confirmed" in result and "Lan:" in result, result
+
+    an = db.scalar(select(User.id).where(User.phone == RICH_DEMO_BUYER_PHONE))
+    statuses = set(db.scalars(select(Booking.status).where(Booking.customer_id == an)))
+    assert {
+        BookingStatus.REQUESTED,
+        BookingStatus.CONFIRMED,
+        BookingStatus.RESCHEDULE_REQUESTED,
+        BookingStatus.REJECTED,
+        BookingStatus.CANCELLED,
+        BookingStatus.COMPLETED,
+        BookingStatus.NO_SHOW,
+    } <= statuses
+    # The owner suggested other times on the declined one; one viewing led to "interested"
+    declined = db.scalar(select(Booking).where(Booking.customer_id == an, Booking.status == BookingStatus.REJECTED))
+    assert len(declined.suggested_starts) == 2
+    assert db.scalar(select(Deal.id).where(Deal.buyer_id == an, Deal.status == DealStatus.INTERESTED)) is not None
+
+    count = db.scalar(select(func.count()).select_from(Booking))
+    assert ensure_rich_demo(db) == "already added"
+    assert db.scalar(select(func.count()).select_from(Booking)) == count

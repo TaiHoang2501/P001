@@ -200,3 +200,31 @@ async def test_verify_with_another_role_is_refused(client):
     r = await _verify(client, SELLER_PHONE, code, role="CUSTOMER")
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "PHONE_IN_USE"
+
+
+@pytest.mark.asyncio
+async def test_phone_written_with_spaces_or_plus84_is_the_same_number(client):
+    for written in ("0918 765 432", "+84 918 765 432", "84918765432"):
+        r = await client.post("/api/v1/auth/otp/request", json={"target": written, "role": "OWNER"})
+        assert r.status_code == 202, (written, r.text)
+    # Not a phone number
+    r = await client.post("/api/v1/auth/otp/request", json={"target": "0012345678"})
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_buyer_page_names_the_area_of_a_seller_phone(client):
+    r = await client.post("/api/v1/auth/otp/request", json={"target": SELLER_PHONE, "role": "CUSTOMER"})
+    assert r.json()["error"]["details"] == {"account_role": "OWNER"}
+    r = await client.post("/api/v1/auth/otp/request", json={"target": OPERATOR_PHONE, "role": "CUSTOMER"})
+    assert r.json()["error"]["details"] == {}
+
+
+@pytest.mark.asyncio
+async def test_wrong_code_says_how_many_tries_are_left(client):
+    await client.post("/api/v1/auth/otp/request", json={"target": BUYER_PHONE})
+    r = await client.post("/api/v1/auth/otp/verify", json={"target": BUYER_PHONE, "code": "000000"})
+    if r.status_code == 200:  # the random code happened to be 000000
+        return
+    details = r.json()["error"]["details"]
+    assert details["new_code_needed"] is False and details["attempts_left"] >= 1

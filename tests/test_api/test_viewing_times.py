@@ -15,7 +15,7 @@ from src.db.models import (
     SellerProfile,
     SellerVerificationStatus,
 )
-from tests.helpers import OWNER_TUAN, auth
+from tests.helpers import CUSTOMER_AN, OWNER_TUAN, auth
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 PROPERTY_ID = 1  # owned by Tuấn, AVAILABLE
@@ -134,3 +134,31 @@ async def test_unverified_seller_property_has_no_viewing_times(client, db):
     r = await _propose(client, (14, 17))
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "SELLER_UNVERIFIED"
+
+
+@pytest.mark.asyncio
+async def test_times_sooner_than_the_minimum_notice_are_neither_offered_nor_booked(client):
+    """Today counts, but not the next two hours: the seller needs time to answer and get there."""
+    now = datetime.now(VN).replace(second=0, microsecond=0)
+    start = now + timedelta(minutes=10)
+    owner = await auth(client, OWNER_TUAN)
+    r = await client.post(
+        f"/api/v1/owner/properties/{PROPERTY_ID}/slots",
+        json={"start_at": start.isoformat(), "end_at": (start + timedelta(hours=3)).isoformat()},
+        headers=owner,
+    )
+    assert r.status_code == 201, r.text
+
+    r = await client.post(
+        f"/api/v1/properties/{PROPERTY_ID}/viewing-times",
+        json={"windows": [{"start_at": start.isoformat(), "end_at": (start + timedelta(hours=3)).isoformat()}]},
+    )
+    proposals = [datetime.fromisoformat(p["start_at"]) for p in r.json()["proposals"]]
+    assert proposals and min(proposals) >= now + timedelta(minutes=120)
+
+    buyer = await auth(client, CUSTOMER_AN)
+    r = await client.post(
+        "/api/v1/bookings", json={"property_id": PROPERTY_ID, "start_at": start.isoformat()}, headers=buyer
+    )
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["details"]["min_notice_minutes"] == 120

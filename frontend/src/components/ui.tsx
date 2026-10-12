@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { errorMessage } from "../api/client";
 import type { BookingStatus, PropertyStatus } from "../api/types";
-import { BOOKING_STATUS, PROPERTY_STATUS } from "../lib/format";
+import { BOOKING_STATUS, BOOKING_STATUS_HINT, PROPERTY_STATUS } from "../lib/format";
 
 export function Spinner({ label = "Đang tải..." }: { label?: string }) {
   return (
@@ -54,6 +54,7 @@ const BOOKING_TONE: Record<BookingStatus, string> = {
   NO_SHOW: "bg-stone-200 text-stone-700",
   OWNER_ABSENT: "bg-orange-100 text-orange-900",
   UNREPORTED: "bg-stone-200 text-stone-700",
+  EXPIRED: "bg-stone-200 text-stone-700",
 };
 
 const PROPERTY_TONE: Record<PropertyStatus, string> = {
@@ -65,12 +66,23 @@ const PROPERTY_TONE: Record<PropertyStatus, string> = {
   WITHDRAWN: "bg-stone-200 text-stone-700",
 };
 
-function Badge({ className, children }: { className: string; children: ReactNode }) {
-  return <span className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}>{children}</span>;
+function Badge({ className, children, title }: { className: string; children: ReactNode; title?: string }) {
+  return (
+    <span
+      title={title}
+      className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${title ? "cursor-help" : ""} ${className}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 export function BookingBadge({ status }: { status: BookingStatus }) {
-  return <Badge className={BOOKING_TONE[status]}>{BOOKING_STATUS[status]}</Badge>;
+  return (
+    <Badge className={BOOKING_TONE[status]} title={BOOKING_STATUS_HINT[status]}>
+      {BOOKING_STATUS[status]}
+    </Badge>
+  );
 }
 
 export function PropertyBadge({ status }: { status: PropertyStatus }) {

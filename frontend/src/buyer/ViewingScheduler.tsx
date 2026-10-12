@@ -51,7 +51,8 @@ export function ViewingScheduler({
   onBack?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const days = Array.from({ length: DAYS_AHEAD }, (_, i) => vnToday(i + 1));
+  // From today, like the assistant's suggestions (the API drops times that are past or too soon)
+  const days = Array.from({ length: DAYS_AHEAD }, (_, i) => vnToday(i));
   const [page, setPage] = useState(0);
   const [day, setDay] = useState(days[0]);
   const [chosen, setChosen] = useState<{

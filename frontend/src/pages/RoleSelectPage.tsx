@@ -75,7 +75,7 @@ export function RoleSelectPage() {
             art={<RedBookHomeArt />}
             eyebrow="Người bán nhà"
             title="Tôi muốn bán căn"
-            points={["Xác thực sổ đỏ một lần, đăng bán ngay", "AI giới thiệu căn cho người mua phù hợp", "Bạn xác nhận từng lịch xem"]}
+            points={["Xác thực sổ đỏ / sổ hồng một lần, đăng bán ngay", "AI giới thiệu căn cho người mua phù hợp", "Bạn xác nhận từng lịch xem"]}
             cta="Đến trang người bán"
             ctaClass="bg-[#fff8ef] text-[#9a4a22]"
           />

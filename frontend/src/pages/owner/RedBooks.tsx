@@ -37,9 +37,9 @@ export function RedBookList() {
   if (verified.length === 0) {
     return (
       <p className="rounded-3xl bg-paper px-5 py-8 text-center text-muted">
-        Bạn chưa xác thực sổ đỏ nào.{" "}
+        Bạn chưa xác thực sổ đỏ / sổ hồng nào.{" "}
         <Link to="/owner/verify" className="font-semibold text-brand-700 underline">
-          Xác thực sổ đỏ
+          Xác thực sổ đỏ / sổ hồng
         </Link>{" "}
         để bắt đầu đăng bán.
       </p>
@@ -49,7 +49,7 @@ export function RedBookList() {
     <div className="space-y-8">
       {listed.length > 0 && (
         <section>
-          <GroupTitle title="Đã đăng bán" count={listed.length} hint="Sổ đỏ đã gắn với tin đăng" />
+          <GroupTitle title="Đã đăng bán" count={listed.length} hint="Sổ đỏ / sổ hồng đã gắn với tin đăng" />
           <ul className="grid gap-4 sm:grid-cols-2">
             {/* On sale first; listings still waiting for the investor (or sent back) at the end */}
             {[...listed]

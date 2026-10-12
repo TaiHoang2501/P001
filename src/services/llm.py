@@ -10,7 +10,7 @@ def get_fallback_llm() -> BaseChatModel | None:
 
 
 def get_llm(model: str | None = None) -> BaseChatModel:
-    """Chat model for the agent, from LLM_PROVIDER (openai | google); `model` overrides MODEL_NAME."""
+    """Chat model for the agent, from LLM_PROVIDER (openai | google | openrouter); `model` overrides MODEL_NAME."""
     settings = get_settings()
     model = model or settings.llm_model
     if settings.llm_provider == "google":
@@ -25,6 +25,19 @@ def get_llm(model: str | None = None) -> BaseChatModel:
         )
 
     from langchain_openai import ChatOpenAI
+
+    if settings.llm_provider == "openrouter":
+        # OpenRouter speaks the OpenAI API; models are named "<vendor>/<model>", e.g. "openai/gpt-4o-mini"
+        return ChatOpenAI(
+            model=model,
+            api_key=settings.openrouter_api_key,
+            base_url=settings.openrouter_base_url,
+            temperature=settings.llm_temperature,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=settings.llm_max_retries,
+            # Shown on OpenRouter's dashboard, so usage can be told apart from other apps on the same account
+            default_headers={"X-Title": "BookingBot"},
+        )
 
     return ChatOpenAI(
         model=model,

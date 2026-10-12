@@ -40,7 +40,7 @@ from src.models.ownership import (
     SupportSeller,
 )
 from src.services import audit, booking_service, escalation_service, media_service, notification_service
-from src.services.ownership_service import _normalize_code, mask_phone
+from src.services.ownership_service import _normalize_code, _same_name, mask_phone
 
 
 def _record_by_code(db: Session, code: str) -> PropertyOwnershipVerification | None:
@@ -75,7 +75,7 @@ def request(db: Session, actor: Actor, data: OwnershipSupportCreate) -> Escalati
     esc = escalation_service.create(
         db,
         type=EscalationType.OWNERSHIP_SUPPORT,
-        summary=f"Hỗ trợ xác thực sổ đỏ {code}: {SUPPORT_REASON_LABEL[data.reason]}",
+        summary=f"Hỗ trợ xác thực sổ đỏ / sổ hồng {code}: {SUPPORT_REASON_LABEL[data.reason]}",
         raised_by=ActorType.USER,
         actor=actor,
         requester_id=actor.id,
@@ -138,8 +138,12 @@ def case(db: Session, escalation_id: int) -> OwnershipCaseOut:
     seller = db.get(User, esc.requester_id) if esc.requester_id else None
     profile = db.get(SellerProfile, seller.id) if seller else None
     record = _record_by_code(db, esc.context.get("red_book_code", ""))
+    holder = record.red_book_holder_name if record is not None else esc.context.get("red_book_holder_name")
     return OwnershipCaseOut(
         escalation_id=esc.id,
+        holder_name=holder,
+        sender_is_holder=seller is None or holder is None or _same_name(seller.full_name, holder),
+        has_documents=bool(esc.context.get("documents")),
         seller=SupportSeller(
             id=seller.id,
             full_name=seller.full_name,
@@ -163,7 +167,7 @@ def _close(db: Session, actor: Actor, esc: Escalation, resolution: str) -> None:
             db,
             esc.requester_id,
             "OWNERSHIP_SUPPORT_RESOLVED",
-            "Yêu cầu hỗ trợ xác thực sổ đỏ đã được xử lý",
+            "Yêu cầu hỗ trợ xác thực sổ đỏ / sổ hồng đã được xử lý",
             resolution,
             payload={"escalation_id": esc.id},
         )
@@ -209,7 +213,7 @@ def unlock(db: Session, actor: Actor, escalation_id: int, owner_phone: str | Non
             if owner_phone
             else f"Đã mở khóa sổ {record.red_book_code}. "
         )
-        + "Bạn vào “Xác thực sổ đỏ” và làm lại bước nhận mã OTP.",
+        + "Bạn vào “Xác thực sổ đỏ / sổ hồng” và làm lại bước nhận mã OTP.",
     )
     db.commit()
     return case(db, esc.id)
@@ -231,6 +235,12 @@ def verify(db: Session, actor: Actor, escalation_id: int, note: str) -> Ownershi
         and record.user_id != esc.requester_id
     ):
         raise StateConflictError("Another account holds this red book; revoke it first")
+    if not esc.context.get("documents"):
+        # Never on someone's word alone: two people can share a name, and a home could be handed to the wrong one
+        raise BusinessRuleViolationError(
+            "Verify by hand only after checking the seller's documents; ask them to send a request with documents",
+            details={"missing": "DOCUMENTS"},
+        )
     seller = db.get(User, esc.requester_id)
     now = datetime.now(UTC)
     if record is None:
@@ -336,9 +346,10 @@ def revoke(db: Session, actor: Actor, escalation_id: int, reason: str) -> Owners
         db,
         holder_id,
         "OWNERSHIP_REVOKED",
-        "Xác thực sổ đỏ đã bị thu hồi",
+        "Xác thực sổ đỏ / sổ hồng đã bị thu hồi",
         f"Chủ đầu tư đã thu hồi xác thực sổ {record.red_book_code}: {reason}."
         + (" Tin đăng của căn này đã được gỡ." if listing is not None else ""),
+        payload={"escalation_id": esc.id},
     )
     db.commit()
     return case(db, esc.id)

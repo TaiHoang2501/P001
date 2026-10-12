@@ -73,6 +73,11 @@ async def test_model_failure_becomes_an_error_event(client, script):  # noqa: F8
     script()  # no scripted reply: the model fails
     r = await client.post("/api/v1/chat/guest/stream", json={**BODY, "conversation_id": "guest-fail"})
     assert r.status_code == 200
-    assert _events(r.text) == [
-        ("error", {"code": "AGENT_UNAVAILABLE", "message": "AI assistant is temporarily unavailable, please try again"})
-    ]
+    [(name, data)] = _events(r.text)
+    # The trace id lets a developer find the failed turn (scripts/ai_traces.py show <trace_id>)
+    trace_id = data.pop("trace_id")
+    assert len(trace_id) == 32
+    assert (name, data) == (
+        "error",
+        {"code": "AGENT_UNAVAILABLE", "message": "AI assistant is temporarily unavailable, please try again"},
+    )
