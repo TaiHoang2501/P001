@@ -780,59 +780,49 @@ Hệ thống được kiểm thử tự động trên bộ dữ liệu chuẩn v
 ## 9.2. Sơ đồ kiến trúc tổng thể (System Overview Diagram)
 
 ```text
-+---------------------------------------------------------------------------------------------------+
-|                            1. TẦNG GIAO DIỆN NGƯỜI DÙNG (FRONTEND LAYER)                           |
-|                         (React 19 · Vite 6 · Tailwind CSS v4 · TanStack Query)                    |
-+------------------------------------+----------------------------------+---------------------------+
-|      CỔNG NGƯỜI MUA (/buyer/*)     |    CỔNG CHỦ CĂN HỘ (/owner/*)    |   BẢNG ĐIỀU KHIỂN VẬN HÀNH|
-| • Guest Chat vãng lai (không login)| • Xác thực Sổ đỏ + OTP điện thoại|       (/operator/*)       |
-| • Hội thoại AI Streaming (SSE)     | • Đăng tin tự khóa thông số sổ đỏ| • Kiểm duyệt tin đăng     |
-| • Quản lý Hoạt động & Mã QR pass   | • Quản lý khung giờ rảnh & Duyệt | • Hàng đợi ngoại lệ & Sổ  |
-+------------------------------------+----------------------------------+---------------------------+
-                                                  │
-                                                  ▼ (HTTPS REST / SSE Stream)
-+---------------------------------------------------------------------------------------------------+
-|                         2. TẦNG MÁY CHỦ XỬ LÝ TRUNG TÂM (FASTAPI BACKEND API)                     |
-|                                (Python 3.11+ · Pydantic v2 · Uvicorn)                             |
-+---------------------------------------------------------------------------------------------------+
-| • API Gateway & Middleware (CORS, Error Handlers, Pydantic Schemas Validation)                    |
-| • Auth Module (Đăng nhập SĐT + OTP cho Buyer/Owner; Email + Password Argon2id cho Operator)      |
-| • Viewing Hold Engine (Quản lý vòng đời lịch hẹn & Tạm khóa căn nguyên tử chống trùng lịch)       |
-| • Media Service (Nén ảnh tối đa 1600px/5MB, phục vụ trực tiếp qua /api/v1/media/{id})             |
-| • Background Jobs (Tự hủy yêu cầu quá hạn 24h, giải phóng hold, nhắc hẹn, agent_followup)        |
-+-------------------------------------------------+-------------------------------------------------+
-                                                  │
-                                                  ▼
-+---------------------------------------------------------------------------------------------------+
-|                        3. KHỐI TRÍ TUỆ NHÂN TẠO & ĐIỀU PHỐI (AI AGENT ENGINE)                     |
-|                           (LangGraph 0.2+ StateGraph · Multi-turn Agent)                          |
-+-------------------------------------------------+-------------------------------------------------+
-| • Intent Router & Entity Extraction (Bóc tách Ngân sách, Số phòng, Phân khu, Hướng, Khoảng tầng) |
-| • Dual LLM Provider (Google Gemini gemini-flash-latest / OpenAI gpt-4o-mini)                      |
-| • Persistent Memory Pool (PostgreSQL Checkpointer lưu ngữ cảnh đồ thị hội thoại)                  |
-| • Buyer Memory Profiles (Bảng buyer_profiles tự động ghi nhớ sở thích khách hàng)                 |
-| • AI Traces Logging (Bảng ai_turns lưu vết kỹ thuật từng lượt chat: tokens, latency p50/p95, tools)|
-+-------------------------------------------------+-------------------------------------------------+
-                                                  │
-                                                  ▼
-+---------------------------------------------------------------------------------------------------+
-|                           LỚP CÔNG CỤ KIỂM SOÁT AN TOÀN (SAFE TOOLS LAYER)                        |
-| • search_properties (Lọc cứng SQL + Chấm điểm sở thích)   • get_property_detail (Tra cứu căn)    |
-| • check_availability (Khớp giờ rảnh giao nhau)            • create_booking_request (Tạo Deal)     |
-| • reschedule_booking / cancel_booking (Đổi/Hủy lịch)      • create_human_escalation (Báo Operator)|
-+-------------------------------------------------+-------------------------------------------------+
-                                                  │
-         ┌────────────────────────────────────────┼────────────────────────────────────────┐
-         ▼                                        ▼                                        ▼
-+----------------------------------+ +----------------------------------+ +----------------------------------+
-|      CƠ SỞ DỮ LIỆU POSTGRESQL    | |        KHO LƯU TRỮ MEDIA         | |         DỊCH VỤ NGOÀI          |
-|    (Neon Serverless Postgres)    | |       (Media Storage Tier)       | |      (External Services)       |
-+----------------------------------+ +----------------------------------+ +----------------------------------+
-| • Users, Properties, Bookings    | | • Bảng media_files trong DB      | | • Google Gemini API              |
-| • Dữ liệu Sổ đỏ gốc đối soát     | |   (lưu trữ bền vững trên Render) | | • OpenAI API                     |
-| • Exclusion Constraints chống    | | • Sẵn sàng mở rộng AWS S3 /      | | • SMS / OTP Gateway              |
-|   trùng lịch tuyệt đối (GiST)    | |   Supabase Storage qua boto3     | |   (Xác thực qua điện thoại)      |
-+----------------------------------+ +----------------------------------+ +----------------------------------+
+       NGƯỜI MUA (BUYER)        CHỦ NHÀ (OWNER)       CHỦ ĐẦU TƯ (OPERATOR)
+             │                         │                        │
+             └─────────────────────────┼────────────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │       GIAO DIỆN WEB (FRONTEND)        │
+                   │ React 19 · TypeScript · Tailwind CSS  │
+                   │ (3 Cổng: Buyer · Owner · Operator)    │
+                   └───────────────────┬───────────────────┘
+                                       │ (REST API / SSE Stream)
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │        MÁY CHỦ XỬ LÝ (BACKEND)        │
+                   │            FastAPI · Python           │
+                   │ (Xác thực OTP/JWT · Xử lý nghiệp vụ)  │
+                   └───────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │        BỘ NÃO AI (AGENT ENGINE)       │
+                   │       LangGraph · Gemini / GPT        │
+                   │ • Hiểu nhu cầu ngôn ngữ tự nhiên      │
+                   │ • Gợi ý căn hộ & Khớp lịch rảnh       │
+                   │ • Trí nhớ ngữ cảnh (Buyer Memory)     │
+                   └───────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │          LỚP CÔNG CỤ AN TOÀN          │
+                   │           (SAFE TOOL LAYER)           │
+                   │ (Tìm căn · Khớp lịch · Đặt hẹn · Báo) │
+                   └───────────────────┬───────────────────┘
+                                       │
+                     ┌─────────────────┴─────────────────┐
+                     ▼                                   ▼
+       ┌───────────────────────────┐       ┌───────────────────────────┐
+       │   CƠ SỞ DỮ LIỆU POSTGRES  │       │       DỊCH VỤ ĐÁM MÂY     │
+       │   (Neon Serverless DB)    │       │     (Cloud Services)      │
+       │ • Dữ liệu Căn, Sổ đỏ gốc  │       │ • Google Gemini / OpenAI  │
+       │ • Khóa chống trùng lịch   │       │ • Kho ảnh căn hộ (Media)  │
+       │ • Bộ nhớ hội thoại Agent  │       │ • SMS OTP Gateway         │
+       └───────────────────────────┘       └───────────────────────────┘
 ```
 
 ## 9.3. Phân tầng Kiến trúc & Trách nhiệm các Thành phần
