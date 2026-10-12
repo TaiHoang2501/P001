@@ -143,11 +143,9 @@ Khi hệ thống Trợ lý AI vận hành đồng bộ, sản phẩm kỳ vọng
 | Chỉ số đánh giá | Mục tiêu cần đạt | Ý nghĩa và Cách đo thực tế trên hệ thống |
 |---|:---:|---|
 | **Độ chính xác gợi ý 3 căn đầu tiên** | **Từ 85% trở lên** | Đánh giá qua bộ kịch bản kiểm thử chuẩn vàng (Golden Set): AI lọc và gợi ý đúng ngân sách, số phòng ngủ và phân khu mong muốn. |
-| **Tỷ lệ Chủ nhà phê duyệt lịch hẹn** | **Từ 80% trở lên** | Trong 100 yêu cầu đặt lịch gửi đi, ít nhất 80 yêu cầu được chủ nhà bấm "Đồng ý" (hệ thống đo tự động: số lịch `CONFIRMED` / tổng yêu cầu `REQUESTED`). |
 | **Thời gian Chủ nhà phản hồi** | **Dưới 2 giờ** | Hệ thống tự đo khoảng thời gian từ lúc khách gửi yêu cầu đến khi chủ nhà bấm Đồng ý hoặc Từ chối. |
 | **Tỷ lệ bị trùng lịch xem nhà** | **0% (Tuyệt đối không có)** | Ràng buộc loại trừ trên cơ sở dữ liệu khóa tự động ngay khi chủ nhà duyệt, bảo đảm 100% không bao giờ bị trùng lịch. |
 | **Thời gian AI trả lời tin nhắn** | **Dưới 5 giây** | Hệ thống đo thời gian phản hồi (p95) của AI trong mỗi lượt trò chuyện, đảm bảo khách không phải chờ lâu. |
-| **Tỷ lệ phải nhờ nhân viên hỗ trợ** | **Dưới 15%** | Hệ thống tự đếm số phiên phát sinh ngoại lệ cần chuyển người thật; AI tự động điều phối thành công ít nhất 85% trường hợp. |
 
 ## 2.3. Tám nguyên tắc sản phẩm bất di bất dịch
 
