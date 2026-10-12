@@ -5,6 +5,7 @@ import { RedBookHomeArt } from "../components/AuthShell";
 import { BRAND_GRADIENT_TEXT, BrandLogo } from "../components/Brand";
 import { AiBot } from "../buyer/AiBot";
 import { ArrowRightIcon, CheckIcon, SparkleIcon } from "../buyer/icons";
+import { DemoAccountsTable, OperatorGuide } from "./DemoAccounts";
 
 /**
  * Entry point: the visitor says whether they want to view homes (buyer area with the AI agent)
@@ -84,6 +85,15 @@ export function RoleSelectPage() {
         <p className={`mt-8 text-center text-sm text-muted ${done ? "animate-rise-in" : "invisible"}`}>
           Bạn có thể quay lại màn hình này để đổi vai trò bất cứ lúc nào, bằng cách bấm vào logo BookingBot.
         </p>
+
+        {/* For testers: demo sign-ins and the way into the operator console */}
+        <div
+          className={`mt-12 grid items-start gap-5 lg:grid-cols-[3fr_2fr] ${done ? "animate-rise-in" : "invisible"}`}
+          aria-hidden={!done}
+        >
+          <DemoAccountsTable />
+          <OperatorGuide />
+        </div>
       </main>
     </div>
   );
