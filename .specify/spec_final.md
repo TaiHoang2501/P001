@@ -931,7 +931,7 @@ Hệ thống kết hợp giữa tính chính xác tuyệt đối của câu lệ
    ("Em gợi ý căn này vì nằm đúng tầm giá 4.2 tỷ của anh, ban công hướng Đông Nam đón gió rất mát và chỉ cách hồ trung tâm 150m")
 ```
 
-## 9.6. Cơ chế Tự động Khớp Lịch & Tạm Khóa Căn Nguyên Tử (Atomic Viewing Hold Engine)
+## 9.6. Cơ chế Tự động Khớp Lịch & Tạm Khóa Căn (Atomic Viewing Hold Engine)
 
 Quy trình đặt lịch xem nhà đảm bảo quyền quyết định tối cao của con người (Human-in-the-loop) kết hợp với thuật toán khóa đồng thời:
 
@@ -972,9 +972,9 @@ Hệ thống được thiết kế theo mô hình đám mây phân tán hiện �
 
 ---
 
-# §10. Ranh giới Chốt chặn của Phiên bản Thử nghiệm (MVP Boundary)
+# §10. Phạm vi hoạt động của phiên bản thử nghiệm (MVP Boundary)
 
-## Các tính năng BẮT BUỘC PHẢI CÓ (Must Have):
+## Các tính năng làm (Must Have):
 - Xác thực đăng nhập cho Người mua bằng số điện thoại và mã OTP.
 - Xác thực đăng nhập cho Chủ nhà và đối soát Sổ đỏ chính chủ.
 - Trải nghiệm trò chuyện tự nhiên với Trợ lý AI (hỗ trợ khách vãng lai).
@@ -996,7 +996,7 @@ Hệ thống được thiết kế theo mô hình đám mây phân tán hiện �
 - Tự động chuyển giao các trường hợp ngoại lệ cho Nhân viên hỗ trợ.
 - Nhật ký kiểm toán ghi lại mọi thay đổi dữ liệu quan trọng.
 
-## Các tính năng TUYỆT ĐỐI KHÔNG LÀM trong giai đoạn này (Must Not Have):
+## Các tính năng không làm trong giai đoạn này:
 - Tuyệt đối không tích hợp cổng thanh toán trực tuyến hoặc chuyển khoản ngân hàng.
 - Tuyệt đối không nhận tiền đặt cọc giữ chỗ mua bán căn hộ.
 - Tuyệt đối không ký hợp đồng mua bán điện tử trên hệ thống.
@@ -1011,12 +1011,12 @@ Hệ thống được thiết kế theo mô hình đám mây phân tán hiện �
 
 ---
 
-# §11. Định nghĩa Sản phẩm Cốt lõi & Luồng Trình diễn Tiêu biểu
+# §11. Định nghĩa Sản phẩm cốt lõi
 
 ## Định nghĩa sản phẩm trong một câu duy nhất:
 > **BookingBot AI Agent là trợ lý thông minh giúp khách hàng tìm đúng căn hộ Vinhomes ưng ý, kết nối trực tiếp với chủ sở hữu chính chủ và tự động sắp xếp lịch hẹn xem nhà mượt mà, chấm dứt hoàn toàn sự phụ thuộc vào môi giới rác và các cuộc gọi làm phiền; đồng thời giúp Chủ đầu tư làm sạch nguồn cung, bảo chứng pháp lý, loại trừ trùng lịch và kiểm soát an toàn toàn bộ hành trình giao dịch.**
 
-## Luồng Trình diễn Tiêu biểu (Core Demo Flow)
+## Luồng Trình Hoạt Động (Core Demo Flow)
 
 ```text
 NGƯỜI MUA
