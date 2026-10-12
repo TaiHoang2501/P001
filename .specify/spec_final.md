@@ -779,96 +779,50 @@ Hệ thống được kiểm thử tự động trên bộ dữ liệu chuẩn v
 
 ## 9.2. Sơ đồ kiến trúc tổng thể (System Overview Diagram)
 
-```mermaid
-flowchart TD
-    %% ==========================================
-    %% 1. CLIENT LAYER (GIAO DIỆN NGƯỜI DÙNG)
-    %% ==========================================
-    subgraph ClientLayer ["1. TẦNG GIAO DIỆN NGƯỜI DÙNG (React 19 + Vite + Tailwind CSS v4)"]
-        BUYER_UI["Cổng Người mua (/buyer/*)\n• Guest Chat vãng lai (không cần tài khoản)\n• Hội thoại AI Streaming (SSE)\n• Trang Hoạt động & Mã QR vào cửa"]
-        OWNER_UI["Cổng Chủ nhà (/owner/*)\n• Xác thực Sổ đỏ tự động qua OTP\n• Đăng tin bán kèm ảnh thực tế\n• Quản lý khung giờ rảnh & Duyệt lịch"]
-        OPERATOR_UI["Bảng điều khiển Vận hành (/operator/*)\n• Kiểm duyệt tin đăng căn hộ\n• Hàng đợi ngoại lệ & Hỗ trợ xác thực Sổ đỏ\n• Giám sát toàn diện lịch xem nhà"]
-    end
-
-    %% ==========================================
-    %% 2. FASTAPI BACKEND GATEWAY
-    %% ==========================================
-    subgraph BackendLayer ["2. TẦNG MÁY CHỦ XỬ LÝ TRUNG TÂM (FastAPI 0.115+ / Python 3.11+)"]
-        GATEWAY["API Gateway & Middleware\n(CORS, Error Handlers, Pydantic v2 Validation)"]
-        AUTH_SVC["Hệ thống Xác thực & Phân quyền\n(Phone OTP / JWT Token / RBAC)"]
-        STREAM_HANDLER["Bộ xử lý Streaming & Chat\n(SSE Chat Stream / Session Router)"]
-        BOOKING_ENGINE["Bộ quản lý Đặt lịch & Khóa căn (Viewing Hold)\n(Exclusion Lock / Atomic Hold)"]
-        ESC_ENGINE["Bộ quản lý Ngoại lệ & Khiếu nại\n(Escalation Manager)"]
-        MEDIA_SVC["Dịch vụ Xử lý Media Ảnh/Tài liệu\n(Nén ảnh, phân quyền truy cập)"]
-        BG_JOBS["Bộ tác vụ chạy ngầm (Background Jobs)\n• Auto-expire yêu cầu quá hạn\n• Giải phóng tạm giữ căn\n• Chăm sóc chủ động (Agent Follow-up)\n• Nhắc lịch hẹn tự động"]
-    end
-
-    %% ==========================================
-    %% 3. AI AGENT LAYER (LANGGRAPH)
-    %% ==========================================
-    subgraph AgentLayer ["3. KHỐI TRÍ TUỆ NHÂN TẠO (AI Agent Engine - LangGraph)"]
-        ORCHESTRATOR["Agent Orchestrator (StateGraph)\n• Bóc tách nhu cầu tự nhiên (Budget, Bedrooms, Area, View)\n• Quản lý ngữ cảnh nhiều lượt (Multi-turn Context)"]
-        
-        subgraph SafeTools ["Bộ công cụ kiểm soát an toàn (Safe Tools Layer)"]
-            T_SEARCH["search_properties\n(Lọc cứng SQL + Chấm điểm sở thích)"]
-            T_DETAIL["get_property_detail\n(Tra cứu thông số & hình ảnh căn)"]
-            T_AVAIL["check_availability\n(Khớp giờ rảnh giao nhau)"]
-            T_BOOK["create_booking_request\n(Tạo Deal & Gửi duyệt Chủ nhà)"]
-            T_RESCHED["reschedule_booking / cancel_booking\n(Đổi hoặc hủy lịch hẹn)"]
-            T_ESCALATE["create_human_escalation\n(Chuyển vụ việc cho Operator)"]
-        end
-        
-        AI_TRACES["AI Traces & Giám sát Kỹ thuật (ai_turns)\n(Lưu vết từng bước gọi tool, latency p50/p95, tokens)"]
-    end
-
-    %% ==========================================
-    %% 4. DATA & STORAGE TIER
-    %% ==========================================
-    subgraph DataLayer ["4. TẦNG DỮ LIỆU & LƯU TRỮ (Neon PostgreSQL 15+)"]
-        DB_MAIN[("PostgreSQL Database\n• Người dùng, Căn hộ, Giao dịch (Deals), Lịch xem (Bookings)\n• Dữ liệu đối soát Sổ đỏ gốc (property_ownership_verifications)\n• Khóa loại trừ chống trùng lịch (Exclusion Constraints)")]
-        DB_CHECKPOINT[("PostgreSQL Checkpointer\n(Bảng checkpoint* lưu trí nhớ LangGraph)")]
-        BUYER_PROFILES[("Hồ sơ sở thích Người mua\n(buyer_profiles - Ghi nhớ đa phiên)")]
-        MEDIA_STORAGE[("Kho lưu trữ Media\n• Bảng media_files (Bản hiện tại)\n• Hỗ trợ S3 / Supabase Storage (Mở rộng)")]
-    end
-
-    %% ==========================================
-    %% 5. EXTERNAL SERVICES
-    %% ==========================================
-    subgraph ExternalTier ["5. DỊCH VỤ NGOÀI (External Services)"]
-        LLM_GEMINI["Google Gemini API\n(gemini-flash-latest / fallback)"]
-        LLM_OPENAI["OpenAI API\n(gpt-4o-mini)"]
-        SMS_GATEWAY["SMS / OTP Gateway\n(Gửi mã xác thực về điện thoại)"]
-    end
-
-    %% Luồng liên kết chính
-    BUYER_UI & OWNER_UI & OPERATOR_UI --> GATEWAY
-    GATEWAY --> AUTH_SVC
-    GATEWAY --> STREAM_HANDLER
-    GATEWAY --> BOOKING_ENGINE
-    GATEWAY --> ESC_ENGINE
-    GATEWAY --> MEDIA_SVC
-
-    STREAM_HANDLER --> ORCHESTRATOR
-    ORCHESTRATOR <--> LLM_GEMINI
-    ORCHESTRATOR <--> LLM_OPENAI
-    ORCHESTRATOR --> SafeTools
-    ORCHESTRATOR -.-> AI_TRACES
-    AI_TRACES -.-> DB_MAIN
-
-    T_SEARCH --> DB_MAIN
-    T_DETAIL --> DB_MAIN
-    T_AVAIL --> DB_MAIN
-    T_BOOK --> BOOKING_ENGINE
-    BOOKING_ENGINE --> DB_MAIN
-
-    AUTH_SVC --> DB_MAIN
-    AUTH_SVC --> SMS_GATEWAY
-    ESC_ENGINE --> DB_MAIN
-    MEDIA_SVC --> MEDIA_STORAGE
-    BG_JOBS --> DB_MAIN
-
-    ORCHESTRATOR <--> DB_CHECKPOINT
-    ORCHESTRATOR <--> BUYER_PROFILES
+```text
+       NGƯỜI MUA (BUYER)        CHỦ NHÀ (OWNER)       CHỦ ĐẦU TƯ (OPERATOR)
+             │                         │                        │
+             └─────────────────────────┼────────────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │       GIAO DIỆN WEB (FRONTEND)        │
+                   │ React 19 · TypeScript · Tailwind CSS  │
+                   │ (3 Cổng: Buyer · Owner · Operator)    │
+                   └───────────────────┬───────────────────┘
+                                       │ (REST API / SSE Stream)
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │        MÁY CHỦ XỬ LÝ (BACKEND)        │
+                   │            FastAPI · Python           │
+                   │ (Xác thực OTP/JWT · Xử lý nghiệp vụ)  │
+                   └───────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │        BỘ NÃO AI (AGENT ENGINE)       │
+                   │       LangGraph · Gemini / GPT        │
+                   │ • Hiểu nhu cầu ngôn ngữ tự nhiên      │
+                   │ • Gợi ý căn hộ & Khớp lịch rảnh       │
+                   │ • Trí nhớ ngữ cảnh (Buyer Memory)     │
+                   └───────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │          LỚP CÔNG CỤ AN TOÀN          │
+                   │           (SAFE TOOL LAYER)           │
+                   │ (Tìm căn · Khớp lịch · Đặt hẹn · Báo) │
+                   └───────────────────┬───────────────────┘
+                                       │
+                     ┌─────────────────┴─────────────────┐
+                     ▼                                   ▼
+       ┌───────────────────────────┐       ┌───────────────────────────┐
+       │   CƠ SỞ DỮ LIỆU POSTGRES  │       │       DỊCH VỤ ĐÁM MÂY     │
+       │   (Neon Serverless DB)    │       │     (Cloud Services)      │
+       │ • Dữ liệu Căn, Sổ đỏ gốc  │       │ • Google Gemini / OpenAI  │
+       │ • Khóa chống trùng lịch   │       │ • Kho ảnh căn hộ (Media)  │
+       │ • Bộ nhớ hội thoại Agent  │       │ • SMS OTP Gateway         │
+       └───────────────────────────┘       └───────────────────────────┘
 ```
 
 ## 9.3. Phân tầng Kiến trúc & Trách nhiệm các Thành phần
