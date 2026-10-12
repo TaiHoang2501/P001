@@ -8,20 +8,41 @@
 """
 
 import json
+import re
+from datetime import datetime
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
+from src.config import get_settings
 from src.models.property import SearchCriteria
 from src.services import agent_api, buyer_memory
 
 Result = tuple[str, agent_api.Envelope]
 
 
+_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})")
+
+
+def _local_times(value: Any, tz: ZoneInfo) -> Any:
+    """Timestamps as Vietnam time (+07:00): the model then reads the same clock as the buyer and the prompt,
+    instead of converting UTC itself (gpt-4o-mini sometimes reads 09:00Z as 9h instead of 16h)."""
+    if isinstance(value, dict):
+        return {k: _local_times(v, tz) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_local_times(v, tz) for v in value]
+    if isinstance(value, str) and _TIMESTAMP.fullmatch(value):
+        return datetime.fromisoformat(value).astimezone(tz).isoformat()
+    return value
+
+
 def _result(envelope: agent_api.Envelope) -> Result:
-    return json.dumps(envelope, ensure_ascii=False, default=str), envelope
+    """The model reads the content (Vietnam time); the chat service reads the artifact envelope unchanged."""
+    content = _local_times(envelope, ZoneInfo(get_settings().timezone))
+    return json.dumps(content, ensure_ascii=False, default=str), envelope
 
 
 def _user_id(config: RunnableConfig) -> int | None:

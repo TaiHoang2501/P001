@@ -229,3 +229,23 @@ def test_llm_provider_selection(monkeypatch, provider, cls_name, model):
         assert model in (getattr(llm, "model_name", None) or getattr(llm, "model", ""))
     finally:
         get_settings.cache_clear()
+
+
+def test_tool_results_show_the_model_vietnam_time():
+    from src.agents.tools import _result
+
+    envelope = {
+        "ok": True,
+        "data": {
+            "deal_code": "VH-2026-00001",
+            "day": "2026-10-12",
+            "windows": [{"start_at": "2026-10-12T09:00:00Z", "end_at": "2026-10-12T09:30:00+00:00"}],
+        },
+    }
+    content, artifact = _result(envelope)
+    seen = json.loads(content)["data"]
+    # 09:00 UTC is 16:00 in Vietnam: the model must not have to convert it
+    assert seen["windows"] == [{"start_at": "2026-10-12T16:00:00+07:00", "end_at": "2026-10-12T16:30:00+07:00"}]
+    assert seen["deal_code"] == "VH-2026-00001" and seen["day"] == "2026-10-12"
+    # The chat service renders cards and bookings from the untouched envelope
+    assert artifact["data"]["windows"][0]["start_at"] == "2026-10-12T09:00:00Z"
