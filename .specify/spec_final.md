@@ -1,7 +1,6 @@
 # ĐẶC TẢ SẢN PHẨM: TRỢ LÝ AI KẾT NỐI TRỰC TIẾP BẤT ĐỘNG SẢN (AI SPEC)
 
-**Tên sản phẩm:** AI Agent Direct Connect — Trợ lý AI Kết nối Trực tiếp Bất động sản  
-**Tên gọi trong phiên bản thử nghiệm (MVP):** BookingBot AI Agent  
+**Tên sản phẩm:** BookingBot AI Agent  — Trợ lý AI Kết nối Trực tiếp Bất động sản  
 **Nhóm chuyên trách:** Bất động sản (BĐS)  
 **Mã đề án:** BDSO2O-04  
 **Phạm vi áp dụng:** Đại đô thị Vinhomes · Giao diện Web tương thích mọi thiết bị (Responsive Web) · Định hướng AI dẫn dắt (AI-first)  
