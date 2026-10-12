@@ -208,7 +208,11 @@ async def test_failed_tool_call_is_not_reported_as_booking(client, script):
 
 @pytest.mark.parametrize(
     ("provider", "cls_name", "model"),
-    [("openai", "ChatOpenAI", "gpt-4o-mini"), ("google", "ChatGoogleGenerativeAI", "gemini-flash-latest")],
+    [
+        ("openai", "ChatOpenAI", "gpt-4o-mini"),
+        ("google", "ChatGoogleGenerativeAI", "gemini-flash-latest"),
+        ("groq", "ChatOpenAI", "openai/gpt-oss-120b"),
+    ],
 )
 def test_llm_provider_selection(monkeypatch, provider, cls_name, model):
     from src.services.llm import get_llm
@@ -216,6 +220,7 @@ def test_llm_provider_selection(monkeypatch, provider, cls_name, model):
     monkeypatch.setenv("LLM_PROVIDER", provider)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
     monkeypatch.setenv("MODEL_NAME", "")
     get_settings.cache_clear()
     try:

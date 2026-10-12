@@ -93,7 +93,7 @@ def use_checkpointer(checkpointer: BaseCheckpointSaver | None) -> None:
 def get_agent() -> CompiledStateGraph:
     settings = get_settings()
     if not settings.llm_api_key:
-        key = "GOOGLE_API_KEY" if settings.llm_provider == "google" else "OPENAI_API_KEY"
+        key = f"{settings.llm_provider.upper()}_API_KEY"
         raise AgentUnavailableError(f"AI assistant is not configured ({key} missing)")
     # Without Postgres the memory is in-process: lost on restart and not shared between workers
     # The main model keeps its retries: a short rate-limit blip is better retried than handed to the

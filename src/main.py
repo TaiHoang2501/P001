@@ -20,7 +20,7 @@ from src.api.routers import (
 )
 from src.config import get_settings
 from src.core.errors import register_error_handlers
-from src.services import agent_memory
+from src.services import agent_memory, llm_observability
 
 
 @asynccontextmanager
@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
         with contextlib.suppress(asyncio.CancelledError):
             await job
     await agent_memory.close_memory(memory_pool)
+    llm_observability.shutdown()
     print("Shutting down...")
 
 

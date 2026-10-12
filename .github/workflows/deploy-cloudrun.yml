@@ -63,13 +63,16 @@ jobs:
           service: ${{ env.SERVICE }}
           region: ${{ vars.GCP_REGION }}
           image: ${{ env.IMAGE }}
-          # Same settings as render.yaml; DATABASE_URL, GOOGLE_API_KEY and JWT_SECRET come from Secret Manager
+          # DATABASE_URL, JWT_SECRET, the OpenRouter key and the Langfuse keys come from Secret Manager
           env_vars: |-
             APP_ENV=production
             CORS_ORIGINS=${{ vars.CLOUD_RUN_CORS_ORIGINS }}
-            LLM_PROVIDER=google
-            MODEL_NAME=gemini-flash-lite-latest
-            MODEL_FALLBACK_NAME=gemini-flash-latest
+            # Main model: openai/gpt-4o-mini (provider default); another vendor answers when it fails
+            LLM_PROVIDER=openrouter
+            MODEL_NAME=openai/gpt-4o-mini
+            MODEL_FALLBACK_NAME=google/gemini-2.5-flash-lite
+            # Traces of AI chat turns (src/services/llm_observability.py)
+            LANGFUSE_BASE_URL=https://cloud.langfuse.com
             OTP_EXPOSE_CODE=true
             # Uploaded photos are served by this API; the web app on Vercel needs its full address
             PUBLIC_API_URL=https://bookingbot-api-wlvipunyga-as.a.run.app
@@ -77,8 +80,10 @@ jobs:
             TIMEZONE=Asia/Ho_Chi_Minh
           secrets: |-
             DATABASE_URL=DATABASE_URL:latest
-            GOOGLE_API_KEY=GOOGLE_API_KEY:latest
             JWT_SECRET=JWT_SECRET:latest
+            OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest
+            LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest
+            LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest
           # max-instances=1: hold expiry, reminders and follow-ups run in-process (src/jobs.py) and must not
           # run twice. min-instances=0 keeps it free, but like Render's free plan those jobs pause while idle;
           # set min-instances=1 plus --no-cpu-throttling to keep them running (billed around the clock).

@@ -21,13 +21,16 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     timezone: str = "Asia/Ho_Chi_Minh"
 
-    # LLM (spec §9.1: Gemini or OpenAI; also any model through OpenRouter, an OpenAI-compatible gateway)
-    llm_provider: Literal["openai", "google", "openrouter"] = "openai"
+    # LLM (spec §9.1: Gemini or OpenAI; also any model through OpenRouter or Groq, both OpenAI-compatible)
+    llm_provider: Literal["openai", "google", "openrouter", "groq"] = "openai"
     openai_api_key: str = ""
     google_api_key: str = ""
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest / openai/gpt-4o-mini on OpenRouter)
+    groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest / openai/gpt-4o-mini on OpenRouter /
+    # openai/gpt-oss-120b on Groq)
     model_name: str = ""
     # Used when the main model fails (e.g. Gemini "high demand" 503). Empty = provider default, "none" = off
     model_fallback_name: str = ""
@@ -45,16 +48,18 @@ class Settings(BaseSettings):
         return {
             "google": self.google_api_key,
             "openrouter": self.openrouter_api_key,
+            "groq": self.groq_api_key,
         }.get(self.llm_provider, self.openai_api_key)
 
     @property
     def llm_model(self) -> str:
-        defaults = {"google": "gemini-flash-latest", "openrouter": "openai/gpt-4o-mini"}
+        defaults = {"google": "gemini-flash-latest", "openrouter": "openai/gpt-4o-mini", "groq": "openai/gpt-oss-120b"}
         return self.model_name or defaults.get(self.llm_provider, "gpt-4o-mini")
 
     @property
     def llm_fallback_model(self) -> str | None:
-        name = self.model_fallback_name or ("gemini-flash-lite-latest" if self.llm_provider == "google" else "")
+        defaults = {"google": "gemini-flash-lite-latest", "groq": "openai/gpt-oss-20b"}
+        name = self.model_fallback_name or defaults.get(self.llm_provider, "")
         return None if name in ("", "none") or name == self.llm_model else name
 
     # Database (PostgreSQL 15+ required: btree_gist exclusion constraints, pg_trgm)
@@ -136,6 +141,18 @@ class Settings(BaseSettings):
     ownership_claim_failures_per_hour: int = Field(default=5, ge=1)
     # Developer traces of chat turns (ai_turns) and unclaimed guest conversations are kept this many days
     ai_trace_retention_days: int = Field(default=180, ge=1)
+    # Langfuse (LLM observability) for chat turns; off when the keys are empty and always off in tests
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = Field(
+        default="https://cloud.langfuse.com", validation_alias=AliasChoices("langfuse_base_url", "langfuse_host")
+    )
+    # Share of chat turns sent to Langfuse (1.0 = all)
+    langfuse_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @property
+    def langfuse_enabled(self) -> bool:
+        return bool(self.langfuse_public_key and self.langfuse_secret_key) and self.app_env != "test"
 
     # Recommendation scoring weights (spec §4.6: TBD, calibrate with real data)
     score_weight_price: float = 0.25

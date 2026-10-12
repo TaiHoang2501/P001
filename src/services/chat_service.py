@@ -26,7 +26,7 @@ from src.db.session import get_sessionmaker
 from src.models.booking import BookingOut, ViewingTimesOut
 from src.models.property import Recommendation
 from src.models.schemas import ChatRequest, ChatResponse, PendingViewingRequest
-from src.services import ai_trace, buyer_memory, conversation_service
+from src.services import ai_trace, buyer_memory, conversation_service, llm_observability
 from src.services.ai_trace import TurnTracer
 
 logger = logging.getLogger(__name__)
@@ -90,11 +90,13 @@ def _buyer_config(actor: Actor, request: ChatRequest) -> RunnableConfig:
         # Thread is scoped to the authenticated user, so one buyer can never load another's conversation
         "configurable": {
             "thread_id": f"{actor.id}:{request.conversation_id}",
+            "conversation_id": request.conversation_id,
             "user_id": actor.id,
             "buyer_name": actor.user.full_name,
             "buyer_memory": _memory(actor.id),
         },
         "recursion_limit": _RECURSION_LIMIT,
+        "run_name": llm_observability.AGENT_RUN_NAME,
     }
 
 
@@ -104,10 +106,12 @@ def _guest_config(request: ChatRequest) -> RunnableConfig:
         # The client-generated id is random and only known to that browser tab
         "configurable": {
             "thread_id": _guest_thread(request.conversation_id),
+            "conversation_id": request.conversation_id,
             "user_id": None,
             "buyer_name": "Quý khách",
         },
         "recursion_limit": _RECURSION_LIMIT,
+        "run_name": llm_observability.AGENT_RUN_NAME,
     }
 
 
@@ -197,7 +201,19 @@ async def _stream_turn(config: RunnableConfig, message: str, tracer: TurnTracer)
     text streamed before it was only a preface), `error`; then an internal `_final` with the new messages
     (or `_failed` with the error, before `error`)."""
     agent = agent_graph.get_agent()
-    config = {**config, "callbacks": [tracer]}
+    with llm_observability.chat_turn(tracer.trace_id, config, message, streamed=True) as observed:
+        async for event in _stream_events(
+            agent, {**config, "callbacks": [tracer, *observed.callbacks]}, message, tracer.trace_id
+        ):
+            name, data = event
+            if name == "_final":
+                observed.finish(_reply(data["messages"]))
+            elif name == "_failed":
+                observed.fail(data["error"])
+            yield event
+
+
+async def _stream_events(agent: Any, config: RunnableConfig, message: str, trace_id: str) -> AsyncIterator[ChatEvent]:
     try:
         before = len((await agent.aget_state(config)).values.get("messages", []))
         async for mode, payload in agent.astream(
@@ -219,14 +235,14 @@ async def _stream_turn(config: RunnableConfig, message: str, tracer: TurnTracer)
         messages = (await agent.aget_state(config)).values["messages"][before:]
     except Exception as e:
         # The response has already started: report the failure as an event, the client shows it in the chat
-        logger.exception("agent turn failed (stream, trace=%s)", tracer.trace_id)
+        logger.exception("agent turn failed (stream, trace=%s)", trace_id)
         yield "_failed", {"error": e}
         yield (
             "error",
             {
                 "code": "AGENT_UNAVAILABLE",
                 "message": "AI assistant is temporarily unavailable, please try again",
-                "trace_id": tracer.trace_id,
+                "trace_id": trace_id,
             },
         )
         return
@@ -256,21 +272,29 @@ async def claim_guest(actor: Actor, conversation_id: str) -> bool:
 
 async def _run_turn(config: RunnableConfig, message: str, tracer: TurnTracer) -> list[BaseMessage]:
     agent = agent_graph.get_agent()  # raises AgentUnavailableError when no API key is configured
-    config = {**config, "callbacks": [tracer]}
-    try:
-        before = len((await agent.aget_state(config)).values.get("messages", []))
-        result = await agent.ainvoke({"messages": [HumanMessage(message)]}, config)
-    except Exception as e:
-        logger.exception("agent turn failed (trace=%s)", tracer.trace_id)
-        raise AgentUnavailableError(
-            "AI assistant is temporarily unavailable, please try again", details={"trace_id": tracer.trace_id}
-        ) from e
-    return result["messages"][before:]
+    with llm_observability.chat_turn(tracer.trace_id, config, message, streamed=False) as observed:
+        config = {**config, "callbacks": [tracer, *observed.callbacks]}
+        try:
+            before = len((await agent.aget_state(config)).values.get("messages", []))
+            result = await agent.ainvoke({"messages": [HumanMessage(message)]}, config)
+        except Exception as e:
+            logger.exception("agent turn failed (trace=%s)", tracer.trace_id)
+            observed.fail(e)
+            raise AgentUnavailableError(
+                "AI assistant is temporarily unavailable, please try again", details={"trace_id": tracer.trace_id}
+            ) from e
+        new_messages = result["messages"][before:]
+        observed.finish(_reply(new_messages))
+    return new_messages
+
+
+def _reply(new_messages: list[BaseMessage]) -> str:
+    last = new_messages[-1] if new_messages else None
+    return last.text if isinstance(last, AIMessage) else ""
 
 
 def _response(conversation_id: str, new_messages: list[BaseMessage], trace_id: str | None = None) -> ChatResponse:
-    last = new_messages[-1]
-    reply = last.text if isinstance(last, AIMessage) else ""
+    reply = _reply(new_messages)
     recommendations, viewing_times, bookings = _extract(new_messages)
     return ChatResponse(
         reply=reply,

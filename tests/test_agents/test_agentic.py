@@ -195,6 +195,8 @@ class _FakeLLM:
 
 def test_agent_wording_falls_back_when_a_fact_is_dropped(monkeypatch):
     monkeypatch.setattr(agent_writer, "enabled", lambda: True)
+    # No backup model, whatever provider .env configures
+    monkeypatch.setattr(agent_writer, "get_fallback_llm", lambda: None)
     monkeypatch.setattr(agent_writer, "get_llm", lambda: _FakeLLM("Chủ căn chưa trả lời, bạn xem căn khác nhé."))
     assert agent_writer.compose("x", {"deal": "VH-2026-00001"}, "TEMPLATE", ["VH-2026-00001"]) == "TEMPLATE"
 
