@@ -63,14 +63,16 @@ jobs:
           service: ${{ env.SERVICE }}
           region: ${{ vars.GCP_REGION }}
           image: ${{ env.IMAGE }}
-          # DATABASE_URL, JWT_SECRET, the OpenRouter key and the Langfuse keys come from Secret Manager
+          # DATABASE_URL, JWT_SECRET, the Anthropic and OpenRouter keys and the Langfuse keys come from Secret Manager
           env_vars: |-
             APP_ENV=production
             CORS_ORIGINS=${{ vars.CLOUD_RUN_CORS_ORIGINS }}
-            # Main model: openai/gpt-4o-mini (provider default); another vendor answers when it fails
-            LLM_PROVIDER=openrouter
-            MODEL_NAME=openai/gpt-4o-mini
-            MODEL_FALLBACK_NAME=google/gemini-2.5-flash-lite
+            # Main model: Claude Sonnet; Gemini through OpenRouter answers when Claude fails or runs out of credit
+            LLM_PROVIDER=anthropic
+            MODEL_NAME=claude-sonnet-5-5
+            LLM_EFFORT=medium
+            LLM_FALLBACK_PROVIDER=openrouter
+            MODEL_FALLBACK_NAME=google/gemini-3.8-flash
             # Traces of AI chat turns (src/services/llm_observability.py)
             LANGFUSE_BASE_URL=https://cloud.langfuse.com
             OTP_EXPOSE_CODE=true
@@ -81,6 +83,7 @@ jobs:
           secrets: |-
             DATABASE_URL=DATABASE_URL:latest
             JWT_SECRET=JWT_SECRET:latest
+            ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
             OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest
             LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest
             LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest

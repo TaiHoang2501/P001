@@ -212,6 +212,7 @@ async def test_failed_tool_call_is_not_reported_as_booking(client, script):
         ("openai", "ChatOpenAI", "gpt-4o-mini"),
         ("google", "ChatGoogleGenerativeAI", "gemini-flash-latest"),
         ("groq", "ChatOpenAI", "openai/gpt-oss-120b"),
+        ("anthropic", "ChatAnthropic", "claude-opus-5-5"),
     ],
 )
 def test_llm_provider_selection(monkeypatch, provider, cls_name, model):
@@ -221,12 +222,32 @@ def test_llm_provider_selection(monkeypatch, provider, cls_name, model):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("MODEL_NAME", "")
     get_settings.cache_clear()
     try:
         llm = get_llm()
         assert type(llm).__name__ == cls_name
         assert model in (getattr(llm, "model_name", None) or getattr(llm, "model", ""))
+    finally:
+        get_settings.cache_clear()
+
+
+def test_fallback_on_another_provider(monkeypatch):
+    from src.services.llm import get_fallback_llm
+
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "openrouter")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("MODEL_NAME", "")
+    monkeypatch.setenv("MODEL_FALLBACK_NAME", "google/gemini-3.8-flash")
+    get_settings.cache_clear()
+    try:
+        llm = get_fallback_llm()
+        assert type(llm).__name__ == "ChatOpenAI"
+        assert llm.model_name == "google/gemini-3.8-flash"
+        assert "openrouter.ai" in str(llm.openai_api_base)
     finally:
         get_settings.cache_clear()
 

@@ -4,16 +4,40 @@ from src.config import get_settings
 
 
 def get_fallback_llm() -> BaseChatModel | None:
-    """A lighter model to answer when the main one fails (None when not configured)."""
-    name = get_settings().llm_fallback_model
-    return get_llm(name) if name else None
+    """The model that answers when the main one fails (None when not configured).
 
-
-def get_llm(model: str | None = None) -> BaseChatModel:
-    """Chat model for the agent, from LLM_PROVIDER (openai | google | openrouter | groq); `model` overrides MODEL_NAME."""
+    Same provider by default (a lighter model); LLM_FALLBACK_PROVIDER puts it on another one, e.g. Claude
+    first and OpenRouter when Anthropic is down or out of credit.
+    """
     settings = get_settings()
+    name = settings.llm_fallback_model
+    return get_llm(name, settings.llm_fallback_provider_name) if name else None
+
+
+def get_llm(model: str | None = None, provider: str | None = None) -> BaseChatModel:
+    """Chat model for the agent, from LLM_PROVIDER (openai | google | openrouter | groq | anthropic).
+
+    `model` overrides MODEL_NAME and `provider` overrides LLM_PROVIDER.
+    """
+    settings = get_settings()
+    provider = provider or settings.llm_provider
     model = model or settings.llm_model
-    if settings.llm_provider == "google":
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+
+        return ChatAnthropic(
+            model=model,
+            api_key=settings.anthropic_api_key,
+            # Current Claude models reject sampling parameters, so no temperature; thinking is always on and
+            # effort sets how deep it goes
+            temperature=None,
+            max_tokens=8000,
+            output_config={"effort": settings.llm_effort} if settings.llm_effort else None,
+            default_request_timeout=settings.llm_timeout_seconds,
+            max_retries=settings.llm_max_retries,
+        )
+
+    if provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(
@@ -26,7 +50,7 @@ def get_llm(model: str | None = None) -> BaseChatModel:
 
     from langchain_openai import ChatOpenAI
 
-    if settings.llm_provider == "openrouter":
+    if provider == "openrouter":
         # OpenRouter speaks the OpenAI API; models are named "<vendor>/<model>", e.g. "openai/gpt-4o-mini"
         return ChatOpenAI(
             model=model,
@@ -39,7 +63,7 @@ def get_llm(model: str | None = None) -> BaseChatModel:
             default_headers={"X-Title": "BookingBot"},
         )
 
-    if settings.llm_provider == "groq":
+    if provider == "groq":
         # Groq speaks the OpenAI API; models are named as Groq lists them, e.g. "openai/gpt-oss-120b"
         return ChatOpenAI(
             model=model,

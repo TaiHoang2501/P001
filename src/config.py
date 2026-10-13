@@ -4,6 +4,13 @@ from typing import Literal
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_MAIN_MODELS = {
+    "google": "gemini-flash-latest",
+    "openrouter": "openai/gpt-4o-mini",
+    "groq": "openai/gpt-oss-120b",
+    "anthropic": "claude-opus-5-5",
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -21,20 +28,26 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     timezone: str = "Asia/Ho_Chi_Minh"
 
-    # LLM (spec §9.1: Gemini or OpenAI; also any model through OpenRouter or Groq, both OpenAI-compatible)
-    llm_provider: Literal["openai", "google", "openrouter", "groq"] = "openai"
+    # LLM (spec §9.1: Gemini or OpenAI; also Claude, and any model through OpenRouter or Groq, both OpenAI-compatible)
+    llm_provider: Literal["openai", "google", "openrouter", "groq", "anthropic"] = "openai"
+    # Provider of the fallback model; empty = the same as llm_provider (e.g. Claude first, OpenRouter when it fails)
+    llm_fallback_provider: Literal["", "openai", "google", "openrouter", "groq", "anthropic"] = ""
     openai_api_key: str = ""
+    anthropic_api_key: str = ""
     google_api_key: str = ""
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
     # Empty = the provider's default (gpt-4o-mini / gemini-flash-latest / openai/gpt-4o-mini on OpenRouter /
-    # openai/gpt-oss-120b on Groq)
+    # openai/gpt-oss-120b on Groq / claude-opus-5-5 on Anthropic)
     model_name: str = ""
     # Used when the main model fails (e.g. Gemini "high demand" 503). Empty = provider default, "none" = off
     model_fallback_name: str = ""
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    # Claude's thinking depth (low | medium | high | xhigh | max); empty = the model's default. Claude ignores
+    # llm_temperature (current Claude models reject sampling parameters)
+    llm_effort: Literal["", "low", "medium", "high", "xhigh", "max"] = ""
     # Keep a chat turn from hanging for minutes when the provider is overloaded
     llm_timeout_seconds: float = Field(default=45, gt=0)
     llm_max_retries: int = Field(default=2, ge=0)
@@ -43,24 +56,41 @@ class Settings(BaseSettings):
     def otp_code_visible(self) -> bool:
         return self.app_env != "production" if self.otp_expose_code is None else self.otp_expose_code
 
-    @property
-    def llm_api_key(self) -> str:
+    def api_key_for(self, provider: str) -> str:
         return {
             "google": self.google_api_key,
             "openrouter": self.openrouter_api_key,
             "groq": self.groq_api_key,
-        }.get(self.llm_provider, self.openai_api_key)
+            "anthropic": self.anthropic_api_key,
+        }.get(provider, self.openai_api_key)
+
+    @property
+    def llm_api_key(self) -> str:
+        return self.api_key_for(self.llm_provider)
 
     @property
     def llm_model(self) -> str:
-        defaults = {"google": "gemini-flash-latest", "openrouter": "openai/gpt-4o-mini", "groq": "openai/gpt-oss-120b"}
-        return self.model_name or defaults.get(self.llm_provider, "gpt-4o-mini")
+        return self.model_name or _MAIN_MODELS.get(self.llm_provider, "gpt-4o-mini")
+
+    @property
+    def llm_fallback_provider_name(self) -> str:
+        return self.llm_fallback_provider or self.llm_provider
 
     @property
     def llm_fallback_model(self) -> str | None:
-        defaults = {"google": "gemini-flash-lite-latest", "groq": "openai/gpt-oss-20b"}
-        name = self.model_fallback_name or defaults.get(self.llm_provider, "")
-        return None if name in ("", "none") or name == self.llm_model else name
+        provider = self.llm_fallback_provider_name
+        if provider == self.llm_provider:
+            name = self.model_fallback_name or {"google": "gemini-flash-lite-latest", "groq": "openai/gpt-oss-20b"}.get(
+                provider, ""
+            )
+            if name == self.llm_model:
+                return None
+        else:
+            # Another provider: its own main model unless named
+            name = self.model_fallback_name or _MAIN_MODELS.get(provider, "gpt-4o-mini")
+        if name in ("", "none") or not self.api_key_for(provider):
+            return None
+        return name
 
     # Database (PostgreSQL 15+ required: btree_gist exclusion constraints, pg_trgm)
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/bookingbot"
