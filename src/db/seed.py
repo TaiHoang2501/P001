@@ -360,16 +360,20 @@ DEMO_PHOTOS = {
     "living": [f"/demo/homes/living-{i}.jpg" for i in range(1, 25)],
     "bedroom": [f"/demo/homes/bedroom-{i}.jpg" for i in range(1, 17)],
     "kitchen": [f"/demo/homes/kitchen-{i}.jpg" for i in range(1, 13)],
+    "bathroom": [f"/demo/homes/bathroom-{i}.jpg" for i in range(1, 13)],
+    "view": [f"/demo/homes/view-{i}.jpg" for i in range(1, 13)],
 }
 
 
 def ensure_photos(db: Session) -> int:
-    """Give every demo-seeded listing four photos (living room cover, bedroom, kitchen, another living room).
+    """Give every demo-seeded listing six photos (living room cover, bedroom, kitchen, bathroom, balcony / view,
+    another living room).
 
     The seed only stores a placeholder cover key that no file backs; that placeholder (or an older pick of demo
     photos) is replaced. Listings with a seller's own photos are never touched. Returns how many listings changed.
     """
     living, bedroom, kitchen = DEMO_PHOTOS["living"], DEMO_PHOTOS["bedroom"], DEMO_PHOTOS["kitchen"]
+    bathroom, view = DEMO_PHOTOS["bathroom"], DEMO_PHOTOS["view"]
     done = 0
     for prop in db.scalars(select(Property).order_by(Property.id)):
         images = [m for m in prop.media if m.kind == MediaKind.IMAGE]
@@ -384,6 +388,8 @@ def ensure_photos(db: Session) -> int:
             living[cover],
             bedroom[(i * 5) % len(bedroom)],
             kitchen[(i * 5) % len(kitchen)],
+            bathroom[(i * 7) % len(bathroom)],
+            view[(i * 5 + 3) % len(view)],
             living[(cover + len(living) // 2) % len(living)],
         ]
         if [m.s3_key for m in sorted(images, key=lambda m: m.sort_order)] == photos:

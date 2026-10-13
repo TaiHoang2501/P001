@@ -19,11 +19,11 @@ def _images(db, prop_id: int) -> list[str]:
     )
 
 
-def test_demo_listings_get_four_photos_once(db):
+def test_demo_listings_get_six_photos_once(db):
     first = db.scalar(select(Property.id).order_by(Property.id))
     assert ensure_photos(db) > 0
     photos = _images(db, first)
-    assert len(photos) == 4 and all(p.startswith("/demo/homes/") for p in photos)
+    assert len(photos) == 6 and all(p.startswith("/demo/homes/") for p in photos)
     assert ensure_photos(db) == 0  # running again changes nothing
     assert _images(db, first) == photos
 
