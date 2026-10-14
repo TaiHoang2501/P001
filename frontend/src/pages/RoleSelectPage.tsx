@@ -1,10 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
 import { RedBookHomeArt } from "../components/AuthShell";
 import { BRAND_GRADIENT_TEXT, BrandLogo } from "../components/Brand";
 import { AiBot } from "../buyer/AiBot";
-import { ArrowRightIcon, CheckIcon, SparkleIcon } from "../buyer/icons";
+import { ArrowRightIcon, CheckIcon, ChevronDownIcon, SparkleIcon } from "../buyer/icons";
 import { DemoAccountsTable, OperatorGuide } from "./DemoAccounts";
 
 /**
@@ -20,6 +20,32 @@ export function RoleSelectPage() {
 
   const typed = useTypewriter([HEADLINE, SUBTITLE]);
   const done = typed === null;
+
+  // The demo accounts and operator guide sit below the fold: a floating pill points to them until they are seen
+  const guideRef = useRef<HTMLDivElement>(null);
+  const [guideSeen, setGuideSeen] = useState(false);
+  useEffect(() => {
+    const el = guideRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setGuideSeen(true);
+        io.disconnect();
+      }
+    }, { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  const goToGuide = () => {
+    const el = guideRef.current;
+    if (!el) return;
+    const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    el.classList.remove("jump-flash");
+    void el.offsetWidth; // restart the flash if it already ran
+    el.classList.add("jump-flash");
+  };
 
   return (
     <div className="theme-organic relative min-h-dvh overflow-hidden bg-slate-50 px-4 pb-10 text-ink">
@@ -88,13 +114,29 @@ export function RoleSelectPage() {
 
         {/* For testers: demo sign-ins and the way into the operator console */}
         <div
-          className={`mt-12 grid items-start gap-5 lg:grid-cols-[3fr_2fr] ${done ? "animate-rise-in" : "invisible"}`}
+          ref={guideRef}
+          id="demo-guide"
+          className={`mt-12 grid scroll-mt-6 items-start gap-5 rounded-[2rem] lg:grid-cols-[3fr_2fr] ${done ? "animate-rise-in" : "invisible"}`}
           aria-hidden={!done}
         >
           <DemoAccountsTable />
           <OperatorGuide />
         </div>
       </main>
+
+      {done && !guideSeen && (
+        <button
+          type="button"
+          onClick={goToGuide}
+          className="fixed inset-x-0 bottom-5 z-20 mx-auto flex w-max max-w-[calc(100%-2rem)] animate-rise-in items-center gap-2.5 rounded-full bg-slate-900 py-2.5 pl-3 pr-5 text-sm font-semibold text-white shadow-xl shadow-slate-900/25 ring-4 ring-white/70 transition hover:bg-slate-800 sm:bottom-8 sm:text-base"
+        >
+          <span className="relative grid size-8 shrink-0 place-items-center rounded-full bg-brand-600">
+            <span aria-hidden="true" className="absolute inset-0 rounded-full bg-brand-500 motion-safe:animate-ping" />
+            <ChevronDownIcon className="relative size-5 motion-safe:animate-bounce" />
+          </span>
+          Lần đầu ghé thăm? Xem tài khoản demo &amp; hướng dẫn
+        </button>
+      )}
     </div>
   );
 }
