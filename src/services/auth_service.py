@@ -60,21 +60,30 @@ def request_otp(db: Session, data: OtpRequest) -> OtpRequestResponse:
         raise PhoneInUseError("This phone is already registered; sign up with another number or sign in")
     # ...and a seller's or operator's phone cannot sign in as a buyer (and back)
     _require_same_role(user, data.role)
+    account_exists = data.role is not None and user is not None
+    if otp_service.uses_firebase():
+        # The checks above passed: the browser now has Firebase send the SMS (to phones only)
+        if not is_phone(data.target):
+            raise InvalidCredentialsError("Sign in with a phone number")
+        return OtpRequestResponse(
+            expires_in=get_settings().otp_ttl_seconds,
+            provider="firebase",
+            firebase=otp_service.firebase_config(),
+            account_exists=account_exists,
+        )
     code, ttl = otp_service.request_code(db, data.target)
     debug_code = code if get_settings().otp_code_visible else None
-    return OtpRequestResponse(
-        expires_in=ttl, debug_code=debug_code, account_exists=data.role is not None and user is not None
-    )
+    return OtpRequestResponse(expires_in=ttl, debug_code=debug_code, account_exists=account_exists)
 
 
 def verify_otp(db: Session, data: OtpVerifyRequest) -> TokenResponse:
     """Log in with a valid OTP; the first time a phone is used, sign up with `full_name` + `role`."""
-    otp = otp_service.check_code(db, data.target, data.code)
+    otp = otp_service.check_proof(db, data.target, code=data.code, firebase_id_token=data.firebase_id_token)
     user = db.scalar(select(User).where(or_(User.phone == data.target, User.email == data.target)))
     _require_same_role(user, data.role)
 
     if user is None:
-        # The code stays valid so the client can resend it together with the sign-up details
+        # The code (or Firebase token) stays valid so the client can resend it together with the sign-up details
         if data.full_name is None:
             raise AccountNotFoundError("No account for this phone yet; send full_name and role to sign up")
         if not is_phone(data.target):

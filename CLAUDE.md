@@ -17,7 +17,7 @@
 - **Database:** PostgreSQL 15+ (relational, Full-text Search + `pg_trgm`, ACID, row-level locks, GiST exclusion constraints).
 - **Media Storage:** Amazon S3 (ảnh/video căn, giấy tờ xác thực Owner) là đích dài hạn; hiện ảnh người bán tải lên được lưu trong PostgreSQL (`media_files`, phục vụ qua `/api/v1/media/{id}`; giấy tờ hỗ trợ xác thực là riêng tư — chỉ người gửi và Operator xem được).
 - **Model Layer:** OpenAI API (`gpt-4o-mini` mặc định trong code, `gpt-4o` khi cần); spec cho phép Gemini/OpenAI. Bản demo trên Render dùng Gemini (`LLM_PROVIDER=google`, `gemini-flash-latest`, dự phòng `gemini-flash-lite-latest`). Cũng hỗ trợ Claude (`LLM_PROVIDER=anthropic`, mặc định `claude-opus-5-5`); model dự phòng có thể ở provider khác qua `LLM_FALLBACK_PROVIDER` (vd. Claude trước, OpenRouter `google/gemini-3.8-flash` khi Claude lỗi / hết credit).
-- **Auth:** JWT + OTP.
+- **Auth:** JWT + OTP. `OTP_PROVIDER=local` (mặc định; mã tự sinh, không gửi SMS, hiện trên màn hình ngoài production) hoặc `firebase` (Firebase Phone Auth sinh/gửi SMS/kiểm mã trên trình duyệt; backend xác minh Firebase ID token trong `src/services/firebase_auth.py`, cho cả đăng nhập và OTP sổ đỏ).
 - **Realtime Chat:** WebSocket qua FastAPI (Buyer ↔ Seller, post-MVP — xem §6.3).
 - **Notification:** SMS/Zalo/In-app (provider TBD).
 - **Vector DB / RAG:** **Không dùng trong MVP** — recommendation = SQL hard filter + soft scoring.

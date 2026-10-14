@@ -4,6 +4,8 @@ import { Link } from "react-router";
 
 import { api, ApiError, call } from "../../api/client";
 import type { OwnershipChallenge, OwnershipVerification } from "../../api/types";
+import { useAuth } from "../../auth/AuthContext";
+import { sendFirebaseCode, type PhoneChallenge } from "../../auth/firebasePhone";
 import { ErrorBox, Notice } from "../../components/ui";
 import { SupportForm, SupportList, type SupportPrefill } from "./OwnershipSupport";
 import { RedBookList } from "./RedBooks";
@@ -33,15 +35,25 @@ export function OwnershipVerifyPage() {
 
 function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => void }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [holder, setHolder] = useState("");
   const [code, setCode] = useState("");
   const [otp, setOtp] = useState("");
   const [challenge, setChallenge] = useState<OwnershipChallenge | null>(null);
   const [done, setDone] = useState<OwnershipVerification | null>(null);
+  // Firebase Phone Auth: the SMS Firebase sent to the phone on record (the seller's own sign-in phone)
+  const [sms, setSms] = useState<PhoneChallenge | null>(null);
 
   const claim = useMutation({
-    mutationFn: () =>
-      call(api.POST("/api/v1/owner/ownership/claim", { body: { red_book_holder_name: holder.trim(), red_book_code: code.trim() } })),
+    mutationFn: async () => {
+      const res = await call(
+        api.POST("/api/v1/owner/ownership/claim", { body: { red_book_holder_name: holder.trim(), red_book_code: code.trim() } }),
+      );
+      // The backend checked the red book; only the owner signed in with the phone on it gets here, so the SMS goes there
+      if (res.status === "OTP_SENT" && res.provider === "firebase" && res.firebase && user)
+        setSms(await sendFirebaseCode(res.firebase, user.phone));
+      return res;
+    },
     onSuccess: (res) => {
       setOtp("");
       if (res.status === "VERIFIED") {
@@ -53,11 +65,11 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
   });
 
   const confirm = useMutation({
-    mutationFn: () =>
+    mutationFn: async () =>
       call(
         api.POST("/api/v1/owner/ownership/{verification_id}/confirm", {
           params: { path: { verification_id: challenge!.verification_id } },
-          body: { code: otp },
+          body: challenge!.provider === "firebase" ? { firebase_id_token: await sms!.confirm(otp) } : { code: otp },
         }),
       ),
     onSuccess: (res) => {
@@ -120,7 +132,7 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
         </p>
         {challenge.debug_code && (
           <Notice>
-            <strong>Chế độ thử nghiệm</strong> (chưa nối SMS/Zalo): mã là <strong className="font-mono">{challenge.debug_code}</strong>.
+            <strong>Chế độ thử nghiệm</strong> (không gửi SMS): mã là <strong className="font-mono">{challenge.debug_code}</strong>.
             Bản chính thức chỉ gửi mã tới điện thoại của chủ sở hữu, không hiện ở đây.
           </Notice>
         )}

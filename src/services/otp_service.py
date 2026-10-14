@@ -1,5 +1,9 @@
 """One-time login codes (spec §4.17: Buyer phone + OTP, Seller phone/email + OTP).
 
+Two providers (OTP_PROVIDER): "firebase" = Firebase Phone Auth generates, sends by SMS and checks the code in the
+browser, and we verify the resulting ID token (`firebase_auth`); "local" = the codes below, which only reach the
+server log (and the API response outside production), for development, tests and the demo.
+
 Only a keyed hash of each code is stored. A code expires after `otp_ttl_seconds`, is burned
 after `otp_max_attempts` wrong guesses, and each target may have at most `otp_max_requests` unused
 codes per `otp_rate_window_minutes`. Codes that signed someone in do not count: a buyer who signs out
@@ -19,6 +23,8 @@ from sqlalchemy.orm import Session
 from src.config import get_settings
 from src.core.errors import InvalidCredentialsError, RateLimitedError
 from src.db.models import OtpCode, OtpPurpose
+from src.models.auth import FirebaseWebConfig, normalize_phone
+from src.services import firebase_auth
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +40,24 @@ def _hash(target: str, code: str) -> str:
     return hmac.new(key, f"{target}:{code}".encode(), hashlib.sha256).hexdigest()
 
 
+def uses_firebase() -> bool:
+    return get_settings().otp_provider == "firebase"
+
+
+def firebase_config() -> FirebaseWebConfig | None:
+    """What the browser needs to have Firebase send and check the SMS code; None with local codes."""
+    settings = get_settings()
+    if not uses_firebase():
+        return None
+    return FirebaseWebConfig(
+        api_key=settings.firebase_web_api_key,
+        auth_domain=settings.firebase_auth_domain or f"{settings.firebase_project_id}.firebaseapp.com",
+        project_id=settings.firebase_project_id,
+    )
+
+
 def _deliver(target: str, code: str) -> None:
-    # SMS/Zalo provider is TBD (spec §10 Q18); until then the code only goes to the server log
+    # Local codes are never sent by SMS (that is Firebase's job with OTP_PROVIDER=firebase): server log only
     logger.info("OTP for %s: %s", target, code)
 
 
@@ -98,5 +120,28 @@ def check_code(db: Session, target: str, code: str, purpose: OtpPurpose = OtpPur
     return otp
 
 
-def consume(otp: OtpCode) -> None:
-    otp.consumed_at = datetime.now(UTC)
+def check_proof(
+    db: Session,
+    target: str,
+    *,
+    code: str | None,
+    firebase_id_token: str | None,
+    purpose: OtpPurpose = OtpPurpose.LOGIN,
+) -> OtpCode | None:
+    """Check that the caller controls `target` with the active provider's proof: a Firebase ID token for that
+    phone, or one of our local codes. Returns the local code row to `consume` (None for Firebase)."""
+    if uses_firebase():
+        if firebase_id_token is None:
+            raise InvalidCredentialsError("Code is invalid or expired", details={"new_code_needed": True})
+        if firebase_auth.verify_phone_token(firebase_id_token) != normalize_phone(normalize_target(target)):
+            # A valid sign-in, but for another phone
+            raise InvalidCredentialsError("Code is invalid or expired", details={"new_code_needed": True})
+        return None
+    if code is None:
+        raise InvalidCredentialsError("Code is invalid or expired", details={"new_code_needed": True})
+    return check_code(db, target, code, purpose)
+
+
+def consume(otp: OtpCode | None) -> None:
+    if otp is not None:
+        otp.consumed_at = datetime.now(UTC)

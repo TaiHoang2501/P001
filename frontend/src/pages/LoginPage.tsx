@@ -4,6 +4,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { ApiError } from "../api/client";
 import type { User } from "../api/types";
 import { homePathFor, useAuth } from "../auth/AuthContext";
+import { sendFirebaseCode, type PhoneChallenge } from "../auth/firebasePhone";
 import { AuthShell, RedBookHomeArt } from "../components/AuthShell";
 import { ErrorBox, Notice } from "../components/ui";
 
@@ -161,6 +162,8 @@ function PasswordForm({
 /** Buyer: phone + OTP; Seller: phone/email + OTP (spec §4.17). First use of a phone signs up with the audience's role. */
 export type OtpIntent = "login" | "signup";
 
+type Sent = { provider?: "local" | "firebase"; debug_code?: string | null; expires_in?: number };
+
 /**
  * login: a code goes to any phone; a phone with no account yet is then signed up (name asked after the code).
  * signup: creating a new account; a phone already on the system is refused before any code is sent.
@@ -191,7 +194,7 @@ function OtpForm({
   }, [resendAt, expireAt, clock]);
   const expiresIn = Math.max(0, Math.ceil((expireAt - clock) / 1000));
   // A code was just sent: start both countdowns
-  const gotCode = (res: { debug_code?: string | null; expires_in?: number }) => {
+  const gotCode = (res: Sent) => {
     setSent(res);
     setExpireAt(Date.now() + (res.expires_in ?? 300) * 1000);
     setResendAt(Date.now() + 60_000);
@@ -199,7 +202,12 @@ function OtpForm({
   };
   const resendIn = Math.max(0, Math.ceil((resendAt - clock) / 1000));
   const [code, setCode] = useState("");
-  const [sent, setSent] = useState<{ debug_code?: string | null; expires_in?: number } | null>(null);
+  const [sent, setSent] = useState<Sent | null>(null);
+  // Firebase Phone Auth: the SMS Firebase sent, and the ID token once its code was checked (kept for the sign-up
+  // details step, since a Firebase code works only once)
+  const [challenge, setChallenge] = useState<PhoneChallenge | null>(null);
+  const [idToken, setIdToken] = useState<string | null>(null);
+  const firebase = sent?.provider === "firebase";
   const [needsSignup, setNeedsSignup] = useState(intent === "signup");
   const [fullName, setFullName] = useState("");
   const role = audience === "buyer" ? "CUSTOMER" : "OWNER";
@@ -214,7 +222,11 @@ function OtpForm({
     } catch (err) {
       if (err instanceof ApiError && err.code === "ACCOUNT_NOT_FOUND")
         setNeedsSignup(true);
-      else setError(err);
+      else {
+        // The backend refused the Firebase token: the next try needs a new code
+        if (err instanceof ApiError) setIdToken(null);
+        setError(err);
+      }
     } finally {
       setBusy(false);
     }
@@ -227,20 +239,31 @@ function OtpForm({
       return;
     }
     setPhoneError(null);
-    void run(async () => {
-      // The role is always sent, so a seller's number on the buyer page (and back) is turned away with a pointer
-      gotCode(await requestOtp(phone, intent === "signup" ? { role, purpose: "signup" } : { role }));
-      setCode("");
-    });
+    void run(sendCode);
   };
+
+  async function sendCode() {
+    // The role is always sent, so a seller's number on the buyer page (and back) is turned away with a pointer
+    const res = await requestOtp(phone, intent === "signup" ? { role, purpose: "signup" } : { role });
+    // Firebase Phone Auth: the checks passed, now Firebase sends the SMS
+    if (res.provider === "firebase" && res.firebase) setChallenge(await sendFirebaseCode(res.firebase, phone));
+    setIdToken(null);
+    gotCode(res);
+    setCode("");
+  }
 
   const verify = (e: FormEvent) => {
     e.preventDefault();
     void run(async () => {
+      let token: string | null = null;
+      if (firebase) {
+        token = idToken ?? (await challenge!.confirm(code.trim()));
+        setIdToken(token);
+      }
       onDone(
         await verifyOtp({
           target: phone,
-          code: code.trim(),
+          ...(token ? { firebase_id_token: token } : { code: code.trim() }),
           // The role only matters when an account is created; signing in works for the account the phone has
           role: needsSignup ? role : null,
           full_name: needsSignup ? fullName.trim() : null,
@@ -309,13 +332,16 @@ function OtpForm({
     <form onSubmit={verify} className="space-y-4">
       <Steps step={2} />
       {error !== null && <ErrorBox error={error} />}
-      <p className={`text-sm ${expiresIn === 0 ? "font-medium text-red-700" : "text-muted"}`}>
-        {expiresIn > 0
-          ? `Mã hết hạn sau ${Math.floor(expiresIn / 60)}:${String(expiresIn % 60).padStart(2, "0")}.`
-          : "Mã đã hết hạn. Bấm “Gửi lại mã” để nhận mã mới."}
-      </p>
+      {/* A Firebase SMS code keeps its own expiry; Firebase says when it has run out */}
+      {!firebase && (
+        <p className={`text-sm ${expiresIn === 0 ? "font-medium text-red-700" : "text-muted"}`}>
+          {expiresIn > 0
+            ? `Mã hết hạn sau ${Math.floor(expiresIn / 60)}:${String(expiresIn % 60).padStart(2, "0")}.`
+            : "Mã đã hết hạn. Bấm “Gửi lại mã” để nhận mã mới."}
+        </p>
+      )}
       <p className="text-sm text-muted">
-        Đã gửi mã tới <strong className="text-ink">{target}</strong>.{" "}
+        Đã gửi mã {firebase ? "qua tin nhắn SMS " : ""}tới <strong className="text-ink">{target}</strong>.{" "}
         <button
           type="button"
           className="font-semibold text-brand-700 hover:underline"
@@ -331,7 +357,7 @@ function OtpForm({
         <div className="flex items-center gap-3 rounded-2xl border border-dashed border-brand-200 bg-brand-50 px-4 py-3">
           <div className="min-w-0 flex-1 text-sm">
             <p className="text-muted">
-              Chế độ thử nghiệm (chưa nối SMS/Zalo) · mã của bạn
+              Chế độ thử nghiệm (không gửi SMS) · mã của bạn
             </p>
             <strong className="font-mono text-xl tracking-[0.3em]">
               {sent.debug_code}
@@ -414,12 +440,7 @@ function OtpForm({
             type="button"
             className="font-semibold text-brand-700 hover:underline disabled:opacity-50"
             disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                gotCode(await requestOtp(phone, intent === "signup" ? { role, purpose: "signup" } : { role }));
-                setCode("");
-              })
-            }
+            onClick={() => void run(sendCode)}
           >
             Gửi lại mã
           </button>

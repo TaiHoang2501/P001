@@ -116,6 +116,13 @@ class StorageUnavailableError(AppError):
     code = "STORAGE_UNAVAILABLE"
 
 
+class OtpUnavailableError(AppError):
+    """The sign-in code provider (Firebase) cannot be reached or is not configured."""
+
+    status_code = 503
+    code = "OTP_UNAVAILABLE"
+
+
 class RateLimitedError(AppError):
     status_code = 429
     code = "RATE_LIMITED"

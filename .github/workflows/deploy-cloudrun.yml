@@ -75,7 +75,11 @@ jobs:
             MODEL_FALLBACK_NAME=google/gemini-3.8-flash
             # Traces of AI chat turns (src/services/llm_observability.py)
             LANGFUSE_BASE_URL=https://cloud.langfuse.com
-            OTP_EXPOSE_CODE=true
+            # Sign-in codes by real SMS: Firebase Phone Auth (Firebase added to this GCP project). The web API key is
+            # public (it ships to the browser); demo phones are Firebase "Phone numbers for testing" with fixed codes
+            OTP_PROVIDER=firebase
+            FIREBASE_PROJECT_ID=booking-bot-510910
+            FIREBASE_WEB_API_KEY=AIzaSyDYR4D56eErKNaps9QgaioGynRAuL_0Sl4
             # Uploaded photos are served by this API; the web app on Vercel needs its full address
             PUBLIC_API_URL=https://bookingbot-api-wlvipunyga-as.a.run.app
             SEED_DEMO_DATA=true

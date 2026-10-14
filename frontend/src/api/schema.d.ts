@@ -1812,6 +1812,18 @@ export interface components {
          */
         EscalationType: "SELLER_NO_RESPONSE" | "NO_COMMON_SLOT" | "SCHEDULE_CONFLICT" | "PROPERTY_ISSUE" | "MULTI_BUYER" | "SYSTEM_FAILURE" | "OTHER" | "OWNERSHIP_SUPPORT" | "VIEWING_DISPUTE";
         /**
+         * FirebaseWebConfig
+         * @description Public Firebase web app config: the browser sends and checks the SMS code with Firebase Phone Auth.
+         */
+        FirebaseWebConfig: {
+            /** Api Key */
+            api_key: string;
+            /** Auth Domain */
+            auth_domain: string;
+            /** Project Id */
+            project_id: string;
+        };
+        /**
          * Furnishing
          * @enum {string}
          */
@@ -1951,6 +1963,13 @@ export interface components {
              * @description Seconds until the code expires
              */
             expires_in: number;
+            /**
+             * Provider
+             * @default local
+             * @enum {string}
+             */
+            provider: "local" | "firebase";
+            firebase?: components["schemas"]["FirebaseWebConfig"] | null;
             /** Debug Code */
             debug_code?: string | null;
             /**
@@ -1964,7 +1983,9 @@ export interface components {
             /** Target */
             target: string;
             /** Code */
-            code: string;
+            code?: string | null;
+            /** Firebase Id Token */
+            firebase_id_token?: string | null;
             /** Full Name */
             full_name?: string | null;
             /** Role */
@@ -2040,6 +2061,13 @@ export interface components {
             masked_phone: string;
             /** Expires In */
             expires_in?: number | null;
+            /**
+             * Provider
+             * @default local
+             * @enum {string}
+             */
+            provider: "local" | "firebase";
+            firebase?: components["schemas"]["FirebaseWebConfig"] | null;
             /** Debug Code */
             debug_code?: string | null;
         };
@@ -2062,7 +2090,9 @@ export interface components {
         /** OwnershipOtpConfirm */
         OwnershipOtpConfirm: {
             /** Code */
-            code: string;
+            code?: string | null;
+            /** Firebase Id Token */
+            firebase_id_token?: string | null;
         };
         /** OwnershipSupportCreate */
         OwnershipSupportCreate: {

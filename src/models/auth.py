@@ -1,7 +1,7 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.db.models import UserRole, UserStatus
 
@@ -51,9 +51,24 @@ class OtpRequest(BaseModel):
     _check_target = field_validator("target")(_phone_or_email)
 
 
+OtpProvider = Literal["local", "firebase"]
+
+
+class FirebaseWebConfig(BaseModel):
+    """Public Firebase web app config: the browser sends and checks the SMS code with Firebase Phone Auth."""
+
+    api_key: str
+    auth_domain: str
+    project_id: str
+
+
 class OtpRequestResponse(BaseModel):
     expires_in: int = Field(..., description="Seconds until the code expires")
-    # Only filled outside production, until an SMS/Zalo provider exists
+    # "local": we made a code (check it with `code`); "firebase": nothing was sent yet, the browser now has
+    # Firebase send the SMS (with `firebase`) and verifies with `firebase_id_token`
+    provider: OtpProvider = "local"
+    firebase: FirebaseWebConfig | None = None
+    # Local codes only, outside production (no SMS is sent for them)
     debug_code: str | None = None
     # With `role` on a login: the phone already has an account of that kind (no sign-up details needed)
     account_exists: bool = False
@@ -61,13 +76,21 @@ class OtpRequestResponse(BaseModel):
 
 class OtpVerifyRequest(BaseModel):
     target: str
-    code: str = Field(..., pattern=r"^\d{6}$")
+    # Exactly one: the code we sent (OTP_PROVIDER=local) or the ID token of a Firebase phone sign-in (firebase)
+    code: str | None = Field(default=None, pattern=r"^\d{6}$")
+    firebase_id_token: str | None = Field(default=None, min_length=20, max_length=4096)
     # Sign-up details, required only the first time this phone is used
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     # The account kind being signed into (and created on first use; buyer when omitted)
     role: SelfServiceRole | None = None
 
     _check_target = field_validator("target")(_phone_or_email)
+
+    @model_validator(mode="after")
+    def _one_proof(self) -> "OtpVerifyRequest":
+        if (self.code is None) == (self.firebase_id_token is None):
+            raise ValueError("send either code or firebase_id_token")
+        return self
 
 
 class UserOut(BaseModel):

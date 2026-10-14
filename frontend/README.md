@@ -15,8 +15,10 @@ API_PROXY=http://localhost:8001 npm run dev   # backend on another port (bash)
 $env:API_PROXY="http://localhost:8001"; npm run dev   # PowerShell
 ```
 
-Buyers and sellers can sign in with **Mã OTP**: outside production the API returns the code
-(no SMS/Zalo provider yet) and the login page shows it.
+Buyers and sellers can sign in with **Mã OTP**. With the backend's `OTP_PROVIDER=local` (default) no SMS is sent:
+outside production the API returns the code and the login page shows it. With `OTP_PROVIDER=firebase` the API
+answers `provider: "firebase"` plus the Firebase web config, and the page has Firebase Phone Auth send the SMS and
+check the code (`src/auth/firebasePhone.ts`, loaded only then); no frontend env vars are needed.
 
 Demo accounts (from `src/db/seed.py`, password `Password123!`):
 

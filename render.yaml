@@ -29,7 +29,8 @@ services:
         value: gemini-flash-lite-latest
       - key: MODEL_FALLBACK_NAME
         value: gemini-flash-latest
-      # Public demo with fake data: show OTP codes on screen (no SMS/Zalo provider yet)
+      # Public demo with fake data: show local OTP codes on screen (OTP_PROVIDER=local sends no SMS; set
+      # OTP_PROVIDER=firebase + FIREBASE_PROJECT_ID + FIREBASE_WEB_API_KEY for real SMS via Firebase Phone Auth)
       - key: OTP_EXPOSE_CODE
         value: "true"
       - key: SEED_DEMO_DATA

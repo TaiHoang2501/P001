@@ -144,7 +144,11 @@ def claim(db: Session, actor: Actor, data: OwnershipClaim) -> OwnershipChallenge
                 details={"reason": "UNIT_CLAIMED", "unit_code": record.unit_code},
             )
 
-    code, ttl = otp_service.request_code(db, record.owner_phone, OtpPurpose.OWNERSHIP)
+    if otp_service.uses_firebase():
+        # The browser has Firebase send the SMS to the phone on record (the seller's own, checked above)
+        code, ttl = None, get_settings().otp_ttl_seconds
+    else:
+        code, ttl = otp_service.request_code(db, record.owner_phone, OtpPurpose.OWNERSHIP)
     record.status = OwnershipVerificationStatus.OTP_SENT
     audit.record(db, actor, "ownership.otp_sent", "ownership_verification", record.id, after={"status": record.status})
     db.commit()
@@ -153,7 +157,9 @@ def claim(db: Session, actor: Actor, data: OwnershipClaim) -> OwnershipChallenge
         status=record.status,
         masked_phone=mask_phone(record.owner_phone),
         expires_in=ttl,
-        debug_code=code if get_settings().otp_code_visible else None,
+        provider="firebase" if otp_service.uses_firebase() else "local",
+        firebase=otp_service.firebase_config(),
+        debug_code=code if code is not None and get_settings().otp_code_visible else None,
     )
 
 
@@ -164,9 +170,15 @@ def confirm(db: Session, actor: Actor, verification_id: int, data: OwnershipOtpC
         raise StateConflictError(f"No code is pending for this red book (status {record.status.value})")
 
     try:
-        otp = otp_service.check_code(db, record.owner_phone, data.code, OtpPurpose.OWNERSHIP)
+        otp = otp_service.check_proof(
+            db,
+            record.owner_phone,
+            code=data.code,
+            firebase_id_token=data.firebase_id_token,
+            purpose=OtpPurpose.OWNERSHIP,
+        )
     except InvalidCredentialsError as e:
-        # check_code already committed its own attempt counter; count the miss on the red book too
+        # A local code's own attempt counter is already committed; count the miss on the red book too
         record = _load(db, verification_id)
         record.otp_attempts += 1
         max_attempts = get_settings().otp_max_attempts

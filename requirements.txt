@@ -30,7 +30,8 @@ alembic>=1.14.0
 psycopg[binary]>=3.2.0
 
 # Auth
-pyjwt>=2.10.0
+# [crypto]: RS256, to verify Firebase Phone Auth ID tokens
+pyjwt[crypto]>=2.10.0
 argon2-cffi>=23.1.0
 
 # Dev tools

@@ -2,9 +2,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.db.models import Direction, OwnershipVerificationStatus, PropertyType, SellerVerificationStatus
+from src.models.auth import FirebaseWebConfig, OtpProvider
 
 
 class RedBookUnit(BaseModel):
@@ -38,12 +39,24 @@ class OwnershipChallengeOut(BaseModel):
     # e.g. "090****777": the seller recognises the phone without the API revealing it
     masked_phone: str
     expires_in: int | None = None
-    # Only filled outside production, until an SMS/Zalo provider exists
+    # "firebase": no code was sent yet; the browser has Firebase send the SMS to the seller's own phone (the same
+    # as the one on record) and confirms with `firebase_id_token`
+    provider: OtpProvider = "local"
+    firebase: FirebaseWebConfig | None = None
+    # Local codes only, outside production (no SMS is sent for them)
     debug_code: str | None = None
 
 
 class OwnershipOtpConfirm(BaseModel):
-    code: str = Field(..., pattern=r"^\d{6}$")
+    # Exactly one: our local code, or the ID token of a Firebase phone sign-in to the phone on record
+    code: str | None = Field(default=None, pattern=r"^\d{6}$")
+    firebase_id_token: str | None = Field(default=None, min_length=20, max_length=4096)
+
+    @model_validator(mode="after")
+    def _one_proof(self) -> "OwnershipOtpConfirm":
+        if (self.code is None) == (self.firebase_id_token is None):
+            raise ValueError("send either code or firebase_id_token")
+        return self
 
 
 class OwnershipVerificationOut(BaseModel):

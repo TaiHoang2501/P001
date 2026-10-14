@@ -54,6 +54,9 @@ class Settings(BaseSettings):
 
     @property
     def otp_code_visible(self) -> bool:
+        if self.otp_provider == "firebase":
+            # The code is Firebase's and goes by SMS only; we never see it
+            return False
         return self.app_env != "production" if self.otp_expose_code is None else self.otp_expose_code
 
     def api_key_for(self, provider: str) -> str:
@@ -159,12 +162,19 @@ class Settings(BaseSettings):
             )
         )
 
-    # OTP login (spec §4.17); SMS/Zalo provider is TBD, so codes are only logged for now
+    # OTP login (spec §4.17). "local": we generate and check codes (sent to the server log only, no SMS);
+    # "firebase": Firebase Phone Auth generates, sends by SMS and checks the code, we verify its ID token
+    otp_provider: Literal["local", "firebase"] = "local"
+    # Firebase web app config (public values, sent to the browser); FIREBASE_PROJECT_ID is required for "firebase"
+    firebase_project_id: str = ""
+    firebase_web_api_key: str = ""
+    # Empty = "<project id>.firebaseapp.com"
+    firebase_auth_domain: str = ""
     otp_ttl_seconds: int = Field(default=300, ge=30)
     otp_max_attempts: int = Field(default=5, ge=1)
     otp_max_requests: int = Field(default=5, ge=1, description="Codes per target per rate-limit window")
     otp_rate_window_minutes: int = Field(default=15, ge=1)
-    # Return the code in the API response (no SMS/Zalo provider yet). Default: everywhere except production;
+    # Return a local code in the API response (no SMS with OTP_PROVIDER=local). Default: everywhere except production;
     # a public demo with fake data can turn it on explicitly.
     otp_expose_code: bool | None = None
     # Wrong holder name / red book code attempts one seller account may make per hour (stops guessing codes)
@@ -197,6 +207,8 @@ class Settings(BaseSettings):
     def _require_real_secret_in_production(self) -> "Settings":
         if self.app_env == "production" and (self.jwt_secret == "change-me-in-env" or len(self.jwt_secret) < 32):
             raise ValueError("JWT_SECRET must be set to a random string of at least 32 characters in production")
+        if self.otp_provider == "firebase" and not (self.firebase_project_id and self.firebase_web_api_key):
+            raise ValueError("OTP_PROVIDER=firebase needs FIREBASE_PROJECT_ID and FIREBASE_WEB_API_KEY")
         return self
 
     @field_validator("database_url", "test_database_url")

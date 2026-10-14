@@ -3,6 +3,9 @@ import { Link } from "react-router";
 
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "../buyer/icons";
 
+/** The fixed sign-in code of the demo phones (Firebase test numbers; no SMS is sent to them). */
+const DEMO_OTP = "123456";
+
 /** Accounts loaded by src/db/seed.py. Buyers and sellers have no password: they sign in with phone + OTP. */
 type DemoAccount = {
   role: "Người mua" | "Người bán" | "Chủ đầu tư";
@@ -88,10 +91,8 @@ export function DemoAccountsTable() {
                           {a.password ? (
                             <Credential label="Mật khẩu" value={a.password} />
                           ) : (
-                            <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-line">
-                              <dt className="text-xs text-muted">Mật khẩu</dt>
-                              <dd className="text-sm">Không cần — nhập mã OTP hiện trên màn hình đăng nhập</dd>
-                            </div>
+                            // Demo phones are Firebase "Phone numbers for testing": no SMS, always this code
+                            <Credential label="Mã OTP (không cần mật khẩu)" value={DEMO_OTP} />
                           )}
                         </dl>
                         <Link to={a.where} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline">

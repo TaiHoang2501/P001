@@ -169,7 +169,9 @@ Chỉ tài khoản Chủ đầu tư có mật khẩu (mặc định `Password123
 - **Chưa xác thực (Dùng để test tính năng mới):** Chủ sở hữu **Nguyễn Thị Hương** · Mã sổ **`SD-2017-0332211`** (dùng SĐT người bán mới để trải nghiệm luồng xác thực nhận OTP qua sổ).
 - **Sổ bị khóa:** Sổ của **Trần Văn Đức** · **`SD-2015-0110022`** (bị khóa do nhập sai OTP quá 5 lần) — dùng để thử luồng "Gửi yêu cầu mở khóa" và các thao tác của Chủ đầu tư trong tab "Ngoại lệ".
 
-*Lưu ý: Khi chưa cấu hình SMS Gateway ngoài production, mã OTP sẽ hiển thị trực tiếp trên giao diện màn hình (hoặc bật `OTP_EXPOSE_CODE=true` trong `.env`).*
+*Lưu ý — mã OTP có hai chế độ (`OTP_PROVIDER`):*
+- *`local` (mặc định): hệ thống tự sinh mã, **không gửi SMS**; ngoài production mã hiện ngay trên màn hình (hoặc bật `OTP_EXPOSE_CODE=true`).*
+- *`firebase`: **Firebase Phone Auth** tự sinh, gửi SMS và kiểm tra mã ngay trên trình duyệt (kèm reCAPTCHA ẩn); backend chỉ xác minh Firebase ID token (chữ ký Google, đúng project, đúng SĐT, vừa nhập mã trong `OTP_TTL_SECONDS`). Cần `FIREBASE_PROJECT_ID` + `FIREBASE_WEB_API_KEY`, bật Sign-in method "Phone" và thêm domain frontend vào Authorized domains. Áp dụng cho cả đăng nhập lẫn OTP xác thực sổ đỏ. Các SĐT tài khoản demo có thể khai báo ở "Phone numbers for testing" của Firebase (mã cố định, không tốn SMS).*
 
 ---
 
