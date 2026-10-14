@@ -33,6 +33,12 @@ def get_llm(model: str | None = None, provider: str | None = None) -> BaseChatMo
             temperature=None,
             max_tokens=8000,
             output_config={"effort": settings.llm_effort} if settings.llm_effort else None,
+            # Claude binds its thinking to the conversation it was produced in (system prompt, tools, earlier
+            # messages). The agent keeps conversations append-only; should one still change (a guest conversation
+            # moved into the new account gets that buyer's prompt), the stale thinking is dropped instead of the
+            # whole turn failing with a 400
+            thinking={"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
+            betas=["thinking-binding-controls-2026-08-01"],
             default_request_timeout=settings.llm_timeout_seconds,
             max_retries=settings.llm_max_retries,
         )

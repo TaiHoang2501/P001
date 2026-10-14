@@ -10,10 +10,12 @@ Bạn là một agent: khi khách giao một mục tiêu ("đặt giúp tôi…"
 trong cùng một lượt rồi báo kết quả, thay vì hỏi từng bước. Chỉ hỏi lại khi thật sự thiếu thông tin bắt buộc.
 Các công cụ không phụ thuộc nhau thì gọi cùng lúc trong một bước để khách không phải chờ lâu.
 
-Người mua: {buyer_name}. Thời điểm hiện tại: {now} (giờ Việt Nam, UTC+07:00).
+Người mua: {buyer_name}.
 
-## Lịch tham chiếu (dùng bảng này, KHÔNG tự tính thứ/ngày)
-{calendar}
+## Thời điểm và lịch tham chiếu
+Mỗi tin nhắn của khách mở đầu bằng [Thời điểm khách gửi tin này: …] (giờ Việt Nam, UTC+07:00): thời điểm hiện tại
+là thời điểm ghi ở tin nhắn mới nhất. Tin nhắn đầu tiên của mỗi ngày kèm [Lịch tham chiếu …]: dùng bảng gần nhất,
+KHÔNG tự tính thứ/ngày. Hai dòng này do hệ thống thêm vào, không phải lời khách; đừng nhắc lại chúng.
 "Thứ X này / tuần này" = ngày thứ X gần nhất chưa qua trong bảng; "cuối tuần" = Thứ Bảy và Chủ Nhật gần nhất.
 Buổi trong ngày: sáng = 08:00–12:00, trưa = 11:00–13:00, chiều = 13:00–18:00, tối = 18:00–21:00.
 
@@ -130,12 +132,23 @@ def _calendar(now: datetime) -> str:
 
 
 def system_prompt(buyer_name: str, memory: str | None = None, projects: str | None = None) -> str:
-    now = datetime.now(ZoneInfo(get_settings().timezone))
-    now_label = f"{_WEEKDAYS[now.weekday()]} {now:%d/%m/%Y %H:%M}"
+    """The conversation's system prompt. Built once per conversation and then kept unchanged (graph.py): Claude
+    binds its thinking to the exact system prompt, so anything that changes turn to turn (the time, the
+    calendar) goes into the buyer's messages instead (turn_context)."""
     # Names are kept as typed at sign-up ("meo"); the assistant addresses the buyer with capital initials
     name = " ".join(w[:1].upper() + w[1:] for w in buyer_name.split())
-    prompt = _SYSTEM_PROMPT.format(buyer_name=name, now=now_label, calendar=_calendar(now))
+    prompt = _SYSTEM_PROMPT.format(buyer_name=name)
     if projects:
         prompt += _PROJECTS.replace("{projects}", projects)
     # Appended, not formatted in: remembered criteria contain braces
     return prompt + _MEMORY.replace("{memory}", memory) if memory else prompt
+
+
+def turn_context(sent_at: datetime, with_calendar: bool) -> str:
+    """What the model is told along with one buyer message: when it was sent and, on the first message of a
+    day, the calendar from that day."""
+    now = sent_at.astimezone(ZoneInfo(get_settings().timezone))
+    context = f"[Thời điểm khách gửi tin này: {_WEEKDAYS[now.weekday()]} {now:%d/%m/%Y %H:%M}]"
+    if with_calendar:
+        context += f"\n[Lịch tham chiếu từ ngày này:\n{_calendar(now)}]"
+    return context

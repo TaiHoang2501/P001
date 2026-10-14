@@ -270,3 +270,52 @@ def test_tool_results_show_the_model_vietnam_time():
     assert seen["deal_code"] == "VH-2026-00001" and seen["day"] == "2026-10-12"
     # The chat service renders cards and bookings from the untouched envelope
     assert artifact["data"]["windows"][0]["start_at"] == "2026-10-12T09:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_a_later_turn_resends_the_conversation_unchanged(monkeypatch):
+    """Claude rejects earlier thinking when the system prompt or an earlier message changed since it was produced:
+    the next turn must send the same system prompt and the same earlier messages, only with new ones appended."""
+    seen: list[list] = []
+
+    class Recording(ScriptedModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            seen.append(messages)
+            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    sent = iter(
+        [
+            datetime(2026, 10, 13, 2, 0, tzinfo=VN),
+            datetime(2026, 10, 13, 2, 7, tzinfo=VN),
+            datetime(2026, 10, 14, 8, 0, tzinfo=VN),
+        ]
+    )
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):  # noqa: ARG003
+            return next(sent)
+
+    monkeypatch.setattr(agent_graph, "datetime", Clock)
+    # The project list (and the clock) moving on between turns must not reach the system prompt
+    catalogs = iter(["- VHOP1: Ocean Park", "- VHOP2: Ocean Park 2", "- VHSC: Smart City"])
+    monkeypatch.setattr(agent_graph, "_project_catalog", lambda: next(catalogs))
+    model = Recording(messages=iter([AIMessage(content=f"Trả lời {i}") for i in range(3)]))
+    agent = agent_graph.build_graph(model, InMemorySaver(), history_window=None)
+    config = {"configurable": {"thread_id": "same-prefix", "buyer_name": "an"}}
+
+    for text in ("Chào em", "Tìm căn 2PN", "Hôm nay thì sao"):
+        await agent.ainvoke({"messages": [("human", text)]}, config)
+
+    first, second, third = seen
+    assert first[0].content == second[0].content == third[0].content
+    assert "13/10/2026" not in first[0].content
+    assert [m.content for m in second[: len(first)]] == [m.content for m in first]
+    assert [m.content for m in third[: len(second)]] == [m.content for m in second]
+    # Each buyer message carries when it was sent; the calendar only on the first one of a day
+    assert first[1].content.startswith("[Thời điểm khách gửi tin này: Thứ Ba 13/10/2026 02:00]\n[Lịch tham chiếu")
+    assert second[3].content == "[Thời điểm khách gửi tin này: Thứ Ba 13/10/2026 02:07]\n\nTìm căn 2PN"
+    assert third[5].content.startswith("[Thời điểm khách gửi tin này: Thứ Tư 14/10/2026 08:00]\n[Lịch tham chiếu")
+    # What is stored (and shown in the chat history) is what the buyer typed
+    stored = (await agent.aget_state(config)).values["messages"]
+    assert [m.content for m in stored if m.type == "human"] == ["Chào em", "Tìm căn 2PN", "Hôm nay thì sao"]
