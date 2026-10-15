@@ -34,6 +34,10 @@ async def open_memory() -> AsyncConnectionPool | None:
         min_size=1,
         max_size=5,
         open=False,
+        # Neon / the network drop idle SSL connections (the Cloud Run instance stays up): test each
+        # connection before handing it out and recycle idle ones, like pool_pre_ping on the main engine
+        check=AsyncConnectionPool.check_connection,
+        max_idle=240,
         # autocommit + no prepared statements: required by the saver, and safe behind Neon's pooler
         kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
     )
