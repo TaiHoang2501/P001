@@ -108,9 +108,9 @@ jobs:
             LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest
             LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest
           # max-instances=1: hold expiry, reminders and follow-ups run in-process (src/jobs.py) and must not
-          # run twice. min-instances=0 keeps it free, but like Render's free plan those jobs pause while idle;
-          # set min-instances=1 plus --no-cpu-throttling to keep them running (billed around the clock).
-          # A Cloud Scheduler job (scripts/gcp-setup.sh) calls /health every 5 minutes to keep the instance warm.
+          # run twice. min-instances=1 keeps one instance up so users never wait for a cold start (idle billing,
+          # roughly $10-15/month); CPU is still throttled between requests, so those jobs only run while requests
+          # come in. The Cloud Scheduler ping (scripts/gcp-setup.sh) calls /health every 5 minutes so they keep going.
           # Long timeout: the AI chat streams over SSE.
           flags: >-
             --service-account=${{ vars.GCP_RUNTIME_SA }}
@@ -118,7 +118,7 @@ jobs:
             --port=8000
             --cpu=1
             --memory=512Mi
-            --min-instances=0
+            --min-instances=1
             --max-instances=1
             --concurrency=80
             --timeout=300
