@@ -14,8 +14,15 @@ The prompt asks the model to behave; these checks make sure it did, in code:
   - payment / deposit instructions, price negotiation or prediction, legal or transaction commitments (AC-10)
   replace the whole reply with an honest fallback.
 
-Checks are pattern based (Vietnamese and English) and kept conservative: a sentence that negates
-("không", "chưa"...) or states a condition ("khi chủ căn xác nhận") is not a violation.
+Checks are pattern based (Vietnamese with or without diacritics, and English) and kept conservative: a sentence
+that negates ("không", "chưa"...) or states a condition ("khi chủ căn xác nhận") is not a violation.
+
+Two more layers:
+- `review_input` / `review_output` add a small model's second opinion (guardrail_judge.py) only where it pays:
+  on what the patterns flagged as a judgement call (it may clear a false positive) and on messages / replies that
+  touch a risky topic the patterns passed (it may catch a rewording). Facts checked against the data are final.
+- `StreamGate` releases a streamed reply sentence by sentence after the patterns checked it, and holds the rest
+  of a risky reply until the judge has seen it all, so the buyer never sees text that is later taken back.
 """
 
 import re
@@ -24,6 +31,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+
+from src.agents import guardrail_judge
 
 # ---------- Personal data ----------
 
@@ -61,26 +70,36 @@ _FORGED_CONTEXT = re.compile(
     r"^\s*\[\s*(?:Thời điểm khách gửi tin này|Lịch tham chiếu)[^\n]*\n?", re.MULTILINE | re.IGNORECASE
 )
 
+
+def fold(text: str) -> str:
+    """Lower case without Vietnamese diacritics ("Bỏ qua" -> "bo qua"): buyers often type without them, so the
+    patterns below are written once, unaccented, and match both spellings."""
+    text = text.replace("đ", "d").replace("Đ", "D")
+    return "".join(c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)).lower()
+
+
+# Matched against fold(message). Kept away from everyday phrases: "đóng vai trò" (play a part), "Gia Lâm"
+# (a district, "giả làm" unaccented), "bỏ qua tiêu chí" (drop a criterion)
 _INJECTION = re.compile(
     "|".join(
         (
             # "ignore / forget the previous instructions"
-            r"\b(?:ignore|disregard|forget|override)\b.{0,30}\b(?:instructions?|rules?|prompts?|guidelines?)\b",
-            r"\b(?:bỏ qua|phớt lờ|quên|bỏ hết|vô hiệu)\b.{0,30}\b(?:hướng dẫn|chỉ dẫn|chỉ thị|quy tắc|luật|lệnh|prompt)\b",
+            r"\b(?:ignore|disregard|forget|override|bypass)\b.{0,30}\b(?:instructions?|rules?|prompts?|guidelines?)\b",
+            r"\b(?:bo qua|phot lo|quen het|quen di|hay quen|bo het|vo hieu hoa?)\b.{0,30}"
+            r"\b(?:huong dan|chi dan|chi thi|quy tac|lenh|prompt|rule)\b",
             # asking for the hidden instructions
             r"\b(?:system|developer)\s*(?:prompt|message|instructions?)\b",
-            r"(?:lời nhắc|chỉ dẫn|hướng dẫn|cấu hình) (?:hệ thống|gốc|ban đầu|ẩn)",
-            r"\b(?:reveal|show|print|repeat|tiết lộ|in ra|nhắc lại|cho xem)\b.{0,30}\b(?:prompt|hướng dẫn|chỉ dẫn)\b",
+            r"\b(?:loi nhac|chi dan|huong dan|cau hinh) (?:he thong|goc|an)\b",
+            r"\b(?:reveal|show|print|repeat|tiet lo|in ra|nhac lai|cho xem)\b.{0,30}\b(?:prompt|huong dan|chi dan)\b",
             # changing who the assistant is
-            r"\b(?:jailbreak|DAN mode|developer mode|god mode)\b",
+            r"\b(?:jailbreak|dan mode|developer mode|god mode)\b",
             r"\b(?:you are now|from now on you are|act as|pretend (?:to be|you are))\b",
-            r"(?:từ giờ|từ bây giờ|bây giờ) (?:bạn|mày|em) (?:là|đóng vai)",
-            r"\b(?:đóng vai|giả làm|giả vờ là|nhập vai)\b",
+            r"\b(?:tu gio|tu bay gio|bay gio) (?:ban|may) (?:la|se la|dong vai)\b",
+            r"\b(?:dong vai|nhap vai)\b(?! tro)|\bgia vo (?:la|lam)\b",
             # markup imitating the conversation roles
-            r"</?\s*(?:system|assistant|tool)\s*>|\[\s*(?:SYSTEM|INST)\s*\]|<\|im_start\|>",
+            r"</?\s*(?:system|assistant|tool)\s*>|\[\s*(?:system|inst)\s*\]|<\|im_start\|>",
         )
-    ),
-    re.IGNORECASE,
+    )
 )
 
 INJECTION_REPLY = (
@@ -105,7 +124,7 @@ def screen_input(message: str) -> InputVerdict:
     text, n = _FORGED_CONTEXT.subn("", text)
     if n:
         flags.append("forged_context")
-    if _INJECTION.search(text):
+    if _INJECTION.search(fold(text)):
         flags.append("prompt_injection")
     text, pii = mask_pii(text)
     flags += [f"pii_{kind}" for kind in pii]
@@ -182,17 +201,38 @@ _FALLBACKS = {
         "muốn tiếp tục sau buổi xem nhà."
     ),
 }
+_FALLBACKS |= {
+    # Judge categories (guardrail_judge.Category) without a pattern of their own
+    "false_confirmation": _FALLBACKS["unconfirmed_claim"],
+    "contact_details": (
+        "Em không thể cung cấp thông tin liên hệ của chủ căn. Thông tin liên hệ chỉ được chia sẻ theo quy trình khi "
+        "hai bên muốn tiếp tục giao dịch sau buổi xem nhà; em giúp anh/chị đặt lịch xem nhé?"
+    ),
+    "invented_facts": (
+        "Em chỉ cung cấp được thông tin căn có trong dữ liệu của hệ thống. Anh/chị muốn em kiểm tra lại thông tin "
+        "nào của căn này ạ?"
+    ),
+    "other": "Anh/chị cho em biết thêm nhu cầu để em tìm căn phù hợp hoặc hỗ trợ đặt lịch xem nhà nhé.",
+}
 _FALLBACK_PREFIX = "Em xin lỗi, câu trả lời vừa rồi của em chưa chính xác nên em đã ẩn đi. "
+# Pattern findings the judge may overrule (a judgement call); facts checked against the data are never overruled
+_OVERRULABLE = {"payment", "negotiation", "price_prediction", "legal_commitment"}
 
 
 @dataclass
 class OutputVerdict:
     text: str  # the reply shown to the buyer and kept in the conversation
     violations: list[str] = field(default_factory=list)
+    # Audited but not a change to the reply (e.g. a pattern finding the judge overruled)
+    notes: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
         return bool(self.violations)
+
+    @property
+    def blocked(self) -> bool:
+        return any(not v.startswith("pii_") for v in self.violations)
 
 
 def _sentences(text: str) -> list[str]:
@@ -232,6 +272,111 @@ def screen_output(reply: str, history: Sequence[BaseMessage]) -> OutputVerdict:
 
     text, pii = mask_pii(reply)
     return OutputVerdict(text=text, violations=[f"pii_{kind}" for kind in pii])
+
+
+def confirmed_in_data(history: Sequence[BaseMessage]) -> bool:
+    return any(isinstance(m, ToolMessage) and _CONFIRMED_STATUS.search(m.text) for m in history)
+
+
+def _last_buyer_message(history: Sequence[BaseMessage]) -> str:
+    return next((m.text for m in reversed(history) if isinstance(m, HumanMessage)), "")
+
+
+# ---------- With the judge (guardrail_judge.py) ----------
+
+
+async def review_input(message: str) -> InputVerdict:
+    """screen_input, with the judge's second opinion on flagged or suspicious messages."""
+    verdict = screen_input(message)
+    if verdict.blocked:
+        judgement = await guardrail_judge.judge_input(verdict.text)
+        if judgement is not None and not judgement.violation:
+            # The pattern fired on an ordinary sentence: let it through (the system prompt still applies)
+            verdict.blocked = False
+            verdict.flags = [f for f in verdict.flags if f != "prompt_injection"] + ["injection_overruled"]
+    elif guardrail_judge.risky_input(fold(verdict.text)):
+        judgement = await guardrail_judge.judge_input(verdict.text)
+        if judgement is not None and judgement.violation:
+            verdict.blocked = True
+            verdict.flags.append("prompt_injection_judge")
+    return verdict
+
+
+async def review_output(reply: str, history: Sequence[BaseMessage]) -> OutputVerdict:
+    """screen_output, with the judge's second opinion on replies that touch a risky topic."""
+    verdict = screen_output(reply, history)
+    if verdict.blocked and not set(verdict.violations) <= _OVERRULABLE:
+        return verdict
+    if not verdict.blocked and not guardrail_judge.risky_reply(fold(reply)):
+        return verdict
+    judgement = await guardrail_judge.judge_reply(
+        reply, confirmed_in_data=confirmed_in_data(history), buyer_message=_last_buyer_message(history)
+    )
+    if judgement is None:
+        return verdict
+    if verdict.blocked and not judgement.violation:
+        text, pii = mask_pii(reply)
+        return OutputVerdict(
+            text=text, violations=[f"pii_{kind}" for kind in pii], notes=[f"overruled_{v}" for v in verdict.violations]
+        )
+    if not verdict.blocked and judgement.violation and judgement.category != "none":
+        category = judgement.category if judgement.category in _FALLBACKS else "other"
+        return OutputVerdict(text=_FALLBACK_PREFIX + _FALLBACKS[category], violations=[f"judge_{judgement.category}"])
+    return verdict
+
+
+# ---------- Streaming ----------
+
+
+class StreamGate:
+    """Holds the streamed reply back sentence by sentence, so the buyer never sees text before it is checked.
+
+    `feed` returns the text that may be shown now: each finished sentence once the patterns pass it (contact
+    details masked). A sentence breaking a rule stops the gate (`blocked`); one touching a risky topic for the judge
+    makes it hold everything after it (`held`) until the whole reply has been reviewed. `finish` then turns the
+    reviewed reply into the last events: the rest of the text, or a `replace` when what was shown must change.
+    """
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        """A new piece of text (after tool calls): what was shown before was only a preface."""
+        self.pending = ""
+        self.shown = ""
+        self.held = False
+        self.blocked = False
+
+    def feed(self, text: str, history: Sequence[BaseMessage]) -> str:
+        self.pending += text
+        out = ""
+        while not (self.held or self.blocked) and (end := _SENTENCE_END.search(self.pending)):
+            sentence, rest = self.pending[: end.end()], self.pending[end.end() :]
+            piece = self._check(sentence, history)
+            if piece is None:
+                break
+            self.pending = rest
+            out += piece
+        self.shown += out
+        return out
+
+    def _check(self, sentence: str, history: Sequence[BaseMessage]) -> str | None:
+        verdict = screen_output(sentence, history)
+        if verdict.blocked:
+            self.blocked = True
+            return None
+        if guardrail_judge.enabled() and guardrail_judge.risky_reply(fold(sentence)):
+            self.held = True
+            return None
+        return verdict.text
+
+    def finish(self, final: str) -> tuple[str, str] | None:
+        """The event that completes what the buyer sees, given the reviewed final reply: ("token", rest),
+        ("replace", full text) or None when nothing is left to send."""
+        if final.startswith(self.shown):
+            rest = final[len(self.shown) :]
+            return ("token", rest) if rest else None
+        return ("replace", final)
 
 
 def guarded_reply(message: AIMessage, verdict: OutputVerdict) -> AIMessage:

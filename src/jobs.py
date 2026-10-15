@@ -27,6 +27,7 @@ from src.services import (
     escalation_service,
     hold_service,
     notification_service,
+    rate_limit,
     viewing_outcome_service,
 )
 
@@ -66,6 +67,7 @@ def run_once() -> None:
         purged = ai_trace.purge_old(db)
         if purged:
             logger.info("Dropped %d old chat trace(s)", purged)
+        rate_limit.purge_old(db)
         _top_up_demo_slots(db)
 
 

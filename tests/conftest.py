@@ -44,7 +44,6 @@ from alembic import command  # noqa: E402
 from src.db.seed import ensure_red_book_units, seed  # noqa: E402
 from src.db.session import get_engine, get_sessionmaker  # noqa: E402
 from src.main import app  # noqa: E402
-from src.services import rate_limit  # noqa: E402
 
 
 def _create_database_if_missing(url_str: str) -> None:
@@ -80,13 +79,6 @@ def seeded_db(_migrated_database):
         seed(db, reset=True)
         # Like a deployed demo database: every listing backed by a verified red book with the home's facts
         ensure_red_book_units(db)
-    yield
-
-
-@pytest.fixture(autouse=True)
-def _chat_rate_limits():
-    """Chat rate-limit counts live in process memory: each test starts from zero."""
-    rate_limit.reset()
     yield
 
 

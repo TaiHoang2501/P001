@@ -125,7 +125,7 @@ async def chat(actor: Actor, request: ChatRequest) -> ChatResponse:
     config = _buyer_config(actor, request)
     thread_id = config["configurable"]["thread_id"]
     tracer = TurnTracer()
-    screened = guardrails.screen_input(request.message)
+    screened = await guardrails.review_input(request.message)
     if screened.blocked:
         new_messages = _blocked_turn(screened)
         _record(tracer, actor, request, thread_id, new_messages, streamed=False, screened=screened)
@@ -159,7 +159,7 @@ async def guest_chat(request: ChatRequest) -> ChatResponse:
     """A turn for a buyer without an account (stored and traced too; claimed when the guest signs up)."""
     thread_id = _guest_thread(request.conversation_id)
     tracer = TurnTracer()
-    screened = guardrails.screen_input(request.message)
+    screened = await guardrails.review_input(request.message)
     if screened.blocked:
         new_messages = _blocked_turn(screened)
         _record(tracer, None, request, thread_id, new_messages, streamed=False, screened=screened)
@@ -194,7 +194,7 @@ async def chat_stream(actor: Actor, request: ChatRequest) -> AsyncIterator[ChatE
     config = _buyer_config(actor, request)
     thread_id = config["configurable"]["thread_id"]
     tracer = TurnTracer()
-    screened = guardrails.screen_input(request.message)
+    screened = await guardrails.review_input(request.message)
     async for name, data in _stream_turn(config, screened, tracer):
         if name == "_failed":
             _record(tracer, actor, request, thread_id, [], streamed=True, error=data["error"], screened=screened)
@@ -217,7 +217,7 @@ async def chat_stream(actor: Actor, request: ChatRequest) -> AsyncIterator[ChatE
 async def guest_chat_stream(request: ChatRequest) -> AsyncIterator[ChatEvent]:
     thread_id = _guest_thread(request.conversation_id)
     tracer = TurnTracer()
-    screened = guardrails.screen_input(request.message)
+    screened = await guardrails.review_input(request.message)
     async for name, data in _stream_turn(_guest_config(request), screened, tracer):
         if name == "_failed":
             _record(tracer, None, request, thread_id, [], streamed=True, error=data["error"], screened=screened)
@@ -264,26 +264,39 @@ async def _stream_turn(
 
 
 async def _stream_events(agent: Any, config: RunnableConfig, message: str, trace_id: str) -> AsyncIterator[ChatEvent]:
+    # Reply text reaches the buyer only sentence by sentence, after the guardrail checked it
+    gate = guardrails.StreamGate()
     try:
-        before = len((await agent.aget_state(config)).values.get("messages", []))
+        # What the gate checks against: the conversation so far, plus this turn's tool results as they arrive
+        seen: list[BaseMessage] = list((await agent.aget_state(config)).values.get("messages", []))
+        before = len(seen)
+        seen.append(HumanMessage(message))
         async for mode, payload in agent.astream(
             {"messages": [HumanMessage(message)]}, config, stream_mode=["messages", "updates"]
         ):
             if mode == "messages":
                 chunk, meta = payload
                 if isinstance(chunk, AIMessageChunk) and meta.get("langgraph_node") == "agent" and chunk.text:
-                    yield "token", {"text": chunk.text}
+                    if text := gate.feed(chunk.text, seen):
+                        yield "token", {"text": text}
             elif mode == "updates":
                 for node, update in payload.items():
-                    if node != "agent" or not update:
+                    if not update:
+                        continue
+                    seen.extend(update.get("messages", []))
+                    if node != "agent":
                         continue
                     calls = [
                         c["name"] for m in update.get("messages", []) if isinstance(m, AIMessage) for c in m.tool_calls
                     ]
                     if calls:
+                        gate.reset()
                         yield "tools", {"names": calls}
         history = (await agent.aget_state(config)).values["messages"]
         messages, violations = await _guard_output(agent, config, history, history[before:])
+        if last := gate.finish(_reply(messages)):
+            name, text = last
+            yield name, {"text": text}
     except Exception as e:
         # The response has already started: report the failure as an event, the client shows it in the chat
         logger.exception("agent turn failed (stream, trace=%s)", trace_id)
@@ -348,16 +361,16 @@ async def _guard_output(
     last = new_messages[-1] if new_messages else None
     if not isinstance(last, AIMessage) or last.tool_calls:
         return new_messages, []
-    verdict = guardrails.screen_output(last.text, history)
+    verdict = await guardrails.review_output(last.text, history)
     if not verdict.changed:
-        return new_messages, []
+        return new_messages, verdict.notes
     logger.warning("output guardrail changed the reply: %s", verdict.violations)
     safe = guardrails.guarded_reply(last, verdict)
     try:
         await agent.aupdate_state({"configurable": config["configurable"]}, {"messages": [safe]}, as_node="agent")
     except Exception:
         logger.exception("could not store the guarded reply")
-    return [*new_messages[:-1], safe], verdict.violations
+    return [*new_messages[:-1], safe], [*verdict.violations, *verdict.notes]
 
 
 def _reply(new_messages: list[BaseMessage]) -> str:

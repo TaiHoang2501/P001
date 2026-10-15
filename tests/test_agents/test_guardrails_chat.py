@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage
 
 from src.agents import guardrails
 from src.config import get_settings
-from src.db.models import AiMessage, AuditLog
+from src.db.models import AiMessage, AuditLog, RateLimitHit
 from tests.helpers import CUSTOMER_AN, auth
 from tests.test_agents.test_chat_stream import _events
 from tests.test_agents.test_graph import _call, script  # noqa: F401  (fixture)
@@ -87,3 +87,48 @@ async def test_guest_chat_is_rate_limited(client, script, monkeypatch):  # noqa:
     assert r.status_code == 429
     assert r.json()["error"]["code"] == "RATE_LIMITED"
     assert r.json()["error"]["details"]["scope"] == "chat"
+
+
+@pytest.mark.asyncio
+async def test_spoofed_forwarded_for_does_not_reset_the_guest_limit(client, script, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(get_settings(), "guest_chat_messages_per_minute", 1)
+    script(AIMessage(content="Chào anh/chị."))
+    body = {"message": "Xin chào", "conversation_id": "guest-spoof"}
+    # Same real client (the proxy's entry, last) behind a different made-up first entry each time
+    first = await client.post("/api/v1/chat/guest", json=body, headers={"x-forwarded-for": "9.9.9.1, 203.0.113.5"})
+    assert first.status_code == 200
+    second = await client.post("/api/v1/chat/guest", json=body, headers={"x-forwarded-for": "9.9.9.2, 203.0.113.5"})
+    assert second.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_buyer_limit_is_per_account_and_stored(client, db, script, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(get_settings(), "chat_messages_per_minute", 1)
+    script(AIMessage(content="Dạ."))
+    an = await auth(client, CUSTOMER_AN)
+    assert (await _chat(client, an, "Xin chào")).status_code == 200
+    r = await _chat(client, an, "Xin chào lần nữa")
+    assert r.status_code == 429
+    assert 1 <= r.json()["error"]["details"]["retry_after_seconds"] <= 61
+    # Counted in the database, so every API instance sees the same count
+    assert db.query(RateLimitHit).filter(RateLimitHit.key == "user:1").count() == 1
+
+
+@pytest.mark.asyncio
+async def test_daily_cap_on_all_guests_together(client, script, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(get_settings(), "guest_chat_messages_per_day_total", 2)
+    script(AIMessage(content="Dạ."), AIMessage(content="Dạ."))
+    for i in range(2):
+        r = await client.post(
+            "/api/v1/chat/guest",
+            json={"message": "Xin chào", "conversation_id": f"g{i}"},
+            headers={"x-forwarded-for": f"203.0.113.{i}"},
+        )
+        assert r.status_code == 200
+    r = await client.post(
+        "/api/v1/chat/guest",
+        json={"message": "Xin chào", "conversation_id": "g9"},
+        headers={"x-forwarded-for": "198.51.100.1"},
+    )
+    assert r.status_code == 429
+    assert r.json()["error"]["details"]["scope"] == "chat_guest_daily"

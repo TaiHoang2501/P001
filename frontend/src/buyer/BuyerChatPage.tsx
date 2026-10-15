@@ -386,6 +386,10 @@ export function BuyerChatPage() {
           streamed.current = "";
           setLive({ text: "", status: TOOL_STATUS[names[0]] ?? "Đang xử lý..." });
         },
+        onReplace: (text) => {
+          streamed.current = text;
+          setLive({ text, status: null });
+        },
       });
     },
     onSuccess: (res) => {

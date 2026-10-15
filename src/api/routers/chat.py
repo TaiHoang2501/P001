@@ -4,7 +4,9 @@ import json
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
 from src.core.deps import CustomerActor, DbSession
 from src.models.schemas import (
@@ -20,27 +22,30 @@ from src.services import assistant_control, chat_service, conversation_service, 
 router = APIRouter(tags=["agent"])
 
 
-def _limit_buyer(user_id: int) -> None:
-    # Kill switch first: while an operator has the assistant off, nothing reaches the model
+def _admit(db: Session, key: str, guest: bool) -> None:
+    # Kill switch first: while an operator has the assistant off, nothing reaches the model (and nothing is counted)
     assistant_control.ensure_enabled()
-    rate_limit.check_chat(f"user:{user_id}", guest=False)
+    rate_limit.check_chat(db, key, guest=guest)
 
 
-def _limit_guest(request: Request) -> None:
-    assistant_control.ensure_enabled()
-    rate_limit.check_chat(f"ip:{request.client.host if request.client else 'unknown'}", guest=True)
+async def _limit_buyer(db: Session, user_id: int) -> None:
+    await run_in_threadpool(_admit, db, f"user:{user_id}", False)
+
+
+async def _limit_guest(db: Session, request: Request) -> None:
+    await run_in_threadpool(_admit, db, f"ip:{rate_limit.client_ip(request)}", True)
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, actor: CustomerActor) -> ChatResponse:
-    _limit_buyer(actor.id)
+async def chat(request: ChatRequest, actor: CustomerActor, db: DbSession) -> ChatResponse:
+    await _limit_buyer(db, actor.id)
     return await chat_service.chat(actor, request)
 
 
 @router.post("/chat/guest", response_model=ChatResponse)
-async def guest_chat(request: ChatRequest, http: Request) -> ChatResponse:
+async def guest_chat(request: ChatRequest, http: Request, db: DbSession) -> ChatResponse:
     """New buyers chat before having an account; booking asks them to sign up (see `needs_account`)."""
-    _limit_guest(http)
+    await _limit_guest(db, http)
     return await chat_service.guest_chat(request)
 
 
@@ -56,21 +61,23 @@ def _sse(events: AsyncIterator[chat_service.ChatEvent]) -> StreamingResponse:
 
 
 _STREAM_DOC = (
-    "Server-Sent Events: `token` {text} while the reply is written, `tools` {names} when the agent calls tools, "
-    "`error` {code, message}, and finally `done` with the same body as the non-streaming endpoint."
+    "Server-Sent Events: `token` {text} while the reply is written (sentence by sentence, each checked by the "
+    "guardrails first), `tools` {names} when the agent calls tools, `replace` {text} when the guardrails changed the "
+    "reply (show it instead of the streamed text), `error` {code, message}, and finally `done` with the same body as "
+    "the non-streaming endpoint."
 )
 
 
 @router.post("/chat/stream", response_class=StreamingResponse, description=_STREAM_DOC)
-async def chat_stream(request: ChatRequest, actor: CustomerActor) -> StreamingResponse:
-    _limit_buyer(actor.id)
+async def chat_stream(request: ChatRequest, actor: CustomerActor, db: DbSession) -> StreamingResponse:
+    await _limit_buyer(db, actor.id)
     chat_service.ensure_agent()
     return _sse(chat_service.chat_stream(actor, request))
 
 
 @router.post("/chat/guest/stream", response_class=StreamingResponse, description=_STREAM_DOC)
-async def guest_chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
-    _limit_guest(http)
+async def guest_chat_stream(request: ChatRequest, http: Request, db: DbSession) -> StreamingResponse:
+    await _limit_guest(db, http)
     chat_service.ensure_agent()
     return _sse(chat_service.guest_chat_stream(request))
 

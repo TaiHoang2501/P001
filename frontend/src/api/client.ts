@@ -87,7 +87,9 @@ export function errorMessage(err: unknown): string {
       return "Mã này không còn dùng được (nhập sai quá nhiều lần hoặc đã hết hạn). Bấm “Gửi lại mã” để nhận mã mới.";
     const left = err.details.attempts_left;
     if (err.code === "INVALID_CREDENTIALS" && typeof left === "number") return `Mã không đúng. Còn ${left} lần thử.`;
-    // Chat messages to the AI assistant (rate limited per buyer / guest IP)
+    // Chat messages to the AI assistant (rate limited per buyer / guest IP, and for all guests together per day)
+    if (err.code === "RATE_LIMITED" && err.details.scope === "chat_guest_daily")
+      return "Trợ lý đang nhận quá nhiều tin nhắn từ khách chưa đăng nhập. Vui lòng đăng nhập để tiếp tục trò chuyện.";
     const waitSeconds = err.details.retry_after_seconds;
     if (err.code === "RATE_LIMITED" && err.details.scope === "chat" && typeof waitSeconds === "number")
       return `Bạn gửi tin nhắn hơi nhanh. Vui lòng thử lại sau ${waitSeconds < 60 ? `${waitSeconds} giây` : `${Math.ceil(waitSeconds / 60)} phút`}.`;
@@ -132,6 +134,8 @@ export interface ChatStreamHandlers {
   onToken: (text: string) => void;
   /** The agent is calling tools; text streamed before was only a preface */
   onTools: (names: string[]) => void;
+  /** The guardrail changed the reply: show this text instead of what was streamed so far */
+  onReplace?: (text: string) => void;
 }
 
 /**
@@ -184,6 +188,7 @@ export async function streamChat(
       const payload = data ? JSON.parse(data) : {};
       if (name === "token") handlers.onToken(payload.text);
       else if (name === "tools") handlers.onTools(payload.names);
+      else if (name === "replace") handlers.onReplace?.(payload.text);
       else if (name === "error") throw new ApiError(payload.code, payload.message, 503);
       else if (name === "done") return payload as ChatResponse;
     }

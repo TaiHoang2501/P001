@@ -927,3 +927,15 @@ class SystemSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class RateLimitHit(Base):
+    """One counted request (a chat message) for a rate-limit key ("user:7", "ip:1.2.3.4"); shared by every
+    API instance, so limits hold across Render and Cloud Run. Rows older than a day are purged by the job."""
+
+    __tablename__ = "rate_limit_hits"
+    __table_args__ = (Index("ix_rate_limit_hits_key_created", "key", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    key: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = _now_column()
