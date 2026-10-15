@@ -116,6 +116,13 @@ AI Agent Tool Call
 ```
 - Lỗi → rollback, trả Structured Error; Agent giải thích và đề xuất phương án thay thế, hoặc tạo escalation.
 
+### Guardrails quanh chat (`src/agents/guardrails.py`, gắn trong `chat_service`)
+Ngoài quy tắc trong system prompt, mỗi lượt chat đi qua lớp kiểm tra bằng code:
+- **Đầu vào**: che SĐT/email/CCCD/số thẻ khách gõ (model và `ai_turns` không nhận PII); bỏ dòng giả mạo `[Thời điểm khách gửi tin này…]`; prompt injection / jailbreak rõ ràng → trả lời cố định, **không gọi model**, không đưa vào bộ nhớ agent.
+- **Đầu ra**: che SĐT/email trong câu trả lời; thay toàn bộ câu trả lời bằng câu an toàn khi AI nói lịch "đã được xác nhận" mà không có kết quả tool `CONFIRMED`, nhắc mã căn không có trong kết quả tool/lời khách, hoặc hướng dẫn chuyển khoản/đặt cọc, đàm phán/dự đoán giá, cam kết pháp lý/giao dịch (câu phủ định "không/chưa…" không tính). Câu trả lời thay thế cũng thay trong state LangGraph.
+- **Kill switch** (`src/services/assistant_control.py`): Operator bấm "Tắt AI" ở Operator Console → trang **Trợ lý AI** (`/operator/ai`; API `PUT /operator/ai-assistant`). Trạng thái lưu ở `system_settings` nên mọi instance thấy ngay; khi tắt, mọi endpoint chat trả 503 `AI_DISABLED` không gọi model, khung chat của người mua hiện "Hệ thống AI đang bảo trì, vui lòng liên hệ Tổng đài `SUPPORT_HOTLINE`…" và khóa ô nhập (`GET /chat/assistant-status`), tin nhắn follow-up dùng mẫu cố định. Đặt lịch / xác nhận lịch vẫn chạy. Bật/tắt ghi `audit_logs` (`AI_ASSISTANT_ENABLED` / `AI_ASSISTANT_DISABLED`).
+- Mọi thay đổi ghi `audit_logs` (`AI_GUARDRAIL`, `extra.flags`). Chat bị giới hạn tần suất (`CHAT_MESSAGES_PER_*`, `GUEST_CHAT_MESSAGES_PER_*`; theo tài khoản / IP khách, đếm trong bộ nhớ từng instance) → 429 `RATE_LIMITED` (`details.scope = "chat"`).
+
 ### Error Handling (spec §5)
 | Error | Expected behavior |
 |---|---|
@@ -177,7 +184,7 @@ MATCHED → VIEWING_REQUESTED → VIEWING_CONFIRMED → VIEWED → INTERESTED �
 ---
 
 ## 7. Data Model (spec §4.16, mở rộng)
-Bản đầy đủ gồm 25 bảng:
+Bản đầy đủ gồm 26 bảng:
 - **Identity & Auth:** `users`, `otp_codes`, `buyer_profiles`, `seller_profiles`
 - **Ownership:** `property_ownership_verifications` (dữ liệu sổ đỏ của Chủ đầu tư + thông tin căn gốc; mỗi sổ gắn tối đa một tin qua `properties.verification_id`)
 - **Inventory:** `projects`, `buildings`, `properties`, `property_media`, `media_files` (ảnh / giấy tờ tải lên)
@@ -185,7 +192,7 @@ Bản đầy đủ gồm 25 bảng:
 - **Deal & Viewing:** `deals`, `bookings`, `property_holds`
 - **Post-viewing (post-MVP):** `purchase_requests`, `chats`, `messages`
 - **AI:** `ai_conversations`, `ai_messages`, `recommendations`, `ai_turns` (trace cho dev: mỗi lượt chat — cả khách chưa đăng nhập và lượt lỗi — kèm từng bước gọi model/công cụ, thời gian, token; xem bằng `python scripts/ai_traces.py`; tự xóa sau `AI_TRACE_RETENTION_DAYS`. Chỉ dành cho dev, không hiển thị cho Buyer/Seller/Operator)
-- **Operations:** `escalations`, `notifications`, `audit_logs`
+- **Operations:** `escalations`, `notifications`, `audit_logs`, `system_settings` (công tắc vận hành dùng chung mọi instance, vd. kill switch Trợ lý AI)
 
 Quan hệ chính: Seller 1─N Property · Buyer 1─N Deal · Property 1─N Deal · Deal 1─N Booking · Booking 1─0..1 PropertyHold · Deal 1─0..1 PurchaseRequest · Deal 1─0..1 Chat.
 

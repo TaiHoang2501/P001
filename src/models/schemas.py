@@ -67,3 +67,20 @@ class ChatMessageOut(BaseModel):
     role: MessageRole
     content: str
     created_at: datetime
+
+
+class AssistantStatusOut(BaseModel):
+    """Whether the AI assistant answers (operator kill switch); `message` is shown in the chat while it is off."""
+
+    enabled: bool
+    message: str | None = None
+    hotline: str
+
+
+class AssistantControlOut(AssistantStatusOut):
+    updated_at: datetime | None = None
+    updated_by: int | None = None
+
+
+class AssistantToggle(BaseModel):
+    enabled: bool

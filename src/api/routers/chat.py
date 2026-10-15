@@ -3,24 +3,44 @@
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from src.core.deps import CustomerActor, DbSession
-from src.models.schemas import ChatMessageOut, ChatRequest, ChatResponse, ConversationOut, GuestClaimResponse
-from src.services import chat_service, conversation_service
+from src.models.schemas import (
+    AssistantStatusOut,
+    ChatMessageOut,
+    ChatRequest,
+    ChatResponse,
+    ConversationOut,
+    GuestClaimResponse,
+)
+from src.services import assistant_control, chat_service, conversation_service, rate_limit
 
 router = APIRouter(tags=["agent"])
 
 
+def _limit_buyer(user_id: int) -> None:
+    # Kill switch first: while an operator has the assistant off, nothing reaches the model
+    assistant_control.ensure_enabled()
+    rate_limit.check_chat(f"user:{user_id}", guest=False)
+
+
+def _limit_guest(request: Request) -> None:
+    assistant_control.ensure_enabled()
+    rate_limit.check_chat(f"ip:{request.client.host if request.client else 'unknown'}", guest=True)
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, actor: CustomerActor) -> ChatResponse:
+    _limit_buyer(actor.id)
     return await chat_service.chat(actor, request)
 
 
 @router.post("/chat/guest", response_model=ChatResponse)
-async def guest_chat(request: ChatRequest) -> ChatResponse:
+async def guest_chat(request: ChatRequest, http: Request) -> ChatResponse:
     """New buyers chat before having an account; booking asks them to sign up (see `needs_account`)."""
+    _limit_guest(http)
     return await chat_service.guest_chat(request)
 
 
@@ -43,12 +63,14 @@ _STREAM_DOC = (
 
 @router.post("/chat/stream", response_class=StreamingResponse, description=_STREAM_DOC)
 async def chat_stream(request: ChatRequest, actor: CustomerActor) -> StreamingResponse:
+    _limit_buyer(actor.id)
     chat_service.ensure_agent()
     return _sse(chat_service.chat_stream(actor, request))
 
 
 @router.post("/chat/guest/stream", response_class=StreamingResponse, description=_STREAM_DOC)
-async def guest_chat_stream(request: ChatRequest) -> StreamingResponse:
+async def guest_chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
+    _limit_guest(http)
     chat_service.ensure_agent()
     return _sse(chat_service.guest_chat_stream(request))
 
@@ -57,6 +79,12 @@ async def guest_chat_stream(request: ChatRequest) -> StreamingResponse:
 async def claim_guest_chat(conversation_id: str, actor: CustomerActor) -> GuestClaimResponse:
     """Right after a guest signs up: continue the same conversation under the new account."""
     return GuestClaimResponse(claimed=await chat_service.claim_guest(actor, conversation_id))
+
+
+@router.get("/chat/assistant-status", response_model=AssistantStatusOut)
+def assistant_status(db: DbSession) -> AssistantStatusOut:
+    """Public: the chat shows a maintenance notice (with the support hotline) while an operator has the AI off."""
+    return AssistantStatusOut.model_validate(assistant_control.status(db))
 
 
 @router.get("/status")

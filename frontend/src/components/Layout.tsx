@@ -21,6 +21,7 @@ const NAV: Record<Role | "GUEST", NavItem[]> = {
     { to: "/operator", label: "Duyệt tin", end: true, count: "listings" },
     { to: "/operator/escalations", label: "Ngoại lệ", count: "cases" },
     { to: "/operator/bookings", label: "Lịch xem" },
+    { to: "/operator/ai", label: "Trợ lý AI" },
   ],
 };
 

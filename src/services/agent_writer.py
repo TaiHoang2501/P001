@@ -10,6 +10,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.config import get_settings
+from src.services import assistant_control
 from src.services.llm import get_fallback_llm, get_llm
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,8 @@ Gọi mình là "Trợ lý AI" (không dùng chữ "AI Agent" hay "agent": ngư�
 
 def enabled() -> bool:
     s = get_settings()
-    return s.agent_personalize and s.app_env != "test" and bool(s.llm_api_key)
+    # Off by the operator's kill switch too: messages then use their fixed templates
+    return s.agent_personalize and s.app_env != "test" and bool(s.llm_api_key) and assistant_control.is_enabled()
 
 
 def compose(purpose: str, facts: dict[str, str], fallback: str, must_include: list[str]) -> str:

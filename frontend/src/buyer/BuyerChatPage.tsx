@@ -303,6 +303,13 @@ export function BuyerChatPage() {
     enabled: userId !== null,
     refetchInterval: 30_000,
   });
+  // Operator kill switch: while the AI is off, the chat shows the maintenance notice and takes no messages
+  const assistant = useQuery({
+    queryKey: ["assistant-status"],
+    queryFn: () => call(api.GET("/api/v1/chat/assistant-status")),
+    refetchInterval: 30_000,
+  });
+  const aiOff = assistant.data?.enabled === false;
   // Opened from the bell (?note=ID): that message is shown (even if older than this chat) and flashes
   const openedNote = Number(searchParams.get("note")) || null;
   const noteFlash = useJumpFlash(true);
@@ -391,6 +398,8 @@ export function BuyerChatPage() {
       setLive(null);
       // Signed out (session expired): the buyer is sent to sign in, the question is kept for afterwards
       if (err instanceof ApiError && err.status === 401) return;
+      // Turned off while the buyer was typing: show the maintenance notice and lock the input
+      if (err instanceof ApiError && err.code === "AI_DISABLED") queryClient.invalidateQueries({ queryKey: ["assistant-status"] });
       keepDraft(null);
       append({ role: "error", text: errorMessage(err) });
     },
@@ -607,7 +616,7 @@ export function BuyerChatPage() {
 
   function submit(text: string) {
     const message = text.trim();
-    if (!message || busy) return;
+    if (!message || busy || aiOff) return;
     append({ role: "user", text: message });
     setInput("");
     keepDraft(message);
@@ -864,6 +873,11 @@ export function BuyerChatPage() {
         )}
 
         <form onSubmit={onSubmit} className="px-4 pb-3 pt-2">
+          {aiOff && (
+            <div role="alert" className="mb-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {assistant.data?.message}
+            </div>
+          )}
           <div className="flex items-center gap-2 rounded-[22px] bg-white p-1.5 pl-5 shadow-lg shadow-slate-900/5 ring-1 ring-line transition focus-within:ring-2 focus-within:ring-brand-500">
             <label htmlFor="chat-input" className="sr-only">
               Tin nhắn
@@ -872,10 +886,17 @@ export function BuyerChatPage() {
               id="chat-input"
               ref={inputRef}
               className="min-w-0 flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-muted"
-              placeholder={started ? "Thêm yêu cầu, ví dụ: tầng cao, view hồ..." : "Mô tả căn bạn đang tìm..."}
+              placeholder={
+                aiOff
+                  ? "Trợ lý AI đang bảo trì"
+                  : started
+                    ? "Thêm yêu cầu, ví dụ: tầng cao, view hồ..."
+                    : "Mô tả căn bạn đang tìm..."
+              }
               maxLength={5000}
               autoFocus
               autoComplete="off"
+              disabled={aiOff}
               value={input}
               onChange={(e) => setInput(e.target.value)}
             />
@@ -883,13 +904,17 @@ export function BuyerChatPage() {
               type="submit"
               className="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#1463ff] to-[#5b3df5] text-white shadow-md shadow-brand-600/25 transition hover:brightness-110 disabled:opacity-40 disabled:shadow-none"
               aria-label="Gửi"
-              disabled={!input.trim() || busy}
+              disabled={!input.trim() || busy || aiOff}
             >
               <SendIcon className="size-5" />
             </button>
           </div>
           <p className="mt-2 text-center text-[11px] text-muted">
             Trợ lý chỉ gợi ý căn có trong hệ thống · Số điện thoại của bạn luôn được ẩn với chủ căn
+          </p>
+          <p className="mt-0.5 text-center text-[11px] leading-snug text-muted">
+            Trợ lý AI tổng hợp dữ liệu từ CĐT. Vui lòng kiểm tra lại thông tin. "Căn đã xác thực chủ sở hữu" không thay thế
+            việc thẩm định pháp lý hợp đồng.
           </p>
         </form>
       </section>

@@ -26,13 +26,24 @@ export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => v
   );
 }
 
-export function Notice({ tone = "info", children }: { tone?: "info" | "success" | "warning"; children: ReactNode }) {
+export function Notice({
+  tone = "info",
+  children,
+}: {
+  tone?: "info" | "success" | "warning" | "danger";
+  children: ReactNode;
+}) {
   const styles = {
     info: "border-sky-200 bg-sky-50 text-sky-900",
     success: "border-emerald-200 bg-emerald-50 text-emerald-900",
     warning: "border-amber-200 bg-amber-50 text-amber-900",
+    danger: "border-red-300 bg-red-50 text-red-800",
   }[tone];
-  return <div className={`rounded-lg border p-3 text-sm ${styles}`}>{children}</div>;
+  return (
+    <div role={tone === "danger" ? "note" : undefined} className={`rounded-lg border p-3 text-sm ${styles}`}>
+      {children}
+    </div>
+  );
 }
 
 export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {

@@ -134,6 +134,12 @@ export function BookingStatusCard({
         </button>
       </div>
 
+      {/* Anti-deposit-scam warning: BookingBot never handles money (payments are out of scope) */}
+      <Notice tone="danger">
+        <strong className="font-semibold">Cảnh báo:</strong> Chủ đầu tư không thu tiền đặt cọc qua tin nhắn cá nhân. Mọi
+        giao dịch đặt cọc phải thực hiện tại văn phòng CĐT.
+      </Notice>
+
       {ended ? (
         <Notice tone="warning">
           Lịch xem này đã kết thúc ({endedLabel(b)}).

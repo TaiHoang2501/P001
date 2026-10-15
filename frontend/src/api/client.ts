@@ -87,6 +87,10 @@ export function errorMessage(err: unknown): string {
       return "Mã này không còn dùng được (nhập sai quá nhiều lần hoặc đã hết hạn). Bấm “Gửi lại mã” để nhận mã mới.";
     const left = err.details.attempts_left;
     if (err.code === "INVALID_CREDENTIALS" && typeof left === "number") return `Mã không đúng. Còn ${left} lần thử.`;
+    // Chat messages to the AI assistant (rate limited per buyer / guest IP)
+    const waitSeconds = err.details.retry_after_seconds;
+    if (err.code === "RATE_LIMITED" && err.details.scope === "chat" && typeof waitSeconds === "number")
+      return `Bạn gửi tin nhắn hơi nhanh. Vui lòng thử lại sau ${waitSeconds < 60 ? `${waitSeconds} giây` : `${Math.ceil(waitSeconds / 60)} phút`}.`;
     const wait = err.details.retry_after_minutes;
     if (err.code === "RATE_LIMITED" && typeof wait === "number")
       return `Bạn đã yêu cầu mã quá nhiều lần mà chưa nhập. Vui lòng thử lại sau ${wait} phút.`;

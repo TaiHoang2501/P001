@@ -181,6 +181,13 @@ class Settings(BaseSettings):
     otp_expose_code: bool | None = None
     # Wrong holder name / red book code attempts one seller account may make per hour (stops guessing codes)
     ownership_claim_failures_per_hour: int = Field(default=5, ge=1)
+    # Support phone shown when the AI assistant is turned off by an operator (kill switch)
+    support_hotline: str = "1900xxxx"
+    # Chat messages to the AI assistant (each is a model call): per signed-in buyer, and per IP for guests
+    chat_messages_per_minute: int = Field(default=10, ge=1)
+    chat_messages_per_hour: int = Field(default=120, ge=1)
+    guest_chat_messages_per_minute: int = Field(default=6, ge=1)
+    guest_chat_messages_per_hour: int = Field(default=40, ge=1)
     # Developer traces of chat turns (ai_turns) and unclaimed guest conversations are kept this many days
     ai_trace_retention_days: int = Field(default=180, ge=1)
     # Langfuse (LLM observability) for chat turns; off when the keys are empty and always off in tests

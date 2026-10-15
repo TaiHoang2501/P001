@@ -6,8 +6,9 @@ from src.core.deps import DbSession, OperatorActor
 from src.db.models import BookingStatus, PropertyStatus, SellerVerificationStatus
 from src.models.booking import BookingOut
 from src.models.property import PropertyOut, RejectRequest
+from src.models.schemas import AssistantControlOut, AssistantToggle
 from src.models.seller import SellerProfileOut, SellerReviewItem
-from src.services import booking_service, property_service, seller_service
+from src.services import assistant_control, booking_service, property_service, seller_service
 
 router = APIRouter(prefix="/operator", tags=["operator"])
 
@@ -55,3 +56,14 @@ def all_bookings(actor: OperatorActor, db: DbSession, status: BookingStatus | No
 def cancel_booking(booking_id: int, actor: OperatorActor, db: DbSession) -> BookingOut:
     """Manual fallback: operator cancels a stuck booking (before its viewing time)."""
     return booking_service.operator_cancel(db, actor, booking_id)
+
+
+@router.get("/ai-assistant", response_model=AssistantControlOut)
+def ai_assistant(actor: OperatorActor, db: DbSession) -> AssistantControlOut:
+    return AssistantControlOut.model_validate(assistant_control.status(db))
+
+
+@router.put("/ai-assistant", response_model=AssistantControlOut)
+def set_ai_assistant(data: AssistantToggle, actor: OperatorActor, db: DbSession) -> AssistantControlOut:
+    """Kill switch: turn the AI assistant off (buyers see a maintenance notice) or back on. Audited."""
+    return AssistantControlOut.model_validate(assistant_control.set_enabled(db, actor, data.enabled))

@@ -10,6 +10,11 @@ only from successful tool results (ok: true), never from what the model says it 
 Streaming (`chat_stream`, `guest_chat_stream`): the reply is sent piece by piece while the model writes it,
 with a `tools` event each time the agent calls tools; the last event (`done`) carries the same ChatResponse
 as the non-streaming endpoints, so cards and bookings still come only from tool results.
+
+Guardrails (src/agents/guardrails.py) wrap every turn: the buyer's message is screened before the model sees it
+(personal data masked; a prompt-injection attempt gets a fixed reply without calling the model), and the final
+reply is screened before it is returned and kept (a reply breaking a rule is replaced, also in the conversation
+state, so the model does not build on it). What a guardrail changed is written to audit_logs.
 """
 
 import logging
@@ -20,13 +25,14 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, Huma
 from langchain_core.runnables import RunnableConfig
 
 from src.agents import graph as agent_graph
+from src.agents import guardrails
 from src.core.actor import Actor
 from src.core.errors import AgentUnavailableError
 from src.db.session import get_sessionmaker
 from src.models.booking import BookingOut, ViewingTimesOut
 from src.models.property import Recommendation
 from src.models.schemas import ChatRequest, ChatResponse, PendingViewingRequest
-from src.services import ai_trace, buyer_memory, conversation_service, llm_observability
+from src.services import ai_trace, audit, buyer_memory, conversation_service, llm_observability
 from src.services.ai_trace import TurnTracer
 
 logger = logging.getLogger(__name__)
@@ -119,13 +125,24 @@ async def chat(actor: Actor, request: ChatRequest) -> ChatResponse:
     config = _buyer_config(actor, request)
     thread_id = config["configurable"]["thread_id"]
     tracer = TurnTracer()
+    screened = guardrails.screen_input(request.message)
+    if screened.blocked:
+        new_messages = _blocked_turn(screened)
+        _record(tracer, actor, request, thread_id, new_messages, streamed=False, screened=screened)
+        return _response(request.conversation_id, new_messages, tracer.trace_id)
     try:
-        new_messages = await _run_turn(config, request.message, tracer)
+        new_messages, violations = await _run_turn(config, screened.text, tracer)
     except AgentUnavailableError as e:
-        _record(tracer, actor, request, thread_id, [], streamed=False, error=e.__cause__ or e)
+        _record(tracer, actor, request, thread_id, [], streamed=False, error=e.__cause__ or e, screened=screened)
         raise
-    _record(tracer, actor, request, thread_id, new_messages, streamed=False)
+    _record(tracer, actor, request, thread_id, new_messages, streamed=False, screened=screened, violations=violations)
     return _response(request.conversation_id, new_messages, tracer.trace_id)
+
+
+def _blocked_turn(screened: guardrails.InputVerdict) -> list[BaseMessage]:
+    """The turn of a message the input guardrail stopped: a fixed reply, the model is not called. Not added to the
+    agent's memory, so the attempt cannot steer later turns."""
+    return [HumanMessage(screened.text), AIMessage(guardrails.INJECTION_REPLY)]
 
 
 def _memory(user_id: int) -> str | None:
@@ -142,12 +159,17 @@ async def guest_chat(request: ChatRequest) -> ChatResponse:
     """A turn for a buyer without an account (stored and traced too; claimed when the guest signs up)."""
     thread_id = _guest_thread(request.conversation_id)
     tracer = TurnTracer()
+    screened = guardrails.screen_input(request.message)
+    if screened.blocked:
+        new_messages = _blocked_turn(screened)
+        _record(tracer, None, request, thread_id, new_messages, streamed=False, screened=screened)
+        return _guest_response(request.conversation_id, new_messages, tracer.trace_id)
     try:
-        new_messages = await _run_turn(_guest_config(request), request.message, tracer)
+        new_messages, violations = await _run_turn(_guest_config(request), screened.text, tracer)
     except AgentUnavailableError as e:
-        _record(tracer, None, request, thread_id, [], streamed=False, error=e.__cause__ or e)
+        _record(tracer, None, request, thread_id, [], streamed=False, error=e.__cause__ or e, screened=screened)
         raise
-    _record(tracer, None, request, thread_id, new_messages, streamed=False)
+    _record(tracer, None, request, thread_id, new_messages, streamed=False, screened=screened, violations=violations)
     return _guest_response(request.conversation_id, new_messages, tracer.trace_id)
 
 
@@ -172,11 +194,21 @@ async def chat_stream(actor: Actor, request: ChatRequest) -> AsyncIterator[ChatE
     config = _buyer_config(actor, request)
     thread_id = config["configurable"]["thread_id"]
     tracer = TurnTracer()
-    async for name, data in _stream_turn(config, request.message, tracer):
+    screened = guardrails.screen_input(request.message)
+    async for name, data in _stream_turn(config, screened, tracer):
         if name == "_failed":
-            _record(tracer, actor, request, thread_id, [], streamed=True, error=data["error"])
+            _record(tracer, actor, request, thread_id, [], streamed=True, error=data["error"], screened=screened)
         elif name == "_final":
-            _record(tracer, actor, request, thread_id, data["messages"], streamed=True)
+            _record(
+                tracer,
+                actor,
+                request,
+                thread_id,
+                data["messages"],
+                streamed=True,
+                screened=screened,
+                violations=data["violations"],
+            )
             yield "done", _response(request.conversation_id, data["messages"], tracer.trace_id).model_dump(mode="json")
         else:
             yield name, data
@@ -185,21 +217,39 @@ async def chat_stream(actor: Actor, request: ChatRequest) -> AsyncIterator[ChatE
 async def guest_chat_stream(request: ChatRequest) -> AsyncIterator[ChatEvent]:
     thread_id = _guest_thread(request.conversation_id)
     tracer = TurnTracer()
-    async for name, data in _stream_turn(_guest_config(request), request.message, tracer):
+    screened = guardrails.screen_input(request.message)
+    async for name, data in _stream_turn(_guest_config(request), screened, tracer):
         if name == "_failed":
-            _record(tracer, None, request, thread_id, [], streamed=True, error=data["error"])
+            _record(tracer, None, request, thread_id, [], streamed=True, error=data["error"], screened=screened)
         elif name == "_final":
-            _record(tracer, None, request, thread_id, data["messages"], streamed=True)
+            _record(
+                tracer,
+                None,
+                request,
+                thread_id,
+                data["messages"],
+                streamed=True,
+                screened=screened,
+                violations=data["violations"],
+            )
             response = _guest_response(request.conversation_id, data["messages"], tracer.trace_id)
             yield "done", response.model_dump(mode="json")
         else:
             yield name, data
 
 
-async def _stream_turn(config: RunnableConfig, message: str, tracer: TurnTracer) -> AsyncIterator[ChatEvent]:
+async def _stream_turn(
+    config: RunnableConfig, screened: guardrails.InputVerdict, tracer: TurnTracer
+) -> AsyncIterator[ChatEvent]:
     """Events of one turn: `token` (a piece of the reply being written), `tools` (the agent is calling tools;
-    text streamed before it was only a preface), `error`; then an internal `_final` with the new messages
-    (or `_failed` with the error, before `error`)."""
+    text streamed before it was only a preface), `error`; then an internal `_final` with the new messages and
+    what the output guardrail found (or `_failed` with the error, before `error`). The `done` event carries the
+    screened reply, which the client shows in place of the streamed text."""
+    if screened.blocked:
+        yield "token", {"text": guardrails.INJECTION_REPLY}
+        yield "_final", {"messages": _blocked_turn(screened), "violations": []}
+        return
+    message = screened.text
     agent = agent_graph.get_agent()
     with llm_observability.chat_turn(tracer.trace_id, config, message, streamed=True) as observed:
         async for event in _stream_events(
@@ -232,7 +282,8 @@ async def _stream_events(agent: Any, config: RunnableConfig, message: str, trace
                     ]
                     if calls:
                         yield "tools", {"names": calls}
-        messages = (await agent.aget_state(config)).values["messages"][before:]
+        history = (await agent.aget_state(config)).values["messages"]
+        messages, violations = await _guard_output(agent, config, history, history[before:])
     except Exception as e:
         # The response has already started: report the failure as an event, the client shows it in the chat
         logger.exception("agent turn failed (stream, trace=%s)", trace_id)
@@ -246,7 +297,7 @@ async def _stream_events(agent: Any, config: RunnableConfig, message: str, trace
             },
         )
         return
-    yield "_final", {"messages": messages}
+    yield "_final", {"messages": messages, "violations": violations}
 
 
 async def claim_guest(actor: Actor, conversation_id: str) -> bool:
@@ -270,7 +321,8 @@ async def claim_guest(actor: Actor, conversation_id: str) -> bool:
     return True
 
 
-async def _run_turn(config: RunnableConfig, message: str, tracer: TurnTracer) -> list[BaseMessage]:
+async def _run_turn(config: RunnableConfig, message: str, tracer: TurnTracer) -> tuple[list[BaseMessage], list[str]]:
+    """The turn's new messages (reply screened by the output guardrail) and what the guardrail found."""
     agent = agent_graph.get_agent()  # raises AgentUnavailableError when no API key is configured
     with llm_observability.chat_turn(tracer.trace_id, config, message, streamed=False) as observed:
         config = {**config, "callbacks": [tracer, *observed.callbacks]}
@@ -283,9 +335,29 @@ async def _run_turn(config: RunnableConfig, message: str, tracer: TurnTracer) ->
             raise AgentUnavailableError(
                 "AI assistant is temporarily unavailable, please try again", details={"trace_id": tracer.trace_id}
             ) from e
-        new_messages = result["messages"][before:]
+        history = result["messages"]
+        new_messages, violations = await _guard_output(agent, config, history, history[before:])
         observed.finish(_reply(new_messages))
-    return new_messages
+    return new_messages, violations
+
+
+async def _guard_output(
+    agent: Any, config: RunnableConfig, history: list[BaseMessage], new_messages: list[BaseMessage]
+) -> tuple[list[BaseMessage], list[str]]:
+    """Screen the turn's final reply; a changed reply also replaces the original in the conversation state."""
+    last = new_messages[-1] if new_messages else None
+    if not isinstance(last, AIMessage) or last.tool_calls:
+        return new_messages, []
+    verdict = guardrails.screen_output(last.text, history)
+    if not verdict.changed:
+        return new_messages, []
+    logger.warning("output guardrail changed the reply: %s", verdict.violations)
+    safe = guardrails.guarded_reply(last, verdict)
+    try:
+        await agent.aupdate_state({"configurable": config["configurable"]}, {"messages": [safe]}, as_node="agent")
+    except Exception:
+        logger.exception("could not store the guarded reply")
+    return [*new_messages[:-1], safe], verdict.violations
 
 
 def _reply(new_messages: list[BaseMessage]) -> str:
@@ -315,16 +387,20 @@ def _record(
     *,
     streamed: bool,
     error: BaseException | None = None,
+    screened: guardrails.InputVerdict | None = None,
+    violations: list[str] | None = None,
 ) -> None:
-    """Store the turn: its trace (always, failed turns too) and its messages (when it produced any).
-    Tool actions are already committed by the services; a logging failure must not hide the reply."""
+    """Store the turn: its trace (always, failed turns too), its messages (when it produced any) and what the
+    guardrails changed. Tool actions are already committed by the services; a logging failure must not hide
+    the reply."""
     try:
         with get_sessionmaker()() as db:
             conv = conversation_service.get_or_create(db, actor, request.conversation_id, thread_id)
             turn = ai_trace.save(
                 db,
                 tracer,
-                message=request.message,
+                # As the model received it: personal data the buyer typed is not kept in traces
+                message=screened.text if screened is not None else request.message,
                 buyer_id=actor.id if actor is not None else None,
                 conversation=conv,
                 streamed=streamed,
@@ -340,6 +416,19 @@ def _record(
                     latency_ms=turn.latency_ms,
                     turn_id=turn.id,
                     conv=conv,
+                )
+            if guarded := [*(screened.flags if screened else []), *(violations or [])]:
+                audit.record(
+                    db,
+                    actor,
+                    "AI_GUARDRAIL",
+                    "ai_conversation",
+                    conv.id,
+                    extra={
+                        "flags": guarded,
+                        "blocked": bool(screened and screened.blocked),
+                        "trace_id": tracer.trace_id,
+                    },
                 )
             db.commit()
     except Exception:
