@@ -282,8 +282,8 @@ export function BuyerChatPage() {
   );
   const [searchParams, setSearchParams] = useSearchParams();
   // The reply being written (streamed), or what the assistant is doing meanwhile
-  // `final`: the finished turn, shown once the typing-out has caught up with the streamed text
-  const [live, setLive] = useState<{ text: string; status: string | null; final?: ChatResponse } | null>(null);
+  // `finish`: shows the finished turn, called once the typing-out has caught up with the streamed text
+  const [live, setLive] = useState<{ text: string; status: string | null; finish?: () => void } | null>(null);
   const streamed = useRef("");
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -384,7 +384,7 @@ export function BuyerChatPage() {
     onSuccess: (res) => {
       keepDraft(null);
       // Let the typing-out finish first (StreamingText calls finishTurn); nothing typed -> show it now
-      if (streamed.current) setLive((l) => (l ? { ...l, final: res } : l));
+      if (streamed.current) setLive((l) => (l ? { ...l, finish: () => finishTurn(res) } : l));
       else finishTurn(res);
     },
     onError: (err) => {
@@ -428,17 +428,26 @@ export function BuyerChatPage() {
           },
         }),
       ),
+    onMutate: () => setLive({ text: "", status: "Đang gửi yêu cầu xem nhà tới chủ căn..." }),
     onSuccess: (booking) => {
       queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
-      append({
-        role: "assistant",
-        text:
-          `Đã gửi yêu cầu xem nhà tới chủ căn — mã Deal ${booking.deal_code}. ` +
-          "Lịch chỉ có hiệu lực khi chủ căn xác nhận; bạn theo dõi trạng thái trong mục Hoạt động.",
-        bookings: [booking],
+      const text =
+        `Đã gửi yêu cầu xem nhà tới chủ căn — mã Deal ${booking.deal_code}. ` +
+        "Lịch chỉ có hiệu lực khi chủ căn xác nhận; bạn theo dõi trạng thái trong mục Hoạt động.";
+      // Typed out like an assistant reply; the booking card comes once it is written
+      setLive({
+        text,
+        status: null,
+        finish: () => {
+          setLive(null);
+          append({ role: "assistant", text, bookings: [booking] });
+        },
       });
     },
-    onError: (err) => append({ role: "error", text: errorMessage(err) }),
+    onError: (err) => {
+      setLive(null);
+      append({ role: "error", text: errorMessage(err) });
+    },
   });
 
   function onSignedUp(
@@ -453,11 +462,17 @@ export function BuyerChatPage() {
       ),
     }));
     if (pending) sendPending.mutate(pending);
-    else
-      append({
-        role: "assistant",
-        text: `Chào ${account.full_name}, tài khoản của bạn đã sẵn sàng. Mình tiếp tục nhé!`,
+    else {
+      const text = `Chào ${account.full_name}, tài khoản của bạn đã sẵn sàng. Mình tiếp tục nhé!`;
+      setLive({
+        text,
+        status: null,
+        finish: () => {
+          setLive(null);
+          append({ role: "assistant", text });
+        },
       });
+    }
   }
 
   // A home's details and its viewing-time picker open in the side panel; status and the buyer's viewings
@@ -587,7 +602,7 @@ export function BuyerChatPage() {
       return;
     }
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [lastId, conversation.messages.length, send.isPending]);
+  }, [lastId, conversation.messages.length, send.isPending, live?.status]);
 
 
   function submit(text: string) {
@@ -785,14 +800,17 @@ export function BuyerChatPage() {
               signup={
                 i === signupAt ? (
                   <div className="max-w-md">
-                    <GuestSignup onDone={(u) => onSignedUp(u, m.pendingViewing)} />
+                    <GuestSignup
+                      onVerified={() => setLive({ text: "", status: "Đã xác thực số điện thoại, đang chuẩn bị tài khoản..." })}
+                      onFailed={() => setLive(null)}
+                      onDone={(u) => onSignedUp(u, m.pendingViewing)}
+                    />
                   </div>
                 ) : undefined
               }
             />
             </div>
           ))}
-          {sendPending.isPending && <p className="pl-12 text-sm text-muted">Đang gửi yêu cầu xem nhà...</p>}
           {live &&
             (live.text ? (
               <div className="flex items-start gap-3">
@@ -800,7 +818,7 @@ export function BuyerChatPage() {
                 <StreamingText
                   text={live.text}
                   onGrow={scrollToEnd}
-                  onCaughtUp={live.final ? () => finishTurn(live.final!) : undefined}
+                  onCaughtUp={live.finish}
                 />
               </div>
             ) : (

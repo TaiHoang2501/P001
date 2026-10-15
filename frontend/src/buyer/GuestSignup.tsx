@@ -9,8 +9,18 @@ import { adoptGuestChat } from "./guest";
 /**
  * Shown to a guest at the moment they confirm a viewing: a quick phone + OTP sign-up (or sign-in if the
  * phone already has a buyer account). `onDone` runs once they are a signed-in buyer, to send the request.
+ * `onVerified` runs as soon as the code is accepted (the chat shows progress meanwhile), `onFailed` if the
+ * account cannot be used after all.
  */
-export function GuestSignup({ onDone }: { onDone: (user: User) => void }) {
+export function GuestSignup({
+  onDone,
+  onVerified,
+  onFailed,
+}: {
+  onDone: (user: User) => void;
+  onVerified?: () => void;
+  onFailed?: () => void;
+}) {
   const { logout } = useAuth();
   const [wrongRole, setWrongRole] = useState(false);
   // New buyers sign up (a phone already on the system is refused); a returning buyer can switch to sign in
@@ -23,7 +33,13 @@ export function GuestSignup({ onDone }: { onDone: (user: User) => void }) {
       setWrongRole(true);
       return;
     }
-    await adoptGuestChat(user);
+    onVerified?.();
+    try {
+      await adoptGuestChat(user);
+    } catch (err) {
+      onFailed?.();
+      throw err;
+    }
     onDone(user);
   }
 
