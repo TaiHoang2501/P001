@@ -24,7 +24,7 @@ def _events(text: str) -> list[tuple[str, dict]]:
 async def test_buyer_reply_streams_then_done_has_tool_results(client, db, script):  # noqa: F811
     script(
         _call("search_properties", {"budget_max_vnd": 5_000_000_000, "bedrooms": 2}),
-        AIMessage(content="Có vài căn phù hợp với anh chị."),
+        AIMessage(content="Có vài căn phù hợp với anh chị. Em gợi ý 3 căn bên dưới."),
     )
     an = await auth(client, CUSTOMER_AN)
     r = await client.post("/api/v1/chat/stream", json=BODY, headers=an)
@@ -33,14 +33,13 @@ async def test_buyer_reply_streams_then_done_has_tool_results(client, db, script
     events = _events(r.text)
     names = [n for n, _ in events]
 
-    # Tool status first, then the reply word by word, then the final result
+    # Tool status first, then the reply sentence by sentence (each checked by the guardrails), then the final result
     assert events[0] == ("tools", {"names": ["search_properties"]})
     tokens = [d["text"] for n, d in events if n == "token"]
-    assert len(tokens) > 1
-    assert "".join(tokens) == "Có vài căn phù hợp với anh chị."
+    assert tokens == ["Có vài căn phù hợp với anh chị. ", "Em gợi ý 3 căn bên dưới."]
     assert names[-1] == "done"
     done = events[-1][1]
-    assert done["reply"] == "Có vài căn phù hợp với anh chị."
+    assert done["reply"] == "Có vài căn phù hợp với anh chị. Em gợi ý 3 căn bên dưới."
     assert done["recommendations"]
     # The turn is recorded like a non-streaming one
     assert db.query(AiMessage).count() > 0

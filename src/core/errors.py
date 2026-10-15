@@ -109,6 +109,13 @@ class AgentUnavailableError(AppError):
     code = "AGENT_UNAVAILABLE"
 
 
+class AiDisabledError(AppError):
+    """An operator turned the AI assistant off (kill switch); the message names the support hotline."""
+
+    status_code = 503
+    code = "AI_DISABLED"
+
+
 class StorageUnavailableError(AppError):
     """Media storage is not configured or the storage provider failed."""
 

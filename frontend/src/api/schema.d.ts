@@ -887,6 +887,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/ai-assistant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ai Assistant */
+        get: operations["ai_assistant_api_v1_operator_ai_assistant_get"];
+        /**
+         * Set Ai Assistant
+         * @description Kill switch: turn the AI assistant off (buyers see a maintenance notice) or back on. Audited.
+         */
+        put: operations["set_ai_assistant_api_v1_operator_ai_assistant_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/diagnostics/client-ip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Client Ip
+         * @description After a deploy: which address guest rate limits use for this request. `client_ip` must be your own public IP;
+         *     if it is the platform's proxy instead, adjust TRUSTED_PROXY_HOPS / CLIENT_IP_HEADER.
+         */
+        get: operations["client_ip_api_v1_operator_diagnostics_client_ip_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat": {
         parameters: {
             query?: never;
@@ -935,7 +977,7 @@ export interface paths {
         put?: never;
         /**
          * Chat Stream
-         * @description Server-Sent Events: `token` {text} while the reply is written, `tools` {names} when the agent calls tools, `error` {code, message}, and finally `done` with the same body as the non-streaming endpoint.
+         * @description Server-Sent Events: `token` {text} while the reply is written (sentence by sentence, each checked by the guardrails first), `tools` {names} when the agent calls tools, `replace` {text} when the guardrails changed the reply (show it instead of the streamed text), `error` {code, message}, and finally `done` with the same body as the non-streaming endpoint.
          */
         post: operations["chat_stream_api_v1_chat_stream_post"];
         delete?: never;
@@ -955,7 +997,7 @@ export interface paths {
         put?: never;
         /**
          * Guest Chat Stream
-         * @description Server-Sent Events: `token` {text} while the reply is written, `tools` {names} when the agent calls tools, `error` {code, message}, and finally `done` with the same body as the non-streaming endpoint.
+         * @description Server-Sent Events: `token` {text} while the reply is written (sentence by sentence, each checked by the guardrails first), `tools` {names} when the agent calls tools, `replace` {text} when the guardrails changed the reply (show it instead of the streamed text), `error` {code, message}, and finally `done` with the same body as the non-streaming endpoint.
          */
         post: operations["guest_chat_stream_api_v1_chat_guest_stream_post"];
         delete?: never;
@@ -978,6 +1020,26 @@ export interface paths {
          * @description Right after a guest signs up: continue the same conversation under the new account.
          */
         post: operations["claim_guest_chat_api_v1_chat_guest__conversation_id__claim_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/assistant-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Assistant Status
+         * @description Public: the chat shows a maintenance notice (with the support hotline) while an operator has the AI off.
+         */
+        get: operations["assistant_status_api_v1_chat_assistant_status_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1436,6 +1498,36 @@ export interface components {
          * @enum {string}
          */
         ActorType: "USER" | "AI_AGENT" | "SYSTEM";
+        /** AssistantControlOut */
+        AssistantControlOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Message */
+            message?: string | null;
+            /** Hotline */
+            hotline: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: number | null;
+        };
+        /**
+         * AssistantStatusOut
+         * @description Whether the AI assistant answers (operator kill switch); `message` is shown in the chat while it is off.
+         */
+        AssistantStatusOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Message */
+            message?: string | null;
+            /** Hotline */
+            hotline: string;
+        };
+        /** AssistantToggle */
+        AssistantToggle: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** Body_upload_media_api_v1_owner_properties__property_id__media_upload_post */
         Body_upload_media_api_v1_owner_properties__property_id__media_upload_post: {
             kind: components["schemas"]["MediaKind"];
@@ -4395,6 +4487,81 @@ export interface operations {
             };
         };
     };
+    ai_assistant_api_v1_operator_ai_assistant_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantControlOut"];
+                };
+            };
+        };
+    };
+    set_ai_assistant_api_v1_operator_ai_assistant_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantToggle"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantControlOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    client_ip_api_v1_operator_diagnostics_client_ip_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string | number | null;
+                    };
+                };
+            };
+        };
+    };
     chat_api_v1_chat_post: {
         parameters: {
             query?: never;
@@ -4550,6 +4717,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assistant_status_api_v1_chat_assistant_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantStatusOut"];
                 };
             };
         };
