@@ -7,12 +7,18 @@
 - Agent follow-ups: alternatives for requests left unanswered or rejected; reminders worded for the buyer.
 - After a viewing: remind the owner once to record it; close it as UNREPORTED if nobody did in time.
 - Drop developer traces of chat turns older than AI_TRACE_RETENTION_DAYS.
+- Demo only (SEED_DEMO_DATA): once a day, keep the demo owners' viewing slots 14 days ahead — an instance kept
+  warm can run for days without the start-up seed.
 """
 
 import asyncio
 import logging
+from datetime import date
+
+from sqlalchemy.orm import Session
 
 from src.config import get_settings
+from src.db import seed
 from src.db.session import get_sessionmaker
 from src.services import (
     agent_followup,
@@ -25,6 +31,9 @@ from src.services import (
 )
 
 logger = logging.getLogger(__name__)
+
+DEMO_SLOT_DAYS = 14
+_demo_slots_topped_up_on: date | None = None
 
 
 def run_once() -> None:
@@ -57,6 +66,17 @@ def run_once() -> None:
         purged = ai_trace.purge_old(db)
         if purged:
             logger.info("Dropped %d old chat trace(s)", purged)
+        _top_up_demo_slots(db)
+
+
+def _top_up_demo_slots(db: Session) -> None:
+    global _demo_slots_topped_up_on
+    if not get_settings().seed_demo_data or _demo_slots_topped_up_on == date.today():
+        return
+    added = seed.ensure_slots(db, DEMO_SLOT_DAYS)
+    _demo_slots_topped_up_on = date.today()
+    if added:
+        logger.info("Added %d demo viewing slot(s)", added)
 
 
 async def run_forever() -> None:

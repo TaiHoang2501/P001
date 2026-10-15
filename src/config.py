@@ -128,6 +128,8 @@ class Settings(BaseSettings):
     # In-process periodic jobs (hold expiry, reminders); disabled under APP_ENV=test
     jobs_enabled: bool = True
     job_interval_seconds: int = Field(default=60, ge=5)
+    # Demo data (scripts/start.sh seeds it); the jobs also top up the demo owners' viewing slots once a day
+    seed_demo_data: bool = True
 
     # Media: public URL = media_base_url + s3_key (e.g. a CloudFront domain); empty means return the key
     media_base_url: str = ""

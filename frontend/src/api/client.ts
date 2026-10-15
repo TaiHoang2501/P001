@@ -12,6 +12,11 @@ const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
 export const api = createClient<paths>({ baseUrl: API_BASE });
 
+/** Wake the backend as the page opens, so a server that went idle is up by the time the user acts. */
+export function warmUpApi() {
+  fetch(`${API_BASE}/health`).catch(() => undefined);
+}
+
 let token: string | null = null;
 let onUnauthorized: (() => void) | null = null;
 

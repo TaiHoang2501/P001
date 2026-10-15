@@ -3,8 +3,11 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 
 import { App } from "./App";
+import { warmUpApi } from "./api/client";
 import { AuthProvider } from "./auth/AuthContext";
 import "./index.css";
+
+warmUpApi();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

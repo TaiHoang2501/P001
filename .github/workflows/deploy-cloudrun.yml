@@ -56,6 +56,20 @@ jobs:
           cache-from: type=gha,scope=cloudrun
           cache-to: type=gha,scope=cloudrun,mode=max
 
+      # Migrations and demo seeding run once per deploy as a Cloud Run job, so the service itself starts in a few
+      # seconds after idling (DB_SETUP_ON_START=false below) instead of ~22s
+      - name: Migrate and Seed Database
+        run: |
+          gcloud run jobs deploy bookingbot-setup \
+            --region="${{ vars.GCP_REGION }}" \
+            --image="${{ env.IMAGE }}" \
+            --service-account="${{ vars.GCP_RUNTIME_SA }}" \
+            --command=sh --args=scripts/start.sh,setup \
+            --set-env-vars=APP_ENV=production,SEED_DEMO_DATA=true,TIMEZONE=Asia/Ho_Chi_Minh \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest \
+            --cpu=1 --memory=512Mi --max-retries=0 --task-timeout=600 \
+            --execute-now --wait
+
       - name: Deploy to Cloud Run
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v2
@@ -82,6 +96,8 @@ jobs:
             FIREBASE_WEB_API_KEY=AIzaSyDYR4D56eErKNaps9QgaioGynRAuL_0Sl4
             # Uploaded photos are served by this API; the web app on Vercel needs its full address
             PUBLIC_API_URL=https://bookingbot-api-wlvipunyga-as.a.run.app
+            # Done by the "Migrate and Seed Database" step; the jobs still top up demo viewing slots daily
+            DB_SETUP_ON_START=false
             SEED_DEMO_DATA=true
             TIMEZONE=Asia/Ho_Chi_Minh
           secrets: |-
@@ -94,6 +110,7 @@ jobs:
           # max-instances=1: hold expiry, reminders and follow-ups run in-process (src/jobs.py) and must not
           # run twice. min-instances=0 keeps it free, but like Render's free plan those jobs pause while idle;
           # set min-instances=1 plus --no-cpu-throttling to keep them running (billed around the clock).
+          # A Cloud Scheduler job (scripts/gcp-setup.sh) calls /health every 5 minutes to keep the instance warm.
           # Long timeout: the AI chat streams over SSE.
           flags: >-
             --service-account=${{ vars.GCP_RUNTIME_SA }}

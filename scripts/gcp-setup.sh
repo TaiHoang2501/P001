@@ -15,6 +15,7 @@ REGION="${REGION:-asia-southeast1}"
 REPOSITORY="${REPOSITORY:-bookingbot}"
 DEPLOYER="github-deployer"
 RUNTIME="bookingbot-api"
+SERVICE="bookingbot-api" # Cloud Run service name in deploy-cloudrun.yml
 POOL="github"
 PROVIDER="github-oidc"
 
@@ -23,7 +24,7 @@ PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectN
 
 echo "==> Enabling APIs"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
-  secretmanager.googleapis.com iamcredentials.googleapis.com sts.googleapis.com
+  secretmanager.googleapis.com iamcredentials.googleapis.com sts.googleapis.com cloudscheduler.googleapis.com
 
 echo "==> Artifact Registry repository for the images"
 gcloud artifacts repositories describe "$REPOSITORY" --location "$REGION" >/dev/null 2>&1 ||
@@ -85,6 +86,18 @@ gcloud iam workload-identity-pools providers describe "$PROVIDER" --location glo
 gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER_EMAIL" --quiet \
   --role roles/iam.workloadIdentityUser \
   --member "principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL/attribute.repository/$GITHUB_REPO" >/dev/null
+
+echo "==> Keep-warm ping (Cloud Scheduler calls /health every 5 minutes so users never wait for a cold start)"
+SERVICE_URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)' 2>/dev/null || true)
+if [ -z "$SERVICE_URL" ]; then
+  echo "    service not deployed yet: re-run this script after the first deploy"
+elif gcloud scheduler jobs describe bookingbot-api-warmup --location "$REGION" >/dev/null 2>&1; then
+  echo "    bookingbot-api-warmup exists, kept"
+else
+  gcloud scheduler jobs create http bookingbot-api-warmup --location "$REGION" \
+    --schedule '*/5 * * * *' --uri "$SERVICE_URL/health" --http-method GET --attempt-deadline 60s \
+    --description 'Keep the Cloud Run API warm'
+fi
 
 cat <<EOF
 
