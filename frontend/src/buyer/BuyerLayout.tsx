@@ -35,10 +35,13 @@ export function BuyerLayout() {
             <Link to="/buyer/chat?home=1" className={pill(onChat)} aria-current={onChat ? "page" : undefined}>
               Tìm nhà
             </Link>
-            {/* Viewings and the owners' answers: kept even when a new chat starts */}
-            <Link to="/buyer/activity" className={pill(onActivity)} aria-current={onActivity ? "page" : undefined}>
-              Hoạt động
-            </Link>
+            {/* Viewings and the owners' answers: kept even when a new chat starts. Signed-in buyers only:
+                for a guest it would just lead to "Đăng nhập" */}
+            {buyer && (
+              <Link to="/buyer/activity" className={pill(onActivity)} aria-current={onActivity ? "page" : undefined}>
+                Hoạt động
+              </Link>
+            )}
           </nav>
 
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2 md:gap-3">
