@@ -15,7 +15,7 @@ import psycopg
 
 from src.config import get_settings
 
-SEED_VERSION = "2026-10-17.all-cases"
+SEED_VERSION = "2026-10-17.sold-listing"
 SETTING_KEY = "seed.version"
 # Two instances starting together: one seeds, the other waits for it and then sees the version
 _LOCK_ID = 7_420_190
@@ -50,6 +50,7 @@ def run_seed_steps() -> None:
         print(f"Added {seed.ensure_slots(db, 14)} demo viewing slot(s).")
         # Last: the cases book the slots topped up above
         print(f"All cases: {seed.ensure_all_cases(db)}.")
+        print(f"Sold listing: {seed.ensure_sold_listing(db)}.")
 
 
 def main() -> None:
