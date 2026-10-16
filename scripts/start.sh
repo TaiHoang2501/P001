@@ -1,6 +1,6 @@
 #!/bin/sh
-# Container start-up: bring the schema up to date, load demo data on first start, add demo red books and
-# listings missing from an older database, keep demo viewing slots in the future, then serve the API on $PORT.
+# Container start-up: bring the schema up to date, load the demo data once per database (and again only when its
+# version changes), then serve the API on $PORT. The daily job keeps demo viewing slots in the future.
 #   SEED_DEMO_DATA=false   skips all demo seeding (e.g. for a real, non-demo database)
 #   DB_SETUP_ON_START=false  serves straight away, skipping migrations and seeding (~18s of a cold start); Cloud Run
 #                          does this and runs `sh scripts/start.sh setup` once per deploy instead (deploy-cloudrun.yml)
@@ -11,8 +11,9 @@ if [ "$1" = "setup" ] || [ "${DB_SETUP_ON_START:-true}" = "true" ]; then
   alembic upgrade head
 
   if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
-    # No seeded buyers or extra sellers any more (real SMS sign-in): only the demo accounts, see --demo-accounts-only
-    python -m src.db.seed --if-empty --ensure-red-books --ensure-listings --ensure-seller-story --ensure-red-book-units --ensure-sellers-verified --demo-accounts-only --ensure-photos --ensure-slots 14
+    # Once per database, not on every start: a database that has this version of the demo data skips in a
+    # moment (see src/db/seed_once.py; bump SEED_VERSION there when the demo data changes)
+    python -m src.db.seed_once
   fi
 fi
 
