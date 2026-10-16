@@ -416,8 +416,19 @@ def close(
 # ---------- Requester ----------
 
 
+# What a buyer/seller may read back of their own case: only what they wrote themselves. The rest of `context` is
+# for operators (the other side's phone, no-show counters, internal ids) and never goes to the requester (AC-03)
+_REQUESTER_CONTEXT = {"reason", "red_book_code", "red_book_holder_name", "note", "documents", "claim"}
+
+
+def for_requester(e: Escalation) -> EscalationOut:
+    out = EscalationOut.model_validate(e)
+    out.context = {k: v for k, v in out.context.items() if k in _REQUESTER_CONTEXT}
+    return out
+
+
 def list_mine(db: Session, actor: Actor) -> list[EscalationOut]:
     rows = db.scalars(
         select(Escalation).where(Escalation.requester_id == actor.id).order_by(Escalation.created_at.desc())
     )
-    return [EscalationOut.model_validate(e) for e in rows]
+    return [for_requester(e) for e in rows]

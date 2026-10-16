@@ -35,6 +35,7 @@ from src.db.models import (
     Building,
     BuyerAvailability,
     BuyerProfile,
+    DealStatus,
     Property,
     PropertyStatus,
     User,
@@ -206,7 +207,8 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
         customer_note=booking.customer_note,
         rejection_reason=booking.rejection_reason,
         suggested_starts=booking.suggested_starts or [],
-        closed_by_system=booking.status == BookingStatus.REJECTED and booking.rejection_reason == SUPERSEDED_REASON,
+        closed_by_system=booking.status == BookingStatus.REJECTED
+        and booking.rejection_reason in (SUPERSEDED_REASON, SOLD_REASON),
         responded_at=booking.responded_at,
         created_at=booking.created_at,
         respond_by=respond_by(booking) if booking.status == BookingStatus.REQUESTED else None,
@@ -348,6 +350,63 @@ def _close_overlapping(db: Session, confirmed: Booking) -> None:
             notification_service.reschedule_declined(db, other, SUPERSEDED_REASON)
 
 
+SOLD_REASON = "Căn đã được bán"
+
+
+def close_for_sold(db: Session, actor: Actor, prop: Property) -> int:
+    """The owner sold the home: every viewing still ahead of it is closed and its buyer told the home was sold, in
+    the owner's transaction (no commit). Unanswered requests are declined, confirmed viewings not yet held are
+    cancelled (their holds released). A viewing whose time has come stays: its outcome is still recorded (a new
+    time asked for on it is dropped). Returns how many buyers' viewings were closed."""
+    now = _now()
+    bookings = db.scalars(
+        select(Booking)
+        .where(Booking.property_id == prop.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES))
+        .order_by(Booking.start_at)
+        .with_for_update()
+    ).all()
+    closed = 0
+    for booking in bookings:
+        if booking.start_at <= now and booking.status != BookingStatus.REQUESTED:
+            # Already taking place or held: kept for its outcome, without the new time it asked for
+            if booking.status == BookingStatus.RESCHEDULE_REQUESTED:
+                before = _transition(booking, BookingStatus.CONFIRMED)
+                booking.proposed_start_at = booking.proposed_end_at = None
+                _audit_transition(db, actor, "booking.reschedule_decline", booking, before, reason=SOLD_REASON)
+                _sync_deal(db, actor, booking)
+                notification_service.reschedule_declined(db, booking, SOLD_REASON)
+            continue
+        if booking.status == BookingStatus.REQUESTED:
+            before = _transition(booking, BookingStatus.REJECTED)
+            booking.responded_at = now
+            booking.rejection_reason = SOLD_REASON
+        else:
+            before = _transition(booking, BookingStatus.CANCELLED)
+            booking.cancelled_at = now
+            booking.cancelled_by = actor.id
+            hold_service.release(db, actor, booking.id, "property_sold")
+        booking.proposed_start_at = booking.proposed_end_at = None
+        _audit_transition(db, actor, "booking.closed_sold", booking, before, reason=SOLD_REASON)
+        escalation_service.settle_no_response(db, actor, booking.id, "Chủ căn đã bán căn này.")
+        _sync_deal(db, actor, booking)
+        if booking.deal.status == DealStatus.MATCHED:
+            # Nothing left to view on a sold home: the deal is over
+            booking.deal.status = DealStatus.CLOSED
+            audit.record(
+                db,
+                actor,
+                "deal.status",
+                "deal",
+                booking.deal.id,
+                before={"status": DealStatus.MATCHED},
+                after={"status": DealStatus.CLOSED},
+                extra={"reason": SOLD_REASON},
+            )
+        notification_service.property_sold(db, booking, was_confirmed=before != BookingStatus.REQUESTED)
+        closed += 1
+    return closed
+
+
 def _raise_slot_taken(db: Session, err: DBAPIError, property_id: int) -> NoReturn:
     """Roll back first: the session is unusable after a failed flush."""
     db.rollback()
@@ -441,6 +500,11 @@ def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleReque
     if booking.customer_id != actor.id:
         raise NotFoundError(f"Booking {booking_id} not found")
     deal_service.require_open(booking.deal)
+    if booking.property.status != PropertyStatus.AVAILABLE:
+        raise StateConflictError("This home is no longer open for viewings", details={"reason": "PROPERTY_UNAVAILABLE"})
+    if booking.start_at <= _now():
+        # Its outcome is recorded now (seen / no-show); a new time would let it slip past that
+        raise BusinessRuleViolationError("This viewing's time has already come", details={"reason": "VIEWING_STARTED"})
     if booking.status == BookingStatus.REQUESTED:
         return _move_request(db, actor, booking, data)
     _, start_at, end_at = _resolve_time(db, booking.property, start_at=data.start_at)
@@ -503,6 +567,8 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     _lock_owner(db, actor.id)
     booking = _load_for_owner(db, actor, booking_id)
     deal_service.require_open(booking.deal)
+    if booking.property.status != PropertyStatus.AVAILABLE:
+        raise StateConflictError("This home is no longer open for viewings", details={"reason": "PROPERTY_UNAVAILABLE"})
     property_id = booking.property_id  # read now: attributes can't be loaded after a failed flush
     rescheduling = booking.status == BookingStatus.RESCHEDULE_REQUESTED
     if rescheduling:
@@ -662,6 +728,7 @@ _ACTIVITY_KIND = {
     "booking.cancel": "CANCELLED",
     "booking.complete": "COMPLETED",
     "booking.superseded": "SUPERSEDED",
+    "booking.closed_sold": "SOLD",
     "booking.no_show": "NO_SHOW",
     "booking.unreported": "UNREPORTED",
     "booking.expired": "EXPIRED",

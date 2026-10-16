@@ -87,6 +87,11 @@ async def test_no_show_disputed_then_settled_by_the_operator(client, db):
     assert (
         await client.post(f"/api/v1/bookings/{booking['id']}/dispute", json={"claim": "I_CAME"}, headers=an)
     ).status_code == 409
+    # The buyer reads back their own case without the owner's phone or the no-show counters (AC-03)
+    mine = next(
+        e for e in (await client.get("/api/v1/escalations", headers=an)).json() if e["type"] == "VIEWING_DISPUTE"
+    )
+    assert mine["context"] == {"claim": "I_CAME", "note": "Tôi tới đúng 14h"}
 
     op = await auth(client, OPERATOR)
     case = next(

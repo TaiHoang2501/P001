@@ -152,6 +152,7 @@ Ngoài quy tắc trong system prompt, mỗi lượt chat đi qua lớp kiểm tr
                       └──> REJECTED (kèm lý do) ──(seller sửa)──> PENDING_REVIEW
 ```
 - Không còn bản nháp: "Đăng tin bán" tạo tin ở `PENDING_REVIEW` ngay (`DRAFT` chỉ còn trong dữ liệu cũ). Seller sửa được tin khi `PENDING_REVIEW` / `REJECTED` / `WITHDRAWN`.
+- **Đánh dấu đã bán** (không hoàn tác): mọi lịch xem chưa tới giờ của căn được đóng trong cùng transaction — yêu cầu chưa trả lời → `REJECTED` (lý do "Căn đã được bán"), lịch đã xác nhận → `CANCELLED` + nhả hold; Deal không còn lịch → `CLOSED`; mỗi người mua nhận `PROPERTY_SOLD` (tin của Trợ lý trong chat, gợi ý căn tương tự). Buổi xem đã tới giờ được giữ để ghi nhận kết quả. Hộp xác nhận báo trước số lịch sẽ hủy.
 - `PENDING_REVIEW` không xuất hiện với Buyer; chỉ `AVAILABLE` (Seller `VERIFIED`) được matching/booking; `SOLD` không recommendation/booking.
 - `VIEWING_HELD` trong spec **không lưu thành cột trạng thái** của Property — được suy ra từ `property_holds` đang `ACTIVE` trong viewing window, để căn vẫn nhận booking ở khung giờ khác và tự "release" khi hết window.
 - Buyer không có trang tìm kiếm/bộ lọc: sau khi đăng nhập, Buyer vào thẳng AI Chat.

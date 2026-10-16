@@ -405,6 +405,19 @@ function ConfirmSold({
   onCancel: () => void;
 }) {
   const [understood, setUnderstood] = useState(false);
+  // The viewings still ahead of this home: marking it sold cancels them and tells those buyers it was sold
+  const bookings = useQuery({
+    queryKey: ["owner-bookings", "sold-check", p.id],
+    queryFn: () => call(api.GET("/api/v1/owner/bookings")),
+  });
+  const now = Date.now();
+  const ahead = (bookings.data ?? []).filter(
+    (b) =>
+      b.property_id === p.id &&
+      (b.status === "REQUESTED" ||
+        ((b.status === "CONFIRMED" || b.status === "RESCHEDULE_REQUESTED") && Date.parse(b.start_at) > now)),
+  );
+  const buyers = new Set(ahead.map((b) => b.customer_id)).size;
   return createPortal(
     <div
       className="theme-seller fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"
@@ -426,6 +439,11 @@ function ConfirmSold({
             <li>Tin đăng đóng hẳn, không mở bán lại được.</li>
             <li>Người mua không còn thấy căn và không đặt lịch xem được.</li>
             <li>Sổ đỏ / sổ hồng của căn không dùng để đăng bán lại được nữa.</li>
+            {ahead.length > 0 && (
+              <li className="font-semibold">
+                {ahead.length} lịch xem sắp tới sẽ bị hủy và {buyers} người mua được báo là căn đã bán.
+              </li>
+            )}
           </ul>
           <p className="mt-2 text-xs">Chỉ muốn ngừng bán một thời gian? Dùng “Tạm ngừng” thay vì đánh dấu đã bán.</p>
         </div>

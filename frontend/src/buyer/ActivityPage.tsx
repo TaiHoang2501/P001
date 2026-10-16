@@ -54,6 +54,7 @@ const EVENT: Record<Kind, { title: (a: Activity) => string; tone: "ask" | "good"
   NOT_SUITABLE: { title: () => "Bạn thấy căn chưa phù hợp", tone: "done" },
   DISPUTED: { title: () => "Bạn gửi phản hồi về kết quả buổi xem cho Chủ đầu tư", tone: "ask" },
   SUPERSEDED: { title: () => "Chủ căn đã nhận một lịch xem khác vào giờ này", tone: "bad" },
+  SOLD: { title: () => "Căn đã được bán, lịch xem đã hủy", tone: "bad" },
 };
 
 const TONE = {
@@ -72,6 +73,7 @@ const WHEN_LABEL: Partial<Record<Kind, string>> = {
   RESCHEDULE_APPROVED: "Giờ xem mới",
   RESCHEDULE_DECLINED: "Vẫn xem lúc",
   SUPERSEDED: "Giờ bạn đã chọn",
+  SOLD: "Giờ xem đã hủy",
 };
 
 /**

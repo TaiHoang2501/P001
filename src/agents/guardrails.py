@@ -147,6 +147,12 @@ _CONFIRMED_CLAIM = re.compile(
     re.IGNORECASE,
 )
 _CONFIRMED_STATUS = re.compile(r'"status":\s*"CONFIRMED"')
+# The home is held only once the owner confirms ("trong lúc chờ, căn được giữ riêng" on a request is wrong); a
+# condition ("khi chủ căn xác nhận, căn sẽ được giữ") is fine. "chờ" is not a condition here: it is the wrong case
+_HOLD_CLAIM = re.compile(
+    r"(?:căn|chỗ) (?:đã |sẽ |đang )?được giữ(?: riêng| lại| chỗ)?|(?:đã|đang) giữ (?:căn|chỗ)", re.IGNORECASE
+)
+_HOLD_CONDITION = re.compile(r"\b(?:khi|sau khi|nếu|ngay khi|một khi|chỉ)\b", re.IGNORECASE)
 
 # Unit codes: S1.08-2410, GS3-1206, W2-0911 (not deal codes like VH-2026-00128: no digit before the dash)
 _UNIT_CODE = re.compile(r"(?<![\w.])[A-Z]{1,3}\d{1,2}(?:\.\d{1,2})?-\d{3,4}(?![\w-])")
@@ -256,7 +262,8 @@ def screen_output(reply: str, history: Sequence[BaseMessage]) -> OutputVerdict:
     sentences = _sentences(reply)
 
     blocking: list[str] = []
-    if any(_asserts(_CONFIRMED_CLAIM, s) for s in sentences):
+    holds = any(_HOLD_CLAIM.search(s) and not _NEGATION.search(s) and not _HOLD_CONDITION.search(s) for s in sentences)
+    if any(_asserts(_CONFIRMED_CLAIM, s) for s in sentences) or holds:
         tool_text = "\n".join(m.text for m in history if isinstance(m, ToolMessage))
         if not _CONFIRMED_STATUS.search(tool_text):
             blocking.append("unconfirmed_claim")

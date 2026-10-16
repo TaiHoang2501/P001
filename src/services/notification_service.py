@@ -165,6 +165,25 @@ def reschedule_lapsed(db: Session, booking: Booking) -> None:
     )
 
 
+def property_sold(db: Session, booking: Booking, *, was_confirmed: bool) -> None:
+    """The owner sold the home this buyer was to view: the viewing is off. Sent as the assistant's message, so it
+    shows in the buyer's chat, which offers to find similar homes."""
+    label = _label(booking.property)
+    what = "Lịch xem đã hẹn" if was_confirmed else "Yêu cầu xem"
+    # No reminders for a viewing that will not happen
+    cancel_reminders(db, booking.id)
+    notify(
+        db,
+        booking.customer_id,
+        "PROPERTY_SOLD",
+        "Căn bạn định xem đã được bán",
+        f"Chủ căn {label} đã bán căn này. {what} lúc {_when(booking.start_at)} đã được hủy. "
+        "Bạn muốn mình tìm căn tương tự không?",
+        booking=booking,
+        payload={"property_id": booking.property_id, "unit_code": booking.property.unit_code},
+    )
+
+
 def viewing_superseded(db: Session, booking: Booking, alternatives: list[datetime]) -> None:
     """The owner confirmed another buyer at an overlapping time: this request can no longer happen.
 

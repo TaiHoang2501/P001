@@ -493,11 +493,22 @@ def withdraw(db: Session, actor: Actor, property_id: int) -> PropertyOut:
 
 
 def mark_sold(db: Session, actor: Actor, property_id: int) -> PropertyOut:
+    """Final: the listing closes, and every viewing still ahead of it is closed with its buyer told the home was
+    sold (same transaction). A viewing whose time has come stays for its outcome."""
+    from src.services import booking_service  # imported here: booking_service is a lower layer
+
     prop = _load_owned(db, actor, property_id)
-    _require_no_active_bookings(db, prop, "marking the property as sold")
     before = _transition(prop, PropertyStatus.SOLD)
+    closed = booking_service.close_for_sold(db, actor, prop)
     audit.record(
-        db, actor, "property.sold", "property", prop.id, before={"status": before}, after={"status": prop.status}
+        db,
+        actor,
+        "property.sold",
+        "property",
+        prop.id,
+        before={"status": before},
+        after={"status": prop.status},
+        extra={"viewings_closed": closed},
     )
     db.commit()
     return get_property(db, prop.id, actor)

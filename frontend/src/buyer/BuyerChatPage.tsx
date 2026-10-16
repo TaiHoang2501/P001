@@ -341,13 +341,18 @@ export function BuyerChatPage() {
           noteId: n.id,
           role: "assistant",
           text: `**${n.title}**\n${n.body}`,
+          // A sold home is gone from the listings: no card to open
           propertyIds:
-            payload.property_ids ??
-            (payload.property_id ? [payload.property_id] : []),
+            n.event_type === "PROPERTY_SOLD"
+              ? []
+              : payload.property_ids ?? (payload.property_id ? [payload.property_id] : []),
           trackBookingId: n.booking_id ?? undefined,
+          // Quick replies name the home: the assistant did not see this message, so "tương tự" alone says nothing
           replies:
-            (n.event_type === "VIEWING_SUPERSEDED" || n.event_type === "VIEWING_EXPIRED") && payload.unit_code
-              ? [`Tìm giờ xem khác cho căn ${payload.unit_code}`, "Tìm căn tương tự"]
+            n.event_type === "PROPERTY_SOLD" && payload.unit_code
+              ? [`Tìm căn tương tự căn ${payload.unit_code}`]
+              : (n.event_type === "VIEWING_SUPERSEDED" || n.event_type === "VIEWING_EXPIRED") && payload.unit_code
+              ? [`Tìm giờ xem khác cho căn ${payload.unit_code}`, `Tìm căn tương tự căn ${payload.unit_code}`]
               : n.event_type === "VIEWING_TIMES_SUGGESTED" && payload.unit_code
                 ? // The owner's own times: picking one asks the assistant to book exactly that
                   (payload.suggested_starts ?? [])

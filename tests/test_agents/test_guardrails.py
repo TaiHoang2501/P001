@@ -312,3 +312,17 @@ def test_stream_gate_holds_risky_text_for_the_judge(monkeypatch):
 def test_stream_gate_masks_contact_details():
     gate = guardrails.StreamGate()
     assert _feed(gate, ["Gọi 0987654321 nhé. "]) == [f"Gọi {guardrails.PHONE_MASK} nhé. "]
+
+
+@pytest.mark.parametrize(
+    ("reply", "flagged"),
+    [
+        ("Trong lúc chờ, căn được giữ riêng cho buổi xem trong khung giờ đó.", True),
+        ("Em đã giữ chỗ cho anh lúc 14h.", True),
+        ("Khi chủ căn xác nhận, căn sẽ được giữ riêng cho buổi xem.", False),
+        ("Căn chỉ được giữ sau khi chủ căn xác nhận.", False),
+        ("Căn chưa được giữ cho tới khi chủ căn xác nhận.", False),
+    ],
+)
+def test_hold_claimed_before_the_owner_confirms(reply, flagged):
+    assert (screen_output(reply, HISTORY).violations == ["unconfirmed_claim"]) is flagged

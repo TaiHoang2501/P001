@@ -11,6 +11,7 @@ export const CHAT_EVENTS = new Set([
   "VIEWING_SUPERSEDED",
   "VIEWING_TIMES_SUGGESTED",
   "VIEWING_EXPIRED",
+  "PROPERTY_SOLD",
 ]);
 
 type Note = {
@@ -77,7 +78,7 @@ const GROUPS: Partial<Record<Role, NoteGroup[]>> = {
     {
       key: "assistant",
       label: "Trợ lý AI gợi ý",
-      events: ["AGENT_FOLLOWUP", "AGENT_NEW_MATCH", "VIEWING_SUPERSEDED", "VIEWING_EXPIRED"],
+      events: ["AGENT_FOLLOWUP", "AGENT_NEW_MATCH", "VIEWING_SUPERSEDED", "VIEWING_EXPIRED", "PROPERTY_SOLD"],
     },
     {
       key: "declined",

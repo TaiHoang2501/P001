@@ -88,7 +88,7 @@ def request(db: Session, actor: Actor, data: OwnershipSupportCreate) -> Escalati
         },
     )
     db.commit()
-    return EscalationOut.model_validate(esc)
+    return escalation_service.for_requester(esc)
 
 
 def list_mine(db: Session, actor: Actor) -> list[EscalationOut]:
@@ -97,7 +97,7 @@ def list_mine(db: Session, actor: Actor) -> list[EscalationOut]:
         .where(Escalation.type == EscalationType.OWNERSHIP_SUPPORT, Escalation.requester_id == actor.id)
         .order_by(Escalation.created_at.desc())
     )
-    return [EscalationOut.model_validate(e) for e in rows]
+    return [escalation_service.for_requester(e) for e in rows]
 
 
 # ---------- Operator ----------

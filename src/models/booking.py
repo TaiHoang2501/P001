@@ -132,6 +132,8 @@ ActivityKind = Literal[
     "COMPLETED",
     # The owner confirmed another buyer at an overlapping time, so this request was closed
     "SUPERSEDED",
+    # The owner sold the home: this viewing (request or confirmed) was closed
+    "SOLD",
     # After the viewing time: the buyer did not come / the owner was not there / nobody recorded it
     "NO_SHOW",
     "OWNER_ABSENT",

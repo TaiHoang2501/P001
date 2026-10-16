@@ -168,6 +168,13 @@ def claim(db: Session, actor: Actor, data: OwnershipClaim) -> OwnershipChallenge
 def confirm(db: Session, actor: Actor, verification_id: int, data: OwnershipOtpConfirm) -> OwnershipVerificationOut:
     """Check the OTP; on success the red book becomes the seller's and the seller goes to the operator's review queue."""
     record = _load(db, verification_id)
+    # Same rule as the claim: only the owner, signed in with the phone on the red book, may finish it. Checked
+    # before the code, so nobody else can take the red book with a code they got hold of, nor burn its attempts
+    if _digits(actor.user.phone) != _digits(record.owner_phone):
+        raise BusinessRuleViolationError(
+            "This red book is registered to another phone; send a support request to sell for its owner",
+            details={"reason": "NOT_OWNER_PHONE"},
+        )
     if record.status != OwnershipVerificationStatus.OTP_SENT:
         raise StateConflictError(f"No code is pending for this red book (status {record.status.value})")
 

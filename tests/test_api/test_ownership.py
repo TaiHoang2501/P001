@@ -240,3 +240,21 @@ async def test_someone_else_learns_nothing_about_a_red_book(client, red_book):
     stranger = await _new_seller(client, "0966000079")
     r = await client.post("/api/v1/owner/ownership/claim", json=red_book, headers=stranger)
     assert (r.status_code, r.json()["error"]["details"]) == (422, {"reason": "NOT_OWNER_PHONE"})
+
+
+@pytest.mark.asyncio
+async def test_only_the_owner_phone_can_finish_a_red_book(client, db):
+    """Lan (another phone) cannot take the red book the owner is verifying, even with the code, nor lock it by
+    guessing: the confirm step checks the signed-in phone like the claim does."""
+    owner = await _new_seller(client)
+    challenge = await _claim(client, owner)
+    vid = challenge["verification_id"]
+    lan = await auth(client, OWNER_LAN)
+    for code in (challenge["debug_code"], "000000", "111111", "222222", "333333", "444444"):
+        r = await client.post(f"/api/v1/owner/ownership/{vid}/confirm", json={"code": code}, headers=lan)
+        assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "NOT_OWNER_PHONE", r.text
+    # Untouched: the real owner still finishes it
+    r = await client.post(
+        f"/api/v1/owner/ownership/{vid}/confirm", json={"code": challenge["debug_code"]}, headers=owner
+    )
+    assert r.status_code == 200 and r.json()["status"] == "VERIFIED", r.text
