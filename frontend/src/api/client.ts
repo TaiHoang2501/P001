@@ -8,7 +8,7 @@ import type { ChatResponse, Notification } from "./types";
  * Regenerate types after backend changes: `npm run gen:api` (backend must be running).
  */
 // No trailing slash: VITE_API_URL may be set as "https://host/", and paths already start with "/"
-const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+export const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
 export const api = createClient<paths>({ baseUrl: API_BASE });
 

@@ -92,3 +92,61 @@ async def test_client_ip_diagnostics(client, admin_token):
     )
     assert r.status_code == 200
     assert r.json()["client_ip"] == "203.0.113.5"
+
+
+@pytest.mark.asyncio
+async def test_developer_metrics(client, db, admin_token):
+    from src.db.models import AiTurn
+    from src.services import audit
+
+    steps = [
+        {"kind": "llm", "name": "model", "at_ms": 0, "ms": 900, "ok": True},
+        {"kind": "tool", "name": "search_properties", "at_ms": 900, "ms": 80, "ok": True},
+        {"kind": "tool", "name": "create_viewing_request", "at_ms": 1000, "ms": 50, "ok": False},
+    ]
+    db.add_all(
+        [
+            AiTurn(
+                trace_id="t-ok",
+                message="hi",
+                status="OK",
+                latency_ms=1200,
+                prompt_tokens=100,
+                completion_tokens=20,
+                llm_calls=1,
+                tool_calls=2,
+                steps=steps,
+            ),
+            AiTurn(trace_id="t-guest", message="hi", status="OK", guest=True, latency_ms=800, steps=[]),
+            AiTurn(
+                trace_id="t-err",
+                message="hi",
+                status="ERROR",
+                error_type="TimeoutError",
+                error_message="model timed out",
+                latency_ms=30000,
+                steps=[],
+            ),
+        ]
+    )
+    audit.record(db, None, "AI_GUARDRAIL", "ai_conversation", 1, extra={"flags": ["injection"], "blocked": True})
+    db.commit()
+
+    assert (await client.get("/api/v1/admin/metrics")).status_code == 401
+    r = await client.get("/api/v1/admin/metrics", params={"days": 7}, headers=DEV)
+    assert r.status_code == 200, r.text
+    m = r.json()
+    ai = m["ai"]
+    assert (ai["turns"], ai["guest_turns"], ai["errors"]) == (3, 1, 1)
+    assert ai["prompt_tokens"] == 100 and ai["latency_p50_ms"] == 1000
+    assert len(ai["daily"]) == 7 and sum(d["turns"] for d in ai["daily"]) == 3
+    assert {t["name"]: (t["calls"], t["failed"]) for t in ai["tools"]} == {
+        "search_properties": (1, 0),
+        "create_viewing_request": (1, 1),
+    }
+    assert ai["error_types"] == [{"type": "TimeoutError", "count": 1}]
+    assert ai["recent_errors"][0]["trace_id"] == "t-err"
+    assert m["guardrails"] == {"turns_flagged": 1, "blocked_inputs": 1, "flags": [{"flag": "injection", "count": 1}]}
+    assert m["assistant"]["enabled"] is True
+    assert m["business"]["users_by_role"]["INVESTOR_OPERATOR"] >= 1
+    assert (await client.get("/api/v1/admin/metrics", params={"days": 365}, headers=DEV)).status_code == 422

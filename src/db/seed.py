@@ -1275,6 +1275,8 @@ def ensure_all_cases(db: Session) -> str:
                 [media_service.upload(db, owner_lan, f.read_bytes()).key for f in files],
             ),
         )
+    else:
+        left_out.append("Lan: listing waiting for review (no spare red book or photos)")
     if books:
         book = books.pop(0)
         step(
@@ -1286,6 +1288,8 @@ def ensure_all_cases(db: Session) -> str:
                 "Tin chưa có ảnh thực tế của căn; vui lòng bổ sung ảnh phòng khách, phòng ngủ và bếp.",
             ),
         )
+    else:
+        left_out.append("Lan: listing rejected by Dũng (no spare red book)")
     if books:
         book = books.pop(0)
 
@@ -1295,6 +1299,9 @@ def ensure_all_cases(db: Session) -> str:
             property_service.mark_sold(db, owner_lan, prop_id)
 
         step("Lan: listing sold", sold)
+    else:
+        # ensure_sold_listing sells one of Tuấn's homes instead
+        left_out.append("Lan: listing sold (no spare red book)")
     spare = next((p for p in reversed(on_sale[tuan.id]) if p.id not in taken_by_case), None)
     if spare is not None:
         step("Tuấn: listing withdrawn", lambda: property_service.withdraw(db, owner_tuan, spare.id))
@@ -1345,6 +1352,44 @@ def ensure_all_cases(db: Session) -> str:
     audit.record(db, None, ALL_CASES_MARKER, "user", an.id, after={"cases": done, "left_out": left_out})
     db.commit()
     return f"{len(done)} case(s): " + "; ".join(done) + (f". Left out: {'; '.join(left_out)}" if left_out else "")
+
+
+def ensure_sold_listing(db: Session) -> str:
+    """A sold listing for the sellers' pages, when ensure_all_cases could not make Lan's (her spare red books were
+    already listed): one of Tuấn's homes on sale that nobody has a deal on is marked sold, through the service.
+
+    Nothing to do when a demo seller already has a sold listing; run after --ensure-all-cases.
+    """
+    from src.core.actor import Actor
+    from src.core.errors import AppError
+    from src.services import property_service
+
+    sellers = {u.phone: u for u in db.scalars(select(User).where(User.phone.in_(DEMO_SELLER_PHONES)))}
+    tuan = sellers.get(STORY_OTHER_SELLER_PHONE)
+    if tuan is None:
+        return "skipped (demo seller missing)"
+    ids = [u.id for u in sellers.values()]
+    if db.scalar(
+        select(Property.id).where(Property.owner_id.in_(ids), Property.status == PropertyStatus.SOLD).limit(1)
+    ):
+        return "already has one"
+    spare = db.scalars(
+        select(Property)
+        .where(
+            Property.owner_id == tuan.id,
+            Property.status == PropertyStatus.AVAILABLE,
+            ~select(Deal.id).where(Deal.property_id == Property.id).exists(),
+        )
+        .order_by(Property.id.desc())
+    ).first()
+    if spare is None:
+        return "skipped (no home without deals)"
+    try:
+        property_service.mark_sold(db, Actor(tuan), spare.id)
+    except AppError as e:
+        db.rollback()
+        return f"skipped ({e})"
+    return f"{spare.unit_code} sold"
 
 
 SLOT_HOURS = (9, 14, 16)
@@ -1884,6 +1929,11 @@ if __name__ == "__main__":
         help="Every case for the demo buyer Nguyễn Văn An and more requests for the story seller (once)",
     )
     parser.add_argument(
+        "--ensure-sold-listing",
+        action="store_true",
+        help="A sold listing of a demo seller, if none has one (see ensure_sold_listing)",
+    )
+    parser.add_argument(
         "--ensure-all-cases",
         action="store_true",
         help="Once: every case of each role's pages for the demo accounts (see ensure_all_cases)",
@@ -1956,3 +2006,5 @@ if __name__ == "__main__":
             print(f"Rich demo: {ensure_rich_demo(session)}.")
         if args.ensure_all_cases:
             print(f"All cases: {ensure_all_cases(session)}.")
+        if args.ensure_sold_listing:
+            print(f"Sold listing: {ensure_sold_listing(session)}.")

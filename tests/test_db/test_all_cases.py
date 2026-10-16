@@ -148,3 +148,78 @@ def test_every_case_for_the_demo_accounts_once(db):
         db.scalar(select(func.count()).select_from(Escalation)),
         db.scalar(select(func.count()).select_from(Property)),
     )
+
+
+def _list_lans_spare_red_books(db, lan: User) -> int:
+    """Like production: Lan has listed every spare red book herself, so ensure_all_cases cannot sell one."""
+    from decimal import Decimal
+
+    from src.core.actor import Actor
+    from src.db.models import (
+        Direction,
+        Furnishing,
+        LegalStatus,
+        OwnershipVerificationStatus,
+        PropertyOwnershipVerification,
+        PropertyType,
+        ViewType,
+    )
+    from src.models.property import PropertyCreate
+    from src.services import property_service
+
+    books = db.scalars(
+        select(PropertyOwnershipVerification).where(
+            PropertyOwnershipVerification.user_id == lan.id,
+            PropertyOwnershipVerification.status == OwnershipVerificationStatus.VERIFIED,
+            ~select(Property.id).where(Property.verification_id == PropertyOwnershipVerification.id).exists(),
+        )
+    ).all()
+    for book in books:
+        property_service.create(
+            db,
+            Actor(lan),
+            PropertyCreate(
+                verification_id=book.id,
+                building_id=book.building_id,
+                unit_code=book.unit_code or "",
+                property_type=book.property_type or PropertyType.APARTMENT,
+                bedrooms=book.bedrooms or 2,
+                bathrooms=book.bathrooms or 2,
+                area_m2=book.area_m2 or Decimal("68.0"),
+                floor=book.floor or 1,
+                direction=book.direction or Direction.SE,
+                price_vnd=4_000_000_000,
+                view=ViewType.CITY,
+                furnishing=Furnishing.BASIC,
+                legal_status=LegalStatus.PINK_BOOK,
+            ),
+        )
+    return len(books)
+
+
+def test_sold_listing_from_tuans_homes_when_lans_red_books_are_taken(db):
+    from src.db.seed import ensure_sold_listing
+
+    _start_sh_seed(db)
+    lan, tuan = (_user(db, p) for p in DEMO_SELLER_PHONES)
+    assert _list_lans_spare_red_books(db, lan) > 0
+    result = ensure_all_cases(db)
+    assert "Lan: listing sold (no spare red book)" in result.split("Left out:")[1], result
+
+    sold = ensure_sold_listing(db)
+    db.expire_all()
+    homes = db.scalars(select(Property).where(Property.owner_id == tuan.id, Property.status == "SOLD")).all()
+    assert len(homes) == 1 and sold == f"{homes[0].unit_code} sold"
+    from src.db.models import Deal
+
+    assert db.scalar(select(Deal.id).where(Deal.property_id == homes[0].id)) is None  # no buyer's deal touched
+    assert ensure_sold_listing(db) == "already has one"
+
+
+def test_no_extra_sold_listing_when_lan_already_has_one(db):
+    from src.db.seed import ensure_sold_listing
+
+    _start_sh_seed(db)
+    ensure_all_cases(db)
+    assert ensure_sold_listing(db) == "already has one"
+    assert db.scalar(select(func.count()).select_from(Property).where(Property.status == "SOLD")) == 1
