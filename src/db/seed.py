@@ -796,6 +796,557 @@ def ensure_rich_demo(db: Session) -> str:
     return ", ".join(done)
 
 
+# Every case for each role, with the demo accounts only (no made-up people: sign-in codes go by real SMS).
+# Buyers Nguyễn Văn An / Trần Thị Bình, sellers Hoàng Thị Lan / Phạm Minh Tuấn, operators Dũng / Hà.
+ALL_CASES_MARKER = "seed.all_cases"
+ALL_CASES_BUYER_BUDGETS = {RICH_DEMO_BUYER_PHONE: (3.5, 5.0), "0902222333": (2.5, 4.0)}
+OPERATOR_PHONES = ("0901234567", "0902345678")  # Nguyễn Quang Dũng, Trần Thu Hà
+# Lan's support case: a home with only a sale contract so far
+ALL_CASES_CONTRACT = "HDMB-VHGP-2025-0411"
+ALL_CASES_CHAT = [
+    ("USER", "Mình muốn xem căn 2PN ở Ocean Park vào tối các ngày trong tuần, sau 19h."),
+    (
+        "ASSISTANT",
+        "Chủ căn chỉ nhận xem lúc 9:00, 14:00 và 16:00. Bạn có thể sắp xếp một trong các giờ này, "
+        "hoặc cuối tuần không?",
+    ),
+    ("USER", "Không được, mình đi làm cả tuần, cuối tuần cũng bận. Nhờ người hỗ trợ giúp mình nhé."),
+    (
+        "ASSISTANT",
+        "Mình đã chuyển yêu cầu cho nhân viên Chủ đầu tư. Họ sẽ liên hệ chủ căn để tìm giờ xem buổi tối "
+        "và báo lại bạn sớm.",
+    ),
+]
+
+
+def ensure_all_cases(db: Session) -> str:
+    """Once per database: every state of each role's pages, with the demo accounts only. Run after --ensure-slots.
+
+    Start-up runs it once per database through src/db/seed_once.py.
+
+    - Buyers (An, Bình): waiting, request moved, confirmed, new time asked, declined with times offered, closed
+      because the owner took another buyer at that time, declined with the time closed, cancelled, expired,
+      over and waiting for the owner's record, viewed (asked how it went), interested, not suitable, no-show,
+      unreported, disputes (open, being handled, resolved), assistant chats handed to a person.
+    - Sellers (Lan, Tuấn): requests to answer (two buyers at the same time, one overdue), viewings coming up, new
+      times to answer, viewings to record, an interested buyer; listings waiting for review, rejected, sold,
+      withdrawn; a locked red book and a home without a red book sent to support.
+    - Operators: listings to review and every kind of case, open, taken by one of them, closed.
+    Every step goes through the services where the rules allow it (past viewings are written directly). A case
+    that does not fit this database (no free home or time) is left out; the marker makes later runs do nothing.
+    """
+    from src.db.models import AuditLog
+
+    # Before the service imports below: a database that has the cases skips without loading them
+    if db.scalar(select(AuditLog.id).where(AuditLog.action == ALL_CASES_MARKER)) is not None:
+        return "already added"
+
+    from src.core.actor import Actor
+    from src.core.errors import AppError
+    from src.db.models import ActorType, AiConversation, AiMessage, Channel, MessageRole
+    from src.models.booking import BookingCreate, RescheduleRequest
+    from src.models.ownership import OwnershipSupportCreate
+    from src.models.property import PropertyCreate
+    from src.services import (
+        audit,
+        availability_service,
+        booking_service,
+        escalation_service,
+        media_service,
+        ownership_support_service,
+        property_service,
+        viewing_outcome_service,
+    )
+    from src.services.availability_service import owner_busy
+
+    def user(phone: str, role: UserRole) -> User | None:
+        return db.scalar(select(User).where(User.phone == phone, User.role == role))
+
+    an, binh = (user(p, UserRole.CUSTOMER) for p in DEMO_BUYER_PHONES)
+    lan, tuan = (user(p, UserRole.OWNER) for p in DEMO_SELLER_PHONES)
+    dung, ha = (user(p, UserRole.INVESTOR_OPERATOR) for p in OPERATOR_PHONES)
+    if None in (an, binh, lan, tuan, dung, ha):
+        return "skipped (demo accounts missing)"
+    for buyer in (an, binh):
+        lo, hi = ALL_CASES_BUYER_BUDGETS[buyer.phone]
+        profile = db.get(BuyerProfile, buyer.id) or BuyerProfile(user_id=buyer.id)
+        if profile.budget_max_vnd is None:
+            profile.budget_min_vnd, profile.budget_max_vnd = int(lo * 1e9), int(hi * 1e9)
+        db.add(profile)
+    db.commit()
+
+    tz = ZoneInfo(get_settings().timezone)
+    now = datetime.now(tz)
+    today = now.date()
+    done: list[str] = []
+    left_out: list[str] = []
+
+    # ---- Homes: each buyer gets a home they have no deal on yet, spread over the seller's homes ----
+    on_sale = {
+        owner.id: list(
+            db.scalars(
+                select(Property)
+                .where(Property.owner_id == owner.id, Property.status == PropertyStatus.AVAILABLE)
+                .order_by(Property.id)
+            )
+        )
+        for owner in (lan, tuan)
+    }
+    used = {(buyer_id, prop_id) for buyer_id, prop_id in db.execute(select(Deal.buyer_id, Deal.property_id))}
+    taken_by_case: dict[int, int] = {}
+
+    def home(buyer: User, owner: User) -> Property | None:
+        """A home of `owner` (else of the other demo seller) the buyer has no deal on, the least used first."""
+        for who in (owner, tuan if owner is lan else lan):
+            free = [p for p in on_sale[who.id] if (buyer.id, p.id) not in used]
+            if free:
+                prop = min(free, key=lambda p: taken_by_case.get(p.id, 0))
+                used.add((buyer.id, prop.id))
+                taken_by_case[prop.id] = taken_by_case.get(prop.id, 0) + 1
+                return prop
+        return None
+
+    def at(day: int, hour: int) -> datetime:
+        return datetime.combine(today + timedelta(days=day), time(hour, 0), tzinfo=tz)
+
+    def times(day: int, hour: int) -> list[datetime]:
+        """The wanted time first, then the next slot times (the owner may be busy, the home held)."""
+        later = [at(d, h) for d in range(day, 13) for h in SLOT_HOURS if at(d, h) > at(day, hour)]
+        return [at(day, hour), *later]
+
+    def ask(buyer: User, prop: Property | None, day: int, hour: int, note: str | None = None) -> int | None:
+        """A viewing request at the first of `times(day, hour)` the rules accept, or None."""
+        if prop is None:
+            return None
+        for start in times(day, hour):
+            try:
+                return booking_service.create_request(
+                    db, Actor(buyer), BookingCreate(property_id=prop.id, start_at=start, note=note)
+                ).id
+            except AppError:
+                db.rollback()
+        return None
+
+    def ask_at(buyer: User, prop: Property | None, start: datetime, note: str | None = None) -> int | None:
+        if prop is None:
+            return None
+        try:
+            return booking_service.create_request(
+                db, Actor(buyer), BookingCreate(property_id=prop.id, start_at=start, note=note)
+            ).id
+        except AppError:
+            db.rollback()
+            return None
+
+    def move(buyer: User, booking_id: int, day: int, hour: int) -> bool:
+        for start in times(day, hour):
+            try:
+                booking_service.reschedule(db, Actor(buyer), booking_id, RescheduleRequest(start_at=start))
+                return True
+            except AppError:
+                db.rollback()
+        return False
+
+    def past(buyer: User, prop: Property | None, day: int, hour: int, status: str) -> int | None:
+        """A viewing in the past at the first hour the owner had no other confirmed viewing."""
+        if prop is None:
+            return None
+        for h in (hour, *(x for x in (9, 10, 11, 14, 15, 16, 17) if x != hour)):
+            start = at(day, h)
+            busy = status in ("CONFIRMED", "RESCHEDULE_REQUESTED") and owner_busy(
+                db, prop.owner_id, start, start + timedelta(minutes=SLOT_MINUTES)
+            )
+            if not busy and start + timedelta(minutes=SLOT_MINUTES) <= now:
+                return _past_booking(db, buyer, prop, start, status)
+        return None
+
+    def step(label: str, fn) -> None:
+        """One case; a case the rules turn down is left out instead of stopping the others."""
+        try:
+            ok = fn() is not False
+        except AppError:
+            db.rollback()
+            ok = False
+        (done if ok else left_out).append(label)
+
+    owner_lan, owner_tuan, buyer_an = Actor(lan), Actor(tuan), Actor(an)
+
+    # ---- Hoàng Thị Lan's homes ----
+    l_an_wait, l_binh_wait = home(an, lan), home(binh, lan)
+
+    def two_at_once() -> bool:
+        first = ask(an, l_an_wait, 3, 14, "Đi cùng vợ, muốn xem kỹ ban công và hướng nắng")
+        if first is None:
+            return False
+        start = db.get(Booking, first).start_at
+        ask_at(binh, l_binh_wait, start, "Muốn xem buổi chiều sau giờ làm")
+        return True
+
+    step("Lan: two buyers ask for the same time", two_at_once)
+
+    def overdue() -> bool:
+        booking_id = ask(binh, home(binh, lan), 2, 16, "Gia đình 3 người, quan tâm trường học gần đó")
+        if booking_id is None:
+            return False
+        db.get(Booking, booking_id).created_at = now - timedelta(hours=25)
+        db.commit()
+        escalation_service.escalate_unanswered_requests(db)
+        return True
+
+    step("Lan: request not answered in time (case for the operator)", overdue)
+
+    def confirmed() -> bool:
+        booking_id = ask(an, home(an, lan), 4, 9, "Cần chỗ để ô tô")
+        if booking_id is None:
+            return False
+        booking_service.approve(db, owner_lan, booking_id)
+        return True
+
+    step("An: confirmed with Lan", confirmed)
+
+    def new_time_for_lan() -> bool:
+        booking_id = ask(binh, home(binh, lan), 5, 14)
+        if booking_id is None:
+            return False
+        booking_service.approve(db, owner_lan, booking_id)
+        return move(binh, booking_id, 7, 16)
+
+    step("Bình: new time asked, Lan to answer", new_time_for_lan)
+
+    def declined_with_times() -> bool:
+        prop = home(an, lan)
+        booking_id = ask(an, prop, 5, 16)
+        if booking_id is None:
+            return False
+        start = db.get(Booking, booking_id).start_at
+        offered = [
+            w.start_at
+            for w in availability_service.seller_free_windows(db, prop.id)
+            if w.start_at != start and w.start_at.minute == 0
+        ][:2]
+        booking_service.reject(
+            db, owner_lan, booking_id, "Chiều hôm đó tôi bận, mời anh chọn giờ khác", suggested_starts=offered
+        )
+        return True
+
+    step("An: Lan declined and offered other times", declined_with_times)
+    step("Bình: viewing with Lan to record", lambda: past(binh, home(binh, lan), -1, 14, "CONFIRMED") is not None)
+
+    def interested_lan() -> bool:
+        booking_id = past(an, home(an, lan), -2, 9, "COMPLETED")
+        if booking_id is None:
+            return False
+        viewing_outcome_service.feedback(db, buyer_an, booking_id, "INTERESTED", "Thích view và cách bố trí bếp")
+        return True
+
+    step("An: interested after viewing Lan's home", interested_lan)
+
+    # ---- Phạm Minh Tuấn's homes ----
+    def superseded() -> bool:
+        loser = ask(an, home(an, tuan), 6, 9)
+        if loser is None:
+            return False
+        winner = ask_at(binh, home(binh, tuan), db.get(Booking, loser).start_at, "Đã xem ảnh, muốn xem tận nơi")
+        if winner is None:
+            return False
+        booking_service.approve(db, owner_tuan, winner)
+        return True
+
+    step("Tuấn took Bình at An's time: An's request closed, Bình confirmed", superseded)
+
+    def moved_request() -> bool:
+        booking_id = ask(an, home(an, tuan), 6, 14)
+        return booking_id is not None and move(an, booking_id, 8, 14)
+
+    step("An: request moved to another time, Tuấn to answer", moved_request)
+    step(
+        "Bình: waiting for Tuấn",
+        lambda: ask(binh, home(binh, tuan), 7, 9, "Muốn hỏi thêm về phí quản lý") is not None,
+    )
+
+    def new_time_for_tuan() -> bool:
+        booking_id = ask(an, home(an, tuan), 8, 9)
+        if booking_id is None:
+            return False
+        booking_service.approve(db, owner_tuan, booking_id)
+        return move(an, booking_id, 9, 16)
+
+    step("An: new time asked, Tuấn to answer", new_time_for_tuan)
+
+    def declined_time_closed() -> bool:
+        booking_id = ask(an, home(an, tuan), 7, 16)
+        if booking_id is None:
+            return False
+        booking_service.reject(db, owner_tuan, booking_id, "Hôm đó tôi đi công tác xa nhà", close_time=True)
+        return True
+
+    step("An: Tuấn declined and closed that time", declined_time_closed)
+
+    def cancelled() -> bool:
+        booking_id = ask(an, home(an, tuan), 9, 9)
+        if booking_id is None:
+            return False
+        booking_service.cancel(db, buyer_an, booking_id)
+        return True
+
+    step("An: cancelled", cancelled)
+
+    def expired() -> bool:
+        booking_id = past(an, home(an, tuan), -1, 9, "EXPIRED")
+        if booking_id is None:
+            return False
+        db.get(Booking, booking_id).responded_at = None
+        db.commit()
+        return True
+
+    step("An: expired (Tuấn never answered)", expired)
+    step("An: viewing with Tuấn to record", lambda: past(an, home(an, tuan), -1, 16, "CONFIRMED") is not None)
+
+    def viewed(buyer: User, day: int, hour: int, interest: str | None = None, note: str = "") -> bool:
+        booking_id = past(buyer, home(buyer, tuan), day, hour, "CONFIRMED")
+        if booking_id is None:
+            return False
+        booking_service.complete(db, owner_tuan, booking_id)  # recorded by the owner, the buyer is asked
+        if interest:
+            viewing_outcome_service.feedback(db, Actor(buyer), booking_id, interest, note)
+        return True
+
+    step("An: viewed, asked how it went", lambda: viewed(an, -2, 14))
+    step("An: not suitable after viewing", lambda: viewed(an, -3, 9, "NOT_SUITABLE", "Căn hơi tối, bếp nhỏ"))
+    step("Bình: interested after viewing", lambda: viewed(binh, -3, 16, "INTERESTED", "Rất ưng, muốn trao đổi thêm"))
+
+    def no_show(buyer: User, day: int, hour: int) -> int | None:
+        booking_id = past(buyer, home(buyer, tuan), day, hour, "CONFIRMED")
+        if booking_id is not None:
+            viewing_outcome_service.no_show(db, owner_tuan, booking_id)
+        return booking_id
+
+    step("An: recorded as a no-show", lambda: no_show(an, -4, 9) is not None)
+
+    def came_anyway() -> bool:
+        booking_id = no_show(an, -1, 11)
+        if booking_id is None:
+            return False
+        viewing_outcome_service.dispute(db, buyer_an, booking_id, "I_CAME", "Tôi đến lúc 11h05, bảo vệ sảnh có gặp tôi")
+        return True
+
+    step("An: says they came (open dispute)", came_anyway)
+
+    def owner_absent(taken_by: User | None, resolve: bool, day: int, hour: int) -> bool:
+        booking_id = past(an, home(an, tuan), day, hour, "CONFIRMED")
+        if booking_id is None:
+            return False
+        viewing_outcome_service.dispute(
+            db, buyer_an, booking_id, "OWNER_ABSENT", "Tôi chờ 20 phút ở sảnh nhưng chủ căn không xuống"
+        )
+        case = db.scalar(
+            select(Escalation.id).where(
+                Escalation.booking_id == booking_id, Escalation.type == EscalationType.VIEWING_DISPUTE
+            )
+        )
+        if taken_by is not None:
+            escalation_service.assign(db, Actor(taken_by), case)
+        if resolve:
+            viewing_outcome_service.record_outcome(
+                db, Actor(ha), case, "OWNER_ABSENT", "Đã gọi hai bên: chủ căn xác nhận hôm đó có việc đột xuất."
+            )
+        return True
+
+    step("An: says the owner was absent (being handled by Dũng)", lambda: owner_absent(dung, False, -1, 15))
+    step("An: owner absent, confirmed by Hà", lambda: owner_absent(None, True, -2, 16))
+    step("Bình: viewing nobody recorded", lambda: past(binh, home(binh, tuan), -4, 14, "UNREPORTED") is not None)
+
+    # ---- The assistant hands chats to a person ----
+    def handed_over(buyer: User, type: EscalationType, summary: str, messages, prop: Property | None) -> int:
+        client_id = f"seed-{type.value.lower()}"
+        conv = AiConversation(
+            buyer_id=buyer.id,
+            client_id=client_id,
+            thread_id=f"{buyer.id}:{client_id}",
+            created_at=now - timedelta(hours=3),
+            last_message_at=now - timedelta(hours=3),
+        )
+        db.add(conv)
+        db.flush()
+        db.add_all(
+            AiMessage(conversation_id=conv.id, role=MessageRole(role), content=text_) for role, text_ in messages
+        )
+        esc = escalation_service.create(
+            db,
+            type=type,
+            summary=summary,
+            raised_by=ActorType.AI_AGENT,
+            actor=Actor(buyer, via=Channel.AI_AGENT),
+            requester_id=buyer.id,
+            property_id=prop.id if prop else None,
+            context={"thread_id": conv.thread_id},
+        )
+        esc.conversation_id = conv.id
+        db.commit()
+        return esc.id
+
+    step(
+        "An: no common viewing time (open case with the chat)",
+        lambda: handed_over(
+            an,
+            EscalationType.NO_COMMON_SLOT,
+            "Khách chỉ xem được buổi tối sau 19h ngày thường; chủ căn chỉ nhận 9:00 / 14:00 / 16:00.",
+            ALL_CASES_CHAT,
+            home(an, tuan),
+        ),
+    )
+
+    def photos_differ() -> None:
+        case = handed_over(
+            binh,
+            EscalationType.PROPERTY_ISSUE,
+            "Khách thấy ảnh căn có vẻ khác mô tả (nội thất), nhờ kiểm tra với chủ căn.",
+            [
+                ("USER", "Ảnh căn này hình như là ảnh cũ, mô tả ghi full nội thất mà ảnh trống trơn?"),
+                ("ASSISTANT", "Mình đã báo nhân viên Chủ đầu tư kiểm tra lại với chủ căn và cập nhật cho bạn."),
+            ],
+            home(binh, tuan),
+        )
+        escalation_service.assign(db, Actor(dung), case)
+
+    step("Bình: listing details questioned (taken by Dũng)", photos_differ)
+
+    def wants_a_person() -> None:
+        case = handed_over(
+            an,
+            EscalationType.OTHER,
+            "Khách muốn nói chuyện với nhân viên về tiến độ bàn giao sổ hồng của dự án.",
+            [
+                ("USER", "Cho mình gặp nhân viên, mình muốn hỏi về tiến độ cấp sổ hồng của dự án."),
+                ("ASSISTANT", "Mình đã chuyển cho nhân viên Chủ đầu tư, họ sẽ gọi lại cho bạn."),
+            ],
+            None,
+        )
+        escalation_service.close(
+            db, Actor(ha), case, "Đã gọi anh An, giải thích tiến độ cấp sổ hồng của dự án; anh đã rõ."
+        )
+
+    step("An: asked for a person (closed by Hà)", wants_a_person)
+
+    # ---- Listings: waiting for review, rejected, sold (Lan's red books not listed yet), withdrawn (Tuấn) ----
+    books = db.scalars(
+        select(PropertyOwnershipVerification)
+        .where(
+            PropertyOwnershipVerification.user_id == lan.id,
+            PropertyOwnershipVerification.status == OwnershipVerificationStatus.VERIFIED,
+            PropertyOwnershipVerification.building_id.is_not(None),
+            ~select(Property.id).where(Property.verification_id == PropertyOwnershipVerification.id).exists(),
+        )
+        .order_by(PropertyOwnershipVerification.id)
+    ).all()
+
+    def listing(book: PropertyOwnershipVerification, price: int, text_: str, photos: list[str]) -> int:
+        return property_service.create(
+            db,
+            owner_lan,
+            PropertyCreate(
+                verification_id=book.id,
+                building_id=book.building_id,
+                unit_code=book.unit_code or "",
+                property_type=book.property_type or PropertyType.APARTMENT,
+                bedrooms=book.bedrooms or 2,
+                bathrooms=book.bathrooms or 2,
+                area_m2=book.area_m2 or Decimal("68.0"),
+                floor=book.floor or 1,
+                direction=book.direction or Direction.SE,
+                price_vnd=price,
+                view=ViewType.PARK,
+                furnishing=Furnishing.FULL,
+                legal_status=LegalStatus.PINK_BOOK,
+                description=text_,
+                photos=photos,
+            ),
+        ).id
+
+    files = [SHOWCASE_UPLOADS / name for name in SHOWCASE_PHOTOS]
+    if books and all(f.is_file() for f in files):
+        book = books.pop(0)
+        step(
+            "Lan: listing waiting for review",
+            lambda: listing(
+                book,
+                3_950_000_000,
+                "Căn góc nhìn công viên, nội thất đầy đủ, ảnh chụp thực tế tháng này.",
+                [media_service.upload(db, owner_lan, f.read_bytes()).key for f in files],
+            ),
+        )
+    if books:
+        book = books.pop(0)
+        step(
+            "Lan: listing rejected by Dũng",
+            lambda: property_service.reject(
+                db,
+                Actor(dung),
+                listing(book, 4_200_000_000, "Căn đẹp, giá tốt.", []),
+                "Tin chưa có ảnh thực tế của căn; vui lòng bổ sung ảnh phòng khách, phòng ngủ và bếp.",
+            ),
+        )
+    if books:
+        book = books.pop(0)
+
+        def sold() -> None:
+            prop_id = listing(book, 5_100_000_000, "Căn 3PN tầng cao, view thoáng, đã có sổ hồng.", [])
+            property_service.approve(db, Actor(ha), prop_id)
+            property_service.mark_sold(db, owner_lan, prop_id)
+
+        step("Lan: listing sold", sold)
+    spare = next((p for p in reversed(on_sale[tuan.id]) if p.id not in taken_by_case), None)
+    if spare is not None:
+        step("Tuấn: listing withdrawn", lambda: property_service.withdraw(db, owner_tuan, spare.id))
+
+    # ---- Red books the sellers cannot verify on their own ----
+    locked = db.scalar(
+        select(PropertyOwnershipVerification).where(
+            PropertyOwnershipVerification.red_book_code == SHOWCASE_LOCKED[2],
+            PropertyOwnershipVerification.status == OwnershipVerificationStatus.FAILED,
+        )
+    )
+    if locked is not None:
+        step(
+            "Tuấn: locked red book (open support case)",
+            lambda: ownership_support_service.request(
+                db,
+                owner_tuan,
+                OwnershipSupportCreate(
+                    reason="LOCKED",
+                    red_book_holder_name=locked.red_book_holder_name,
+                    red_book_code=locked.red_book_code,
+                    note="Tôi gõ nhầm mã OTP mấy lần nên sổ bị khóa, nhờ mở lại giúp tôi.",
+                ),
+            ),
+        )
+
+    def no_red_book() -> None:
+        case = ownership_support_service.request(
+            db,
+            owner_lan,
+            OwnershipSupportCreate(
+                reason="NO_RED_BOOK",
+                red_book_holder_name=lan.full_name,
+                red_book_code=ALL_CASES_CONTRACT,
+                note="Căn ở Grand Park mới nhận bàn giao, chưa có sổ hồng, chỉ có hợp đồng mua bán.",
+            ),
+        ).id
+        escalation_service.close(
+            db,
+            Actor(ha),
+            case,
+            "Đã gọi chị Lan: căn chưa được cấp sổ hồng nên chưa đăng bán được. Khi có sổ, chị xác thực theo mã sổ "
+            "mới là đăng tin được ngay.",
+        )
+
+    step("Lan: home without a red book (support case closed by Hà)", no_red_book)
+
+    audit.record(db, None, ALL_CASES_MARKER, "user", an.id, after={"cases": done, "left_out": left_out})
+    db.commit()
+    return f"{len(done)} case(s): " + "; ".join(done) + (f". Left out: {'; '.join(left_out)}" if left_out else "")
+
+
 SLOT_HOURS = (9, 14, 16)
 SLOT_MINUTES = 30
 DEMO_OWNER_IDS = {uid for uid, role, *_ in USERS if role == UserRole.OWNER}
@@ -1333,6 +1884,11 @@ if __name__ == "__main__":
         help="Every case for the demo buyer Nguyễn Văn An and more requests for the story seller (once)",
     )
     parser.add_argument(
+        "--ensure-all-cases",
+        action="store_true",
+        help="Once: every case of each role's pages for the demo accounts (see ensure_all_cases)",
+    )
+    parser.add_argument(
         "--ensure-showcase",
         action="store_true",
         help="More demo cases: uploaded photos, overlapping requests, a viewing to record, a dispute, a locked red book",
@@ -1398,3 +1954,5 @@ if __name__ == "__main__":
             print(f"Showcase: {ensure_showcase(session)}.")
         if args.ensure_rich_demo:
             print(f"Rich demo: {ensure_rich_demo(session)}.")
+        if args.ensure_all_cases:
+            print(f"All cases: {ensure_all_cases(session)}.")
