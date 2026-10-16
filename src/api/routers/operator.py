@@ -1,15 +1,14 @@
 """Investor/Operator endpoints: seller verification, listing moderation and booking monitoring."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
-from src.config import get_settings
 from src.core.deps import DbSession, OperatorActor
 from src.db.models import BookingStatus, PropertyStatus, SellerVerificationStatus
 from src.models.booking import BookingOut
 from src.models.property import PropertyOut, RejectRequest
-from src.models.schemas import AssistantControlOut, AssistantToggle
+from src.models.schemas import AssistantControlOut
 from src.models.seller import SellerProfileOut, SellerReviewItem
-from src.services import assistant_control, booking_service, property_service, rate_limit, seller_service
+from src.services import assistant_control, booking_service, property_service, seller_service
 
 router = APIRouter(prefix="/operator", tags=["operator"])
 
@@ -61,23 +60,6 @@ def cancel_booking(booking_id: int, actor: OperatorActor, db: DbSession) -> Book
 
 @router.get("/ai-assistant", response_model=AssistantControlOut)
 def ai_assistant(actor: OperatorActor, db: DbSession) -> AssistantControlOut:
+    """Read only: whether buyers can chat with the assistant (the dev team turns it off/on, see routers/admin.py),
+    so operators know why support calls may rise."""
     return AssistantControlOut.model_validate(assistant_control.status(db))
-
-
-@router.put("/ai-assistant", response_model=AssistantControlOut)
-def set_ai_assistant(data: AssistantToggle, actor: OperatorActor, db: DbSession) -> AssistantControlOut:
-    """Kill switch: turn the AI assistant off (buyers see a maintenance notice) or back on. Audited."""
-    return AssistantControlOut.model_validate(assistant_control.set_enabled(db, actor, data.enabled))
-
-
-@router.get("/diagnostics/client-ip")
-def client_ip(request: Request, actor: OperatorActor) -> dict[str, str | int | None]:
-    """After a deploy: which address guest rate limits use for this request. `client_ip` must be your own public IP;
-    if it is the platform's proxy instead, adjust TRUSTED_PROXY_HOPS / CLIENT_IP_HEADER."""
-    settings = get_settings()
-    return {
-        "client_ip": rate_limit.client_ip(request),
-        "x_forwarded_for": request.headers.get("x-forwarded-for"),
-        "client_ip_header": settings.client_ip_header or None,
-        "trusted_proxy_hops": settings.trusted_proxy_hops,
-    }

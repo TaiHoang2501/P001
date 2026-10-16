@@ -1,11 +1,13 @@
+import secrets
 from collections.abc import Callable
 from typing import Annotated
 
 import jwt
-from fastapi import Depends
+from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from src.config import get_settings
 from src.core.actor import Actor
 from src.core.errors import ForbiddenError, NotAuthenticatedError
 from src.core.security import decode_access_token
@@ -56,3 +58,16 @@ CustomerActor = Annotated[Actor, Depends(require_role(UserRole.CUSTOMER))]
 OwnerActor = Annotated[Actor, Depends(require_role(UserRole.OWNER))]
 OperatorActor = Annotated[Actor, Depends(require_role(UserRole.INVESTOR_OPERATOR))]
 AnyActor = Annotated[Actor, Depends(get_actor)]
+
+
+def require_admin_token(x_admin_token: Annotated[str | None, Header()] = None) -> None:
+    """Developer-only endpoints (/admin): the X-Admin-Token header must equal ADMIN_API_TOKEN. Off (403) while
+    ADMIN_API_TOKEN is not set, so a deployment without it exposes nothing."""
+    expected = get_settings().admin_api_token
+    if not expected:
+        raise ForbiddenError("Admin API is disabled (ADMIN_API_TOKEN not set)")
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, expected):
+        raise NotAuthenticatedError("Missing or wrong admin token")
+
+
+AdminToken = Depends(require_admin_token)
