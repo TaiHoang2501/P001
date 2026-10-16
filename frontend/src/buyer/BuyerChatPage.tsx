@@ -37,7 +37,7 @@ import { chatStorageKey } from "./guest";
 import { GuestSignup } from "./GuestSignup";
 import { BuildingIcon, PlusIcon, SendIcon, SparkleIcon, UserIcon } from "./icons";
 import { AiBot } from "./AiBot";
-import { HomeCard, HomeDetail, ResultsList } from "./HomeResults";
+import { HomeCard, HomeDetail, pickedIn, picksFirst, ResultsList } from "./HomeResults";
 import { PropertyDetailCard, useProperty } from "./PropertyDetailCard";
 import { ViewingScheduler } from "./ViewingScheduler";
 
@@ -648,15 +648,16 @@ export function BuyerChatPage() {
   let signupAt = -1;
   if (userId === null)
     conversation.messages.forEach((m, i) => m.needsAccount && (signupAt = i));
-  const latest =
-    [...conversation.messages].reverse().find((m) => m.recommendations?.length)
-      ?.recommendations ?? [];
+  const latestMessage = [...conversation.messages].reverse().find((m) => m.recommendations?.length);
+  const latest = latestMessage?.recommendations ?? [];
+  // The homes the assistant named in that reply stand out in the list
+  const picked = pickedIn(latestMessage?.text ?? "", latest);
   const hasResults = latest.length > 0;
   const needs = criteriaOf(latest);
   const project = needs.find((n) => n.label === "Dự án")?.value;
   // Just the chat at first; the right-hand panel opens once there are homes (or a home is opened)
   const showRight = hasResults || panel !== null;
-  const topHome = latest[0]?.property;
+  const topHome = picksFirst(latest, picked)[0]?.property;
 
   function addNeed() {
     closePanel();
@@ -695,6 +696,7 @@ export function BuyerChatPage() {
   ) : hasResults ? (
     <ResultsList
       recommendations={latest}
+      picked={picked}
       needs={needs}
       onOpen={openProperty}
       onRemoveNeed={busy ? undefined : (n) => submit(`Bỏ tiêu chí ${n.label.toLowerCase()} (${n.value}) và tìm lại giúp tôi`)}
@@ -1018,6 +1020,7 @@ function MessageView({
       : (times.alternatives ?? [])
     : [];
   const criteria = criteriaOf(m.recommendations ?? []);
+  const picked = pickedIn(m.text, m.recommendations ?? []);
 
   if (m.card) {
     const card = m.card;
@@ -1093,9 +1096,9 @@ function MessageView({
         {/* On wide screens the results panel shows these; inline on phones/tablets */}
         {m.recommendations && m.recommendations.length > 0 && (
           <ul className="space-y-2 lg:hidden">
-            {m.recommendations.map((r) => (
+            {picksFirst(m.recommendations, picked).map((r) => (
               <li key={r.property.id}>
-                <HomeCard rec={r} onOpen={onOpenProperty} />
+                <HomeCard rec={r} picked={picked.has(r.property.id)} onOpen={onOpenProperty} />
               </li>
             ))}
           </ul>

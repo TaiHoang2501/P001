@@ -86,23 +86,49 @@ function Score({ rec }: { rec: Recommendation }) {
 }
 
 /**
+ * The homes the assistant named in its reply (by unit code), so the list can point them out instead of the buyer
+ * reading every card. Empty when it named none, or all of them (then there is nothing to tell apart).
+ */
+export function pickedIn(text: string, recs: Recommendation[]): Set<number> {
+  const named = recs.filter((r) => {
+    const code = r.property.unit_code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Whole code only: "A-12" must not light up for "A-120"
+    return code && new RegExp(`(?<![\\w.-])${code}(?![\\w-]|\\.\\w)`, "i").test(text);
+  });
+  return named.length < recs.length ? new Set(named.map((r) => r.property.id)) : new Set();
+}
+
+/** The assistant's picks first (still in ranking order), then the rest. */
+export function picksFirst(recs: Recommendation[], picked: Set<number>): Recommendation[] {
+  return [...recs.filter((r) => picked.has(r.property.id)), ...recs.filter((r) => !picked.has(r.property.id))];
+}
+
+function GroupLabel({ children }: { children: string }) {
+  return <li className="col-span-full pt-1 text-xs font-bold uppercase tracking-[0.14em] text-muted">{children}</li>;
+}
+
+/**
  * The right-hand panel: what the buyer asked for (removable chips) and the matching homes as small cards,
- * so many fit on screen; each card still says why it matches.
+ * so many fit on screen; each card still says why it matches. The homes the assistant recommended in the chat
+ * come first and stand out.
  */
 export function ResultsList({
   recommendations,
+  picked = new Set(),
   needs,
   onOpen,
   onRemoveNeed,
   onAddNeed,
 }: {
   recommendations: Recommendation[];
+  picked?: Set<number>;
   needs: Need[];
   onOpen: (id: number, code?: string) => void;
   onRemoveNeed?: (need: Need) => void;
   onAddNeed: () => void;
 }) {
   const project = needs.find((n) => n.label === "Dự án")?.value;
+  const ordered = picksFirst(recommendations, picked);
   return (
     <div className="flex h-full flex-col">
       <div className="px-5 pb-3 pt-5 md:px-7">
@@ -139,11 +165,13 @@ export function ResultsList({
         </div>
       </div>
       <ul className="grid flex-1 content-start gap-3 overflow-y-auto px-5 pb-5 md:px-7 xl:grid-cols-2">
-        {recommendations.map((r) => (
+        {picked.size > 0 && <GroupLabel>{`Trợ lý gợi ý (${picked.size})`}</GroupLabel>}
+        {ordered.map((r, i) => [
+          picked.size > 0 && i === picked.size && <GroupLabel key="others">{`Căn khác phù hợp (${ordered.length - i})`}</GroupLabel>,
           <li key={r.property.id}>
-            <HomeCard rec={r} project={project} onOpen={onOpen} />
-          </li>
-        ))}
+            <HomeCard rec={r} project={project} picked={picked.has(r.property.id)} onOpen={onOpen} />
+          </li>,
+        ])}
       </ul>
     </div>
   );
@@ -153,18 +181,30 @@ export function ResultsList({
 export function HomeCard({
   rec,
   project,
+  picked = false,
   onOpen,
 }: {
   rec: Recommendation;
   project?: string;
+  /** One of the homes the assistant recommended in its reply */
+  picked?: boolean;
   onOpen: (id: number, code?: string) => void;
 }) {
   const p = rec.property;
   const scored = rec.matched.length + rec.unmatched.length > 0;
   return (
-    <article className="flex gap-3 rounded-2xl bg-canvas p-3 transition hover:shadow-md">
+    <article
+      className={`flex gap-3 rounded-2xl bg-canvas p-3 transition hover:shadow-md ${
+        picked ? "shadow-md shadow-brand-600/10 ring-2 ring-brand-500" : ""
+      }`}
+    >
       <PropertyImage src={imagesOf(p)[0]?.url} alt={`Căn ${p.unit_code}`} className="size-16 shrink-0 rounded-xl sm:size-20" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {picked && (
+          <span className="flex w-fit items-center gap-1 rounded-full bg-brand-600 px-2 py-0.5 text-[11px] font-bold text-canvas">
+            ★ Trợ lý gợi ý
+          </span>
+        )}
         {/* On a narrow phone the match label goes under the unit code instead of cutting it off */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <h3 className="whitespace-nowrap font-display text-lg font-bold leading-tight">{p.unit_code}</h3>
