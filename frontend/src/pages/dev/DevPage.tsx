@@ -12,7 +12,7 @@ import { BOOKING_STATUS, DEAL_STATUS, PROPERTY_STATUS, ROLE, formatDateTime } fr
  */
 
 const TOKEN_KEY = "bookingbot.devToken";
-const PERIODS = [1, 7, 30, 90];
+const PERIODS = [1, 3, 30, 90];
 
 function readToken(): string {
   try {
@@ -99,7 +99,7 @@ function tokenError(err: unknown): string {
 }
 
 function Dashboard({ token, onLock }: { token: string; onLock: () => void }) {
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(3);
   const metrics = useQuery({
     queryKey: ["dev-metrics", token, days],
     queryFn: () => adminCall<DevMetrics>(token, `/metrics?days=${days}`),

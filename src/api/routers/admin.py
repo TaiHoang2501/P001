@@ -31,7 +31,7 @@ def set_ai_assistant(data: AssistantToggle, db: DbSession) -> AssistantControlOu
 
 
 @router.get("/metrics")
-def metrics(db: DbSession, days: int = Query(default=7, ge=1, le=90)) -> dict[str, Any]:
+def metrics(db: DbSession, days: int = Query(default=3, ge=1, le=90)) -> dict[str, Any]:
     """Developer dashboard: AI assistant health (turns, failures, latency, tokens, tools, guardrails) and the
     business flow (viewings, deals, listings, open cases) over the last `days` days."""
     return dev_metrics.summary(db, days)
