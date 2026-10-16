@@ -2,16 +2,19 @@
 
 The AI kill switch belongs here, not in the Operator Console: the people who see that the assistant must stop
 (wrong answers in the traces, the model provider failing, cost spikes, an attack) are the developers watching the
-system. Use scripts/ai_switch.py.
-Hidden from the OpenAPI schema (the web app never calls these).
+system. Use scripts/ai_switch.py or the developer page of the web app (/dev, which asks for the token and keeps
+it in the browser tab only).
+Hidden from the OpenAPI schema.
 """
 
-from fastapi import APIRouter, Request
+from typing import Any
+
+from fastapi import APIRouter, Query, Request
 
 from src.config import get_settings
 from src.core.deps import AdminToken, DbSession
 from src.models.schemas import AssistantControlOut, AssistantToggle
-from src.services import assistant_control, rate_limit
+from src.services import assistant_control, dev_metrics, rate_limit
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[AdminToken], include_in_schema=False)
 
@@ -25,6 +28,13 @@ def ai_assistant(db: DbSession) -> AssistantControlOut:
 def set_ai_assistant(data: AssistantToggle, db: DbSession) -> AssistantControlOut:
     """Kill switch: turn the AI assistant off (buyers see the maintenance notice) or back on. Audited."""
     return AssistantControlOut.model_validate(assistant_control.set_enabled(db, None, data.enabled, data.reason))
+
+
+@router.get("/metrics")
+def metrics(db: DbSession, days: int = Query(default=7, ge=1, le=90)) -> dict[str, Any]:
+    """Developer dashboard: AI assistant health (turns, failures, latency, tokens, tools, guardrails) and the
+    business flow (viewings, deals, listings, open cases) over the last `days` days."""
+    return dev_metrics.summary(db, days)
 
 
 @router.get("/diagnostics/client-ip")
