@@ -111,9 +111,11 @@ async def test_rejected_listing_can_be_fixed_and_resubmitted(client):
     op = await auth(client, OPERATOR)
     pid = 33  # PENDING_REVIEW listing owned by Lan
 
-    r = await client.post(f"/api/v1/operator/properties/{pid}/reject", json={"reason": "Thiếu ảnh"}, headers=op)
+    r = await client.post(
+        f"/api/v1/operator/properties/{pid}/reject", json={"reason": "Thiếu ảnh phòng khách"}, headers=op
+    )
     assert r.json()["status"] == "REJECTED"
-    assert r.json()["rejection_reason"] == "Thiếu ảnh"
+    assert r.json()["rejection_reason"] == "Thiếu ảnh phòng khách"
 
     r = await client.patch(f"/api/v1/owner/properties/{pid}", json={"description": "Đã bổ sung ảnh"}, headers=owner)
     assert r.status_code == 200

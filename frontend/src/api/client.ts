@@ -74,14 +74,50 @@ const FRIENDLY: Record<string, string> = {
   TIMEOUT: "Máy chủ phản hồi quá lâu. Vui lòng bấm thử lại.",
 };
 
+// The backend's rule messages are English (for logs and the API); what a user reads is Vietnamese. By the message's
+// start, so messages with numbers in them match too; anything not listed falls back to the generic sentence
+const RULES_VI: [string, string][] = [
+  ["The seller is not available at this time", "Chủ căn không rảnh vào giờ này. Hãy chọn một giờ trống của căn."],
+  ["Book a viewing at least", "Giờ xem cần cách hiện tại ít nhất 2 tiếng. Hãy chọn giờ muộn hơn."],
+  ["This viewing time has already started", "Giờ xem này đã qua. Hãy chọn giờ khác."],
+  ["This viewing's time has already come", "Buổi xem đã tới giờ nên không đổi giờ được nữa."],
+  ["Viewing has already started", "Buổi xem đã tới giờ nên không thực hiện được thao tác này."],
+  ["Viewing time has already passed", "Giờ xem đã qua."],
+  ["Viewing has not started yet", "Buổi xem chưa diễn ra."],
+  ["Slot must start in the future", "Khung giờ phải ở tương lai."],
+  ["This slot overlaps an existing slot", "Khung giờ này trùng với một khung giờ đã có của căn."],
+  ["Suggest times from your own free viewing times", "Chỉ đề xuất được các giờ trống của chính bạn (cách hiện tại ít nhất 2 tiếng)."],
+  ["Other times can be suggested for a new request only", "Chỉ đề xuất giờ khác được cho yêu cầu chưa trả lời."],
+  ["These details come from the red book", "Thông tin này lấy từ sổ đỏ / sổ hồng, không sửa được."],
+  ["Verify ownership of this home", "Hãy xác thực sổ đỏ / sổ hồng của căn trước khi đăng bán."],
+  ["Verify the red book of this home", "Hãy xác thực sổ đỏ / sổ hồng của căn trước khi gửi duyệt."],
+  ["This red book is registered to another phone", "Sổ này đăng ký số điện thoại khác. Hãy gửi yêu cầu hỗ trợ nếu bạn bán thay chủ sở hữu."],
+  ["Upload the photo; links to other sites", "Hãy tải ảnh lên; không dùng được đường link ảnh từ trang khác."],
+  ["A listing can have at most", "Tin đăng đã đủ số ảnh tối đa."],
+  ["Only JPEG, PNG or WebP photos", "Chỉ tải được ảnh JPEG, PNG hoặc WebP."],
+  ["Photos must be at most", "Ảnh quá lớn."],
+  ["File must be between", "Tệp rỗng hoặc quá lớn."],
+  ["The file is empty", "Tệp rỗng."],
+  ["Attach documents uploaded from your device", "Hãy đính kèm giấy tờ tải lên từ máy của bạn."],
+  ["Choose a buyer who viewed this home", "Chỉ chọn được người mua đã xem căn trên BookingBot, hoặc chọn người mua ngoài BookingBot."],
+  ["This home is no longer open for viewings", "Căn này không còn nhận lịch xem."],
+  ["Only a listing on the market can be taken down", "Chỉ gỡ được tin đang bán."],
+];
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    // Backend messages are English; prefer the Vietnamese text, keep backend detail for 4xx rule errors
-    if (err.code === "BUSINESS_RULE_VIOLATION" || err.code === "ALREADY_EXISTS") return `${FRIENDLY[err.code]} (${err.message})`;
+    // Rule errors: the Vietnamese sentence for the backend's message, or a generic one (never the English text)
+    if (err.code === "BUSINESS_RULE_VIOLATION" || err.code === "ALREADY_EXISTS" || err.code === "STATE_CONFLICT") {
+      const vi = RULES_VI.find(([en]) => err.message.startsWith(en));
+      if (vi) return vi[1];
+      // Some rule messages are already Vietnamese (they carry its accented letters): shown as they are
+      if (err.code === "BUSINESS_RULE_VIOLATION" && /[ăâđêôơưạ-ỹĂÂĐÊÔƠƯẠ-Ỹ]/.test(err.message)) return err.message;
+    }
+    if (err.code === "BUSINESS_RULE_VIOLATION" || err.code === "ALREADY_EXISTS") return FRIENDLY[err.code];
     // Withdraw / mark as sold while viewings are still open
     const active = err.details.active;
     if (err.code === "STATE_CONFLICT" && typeof active === "number")
-      return `Căn còn ${active} lịch xem đang chờ hoặc đã hẹn. Hãy trả lời, đổi hoặc hoàn tất các lịch đó trước.`;
+      return `Căn còn ${active} lịch xem đang chờ hoặc đã hẹn. Hãy trả lời các yêu cầu đang chờ; lịch đã xác nhận thì ghi nhận kết quả sau buổi xem, hoặc nhờ Chủ đầu tư hủy giúp nếu cần.`;
     // Sign-in code: what to do next
     if (err.code === "INVALID_CREDENTIALS" && err.details.new_code_needed === true)
       return "Mã này không còn dùng được (nhập sai quá nhiều lần hoặc đã hết hạn). Bấm “Gửi lại mã” để nhận mã mới.";

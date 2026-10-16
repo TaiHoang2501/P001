@@ -66,10 +66,13 @@ export function OwnerPropertiesPage() {
     onSuccess: refresh,
   });
   const sold = useMutation({
-    mutationFn: (id: number) => call(api.POST("/api/v1/owner/properties/{property_id}/sold", path(id))),
+    mutationFn: ({ id, buyerId }: { id: number; buyerId: number | null }) =>
+      call(api.POST("/api/v1/owner/properties/{property_id}/sold", { ...path(id), body: { buyer_id: buyerId } })),
     onSuccess: () => {
       setSelling(null);
       refresh();
+      // The viewings it closed leave the bookings page too
+      void queryClient.invalidateQueries({ queryKey: ["owner-bookings"] });
     },
   });
   // "Đánh dấu đã bán" cannot be undone: asked in a dialog that says so, not a quick browser prompt
@@ -183,7 +186,7 @@ export function OwnerPropertiesPage() {
           property={selling}
           busy={sold.isPending}
           error={sold.error}
-          onConfirm={() => sold.mutate(selling.id)}
+          onConfirm={(buyerId) => sold.mutate({ id: selling.id, buyerId })}
           onCancel={() => setSelling(null)}
         />
       )}
@@ -330,6 +333,12 @@ function ListingCard({
                 </p>
               </>
             )}
+            {/* Sold while off the market or waiting for review: it can be closed for good too */}
+            {(p.status === "WITHDRAWN" || p.status === "PENDING_REVIEW" || p.status === "REJECTED") && (
+              <button type="button" disabled={busy} onClick={onSold} className="px-3 py-2 text-sm font-bold text-brand-700 hover:underline">
+                Đánh dấu đã bán
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -401,10 +410,13 @@ function ConfirmSold({
   property: Property;
   busy: boolean;
   error: unknown;
-  onConfirm: () => void;
+  onConfirm: (buyerId: number | null) => void;
   onCancel: () => void;
 }) {
   const [understood, setUnderstood] = useState(false);
+  // Who bought it: one of the buyers who viewed it here (they keep "Quan tâm", the others are told it was sold),
+  // or someone outside BookingBot. undefined = not chosen yet
+  const [buyer, setBuyer] = useState<number | null | undefined>(undefined);
   // The viewings still ahead of this home: marking it sold cancels them and tells those buyers it was sold
   const bookings = useQuery({
     queryKey: ["owner-bookings", "sold-check", p.id],
@@ -418,6 +430,19 @@ function ConfirmSold({
         ((b.status === "CONFIRMED" || b.status === "RESCHEDULE_REQUESTED") && Date.parse(b.start_at) > now)),
   );
   const buyers = new Set(ahead.map((b) => b.customer_id)).size;
+  // Buyers whose viewing of this home took place
+  const viewers = [
+    ...new Map(
+      (bookings.data ?? [])
+        .filter(
+          (b) =>
+            b.property_id === p.id &&
+            (b.status === "COMPLETED" || (b.status === "CONFIRMED" && Date.parse(b.start_at) <= now)),
+        )
+        .map((b) => [b.customer_id, b.customer_name ?? b.buyer_ref]),
+    ),
+  ];
+  const chosen = viewers.length === 0 ? null : buyer;
   return createPortal(
     <div
       className="theme-seller fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"
@@ -447,6 +472,22 @@ function ConfirmSold({
           </ul>
           <p className="mt-2 text-xs">Chỉ muốn ngừng bán một thời gian? Dùng “Tạm ngừng” thay vì đánh dấu đã bán.</p>
         </div>
+        {viewers.length > 0 && (
+          <fieldset className="mt-4 space-y-1.5 text-sm">
+            <legend className="mb-1 font-semibold">Bạn đã bán cho ai?</legend>
+            {viewers.map(([id, name]) => (
+              <label key={id} className="flex items-center gap-2">
+                <input type="radio" name="sold-to" className="size-4" checked={buyer === id} onChange={() => setBuyer(id)} />
+                {name} <span className="text-muted">(đã xem căn trên BookingBot)</span>
+              </label>
+            ))}
+            <label className="flex items-center gap-2">
+              <input type="radio" name="sold-to" className="size-4" checked={buyer === null} onChange={() => setBuyer(null)} />
+              Người mua ngoài BookingBot
+            </label>
+            <p className="text-xs text-muted">Những người đã xem còn lại sẽ được báo là căn đã bán.</p>
+          </fieldset>
+        )}
         <label className="mt-4 flex items-start gap-2 text-sm">
           <input
             type="checkbox"
@@ -467,8 +508,8 @@ function ConfirmSold({
           </button>
           <button
             type="button"
-            disabled={!understood || busy}
-            onClick={onConfirm}
+            disabled={!understood || busy || chosen === undefined}
+            onClick={() => onConfirm(chosen ?? null)}
             className="rounded-full bg-red-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-40"
           >
             {busy ? "Đang lưu..." : "Xác nhận đã bán"}

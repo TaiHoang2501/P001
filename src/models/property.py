@@ -107,14 +107,25 @@ class PropertyOut(PropertyBase):
     owner_name: str | None = None
     owner_phone: str | None = None
     created_at: datetime
+    # Last change (a resubmitted listing: when it was sent for review again)
+    updated_at: datetime | None = None
     # Buyers only get public media; the owner and operators also see private documents
     media: list[MediaOut] = Field(default_factory=list)
     # Public image URLs in display order (derived from media)
     image_urls: list[str] = Field(default_factory=list)
 
 
+class MarkSoldRequest(BaseModel):
+    # The buyer (one who viewed the home on BookingBot) it was sold to; None = outside BookingBot / not said
+    buyer_id: int | None = None
+
+
 class RejectRequest(BaseModel):
-    reason: str = Field(..., min_length=3, max_length=1000)
+    # Spaces around do not count towards a minimum length (a note of blanks is no note)
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    # The seller reads it to fix the listing
+    reason: str = Field(..., min_length=10, max_length=1000)
 
 
 # ---------- Search / recommendation ----------

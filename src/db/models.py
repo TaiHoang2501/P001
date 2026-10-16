@@ -478,6 +478,9 @@ class Property(Base):
         _enum(PropertyStatus, "property_status"), nullable=False, default=PropertyStatus.DRAFT
     )
     rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # Set with SOLD: the BookingBot buyer the home went to (None: sold outside BookingBot / not said). Only that
+    # buyer may still say "Quan tâm" about their viewing; the others are told the home was sold
+    sold_to_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now_column()

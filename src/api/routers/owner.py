@@ -16,8 +16,8 @@ from src.models.ownership import (
     OwnershipSupportCreate,
     OwnershipVerificationOut,
 )
-from src.models.property import MediaCreate, OwnerOverview, PropertyCreate, PropertyOut, PropertyUpdate
-from src.models.seller import SellerProfileOut, SellerVerificationSubmit
+from src.models.property import MarkSoldRequest, MediaCreate, OwnerOverview, PropertyCreate, PropertyOut, PropertyUpdate
+from src.models.seller import SellerProfileOut
 from src.services import (
     availability_service,
     booking_service,
@@ -37,11 +37,6 @@ router = APIRouter(prefix="/owner", tags=["owner"])
 @router.get("/verification", response_model=SellerProfileOut)
 def my_verification(actor: OwnerActor, db: DbSession) -> SellerProfileOut:
     return seller_service.get_own(db, actor)
-
-
-@router.post("/verification", response_model=SellerProfileOut)
-def submit_verification(data: SellerVerificationSubmit, actor: OwnerActor, db: DbSession) -> SellerProfileOut:
-    return seller_service.submit(db, actor, data)
 
 
 # ---------- Red book ownership (required before listing) ----------
@@ -129,8 +124,10 @@ def withdraw_property(property_id: int, actor: OwnerActor, db: DbSession) -> Pro
 
 
 @router.post("/properties/{property_id}/sold", response_model=PropertyOut)
-def mark_sold(property_id: int, actor: OwnerActor, db: DbSession) -> PropertyOut:
-    return property_service.mark_sold(db, actor, property_id)
+def mark_sold(property_id: int, actor: OwnerActor, db: DbSession, data: MarkSoldRequest | None = None) -> PropertyOut:
+    """Final. `buyer_id`: who bought it among the buyers who viewed it here (they keep "Quan tâm"; the others are
+    told it was sold); omitted = sold outside BookingBot."""
+    return property_service.mark_sold(db, actor, property_id, data.buyer_id if data else None)
 
 
 # ---------- Viewing slots ----------

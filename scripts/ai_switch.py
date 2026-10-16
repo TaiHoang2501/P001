@@ -57,6 +57,8 @@ def main() -> None:
     parser.add_argument("command", choices=["status", "on", "off", "client-ip"])
     parser.add_argument("--reason", help="Why (kept in the audit log, shown to operators)")
     args = parser.parse_args()
+    if args.command == "off" and not args.reason:
+        parser.error('say why with --reason "..." (kept in the audit log)')
     if args.command == "client-ip":
         result = _call("GET", "/diagnostics/client-ip")
     elif args.command == "status":

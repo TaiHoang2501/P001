@@ -39,7 +39,9 @@ async def test_sold_closes_viewings_ahead_and_tells_the_buyers(client, db):
     assert (await client.post(f"/api/v1/owner/bookings/{later['id']}/approve", headers=tuan)).status_code == 200
     pending = await _book(client, an, slots[4])
 
-    r = await client.post(f"/api/v1/owner/properties/{TUAN_PROPERTY}/sold", headers=tuan)
+    # Sold to Cường, the Monday buyer
+    cuong_id = db.get(Booking, early["id"]).customer_id
+    r = await client.post(f"/api/v1/owner/properties/{TUAN_PROPERTY}/sold", json={"buyer_id": cuong_id}, headers=tuan)
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "SOLD"
 
@@ -119,3 +121,91 @@ async def test_no_new_time_once_the_viewing_time_has_come(client, db):
         f"/api/v1/bookings/{booking['id']}/reschedule", json={"start_at": slots[2]["start_at"]}, headers=binh
     )
     assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "VIEWING_STARTED", r.text
+
+
+async def _viewed(client, db, buyer, tuan, slot) -> dict:
+    """A viewing of Tuấn's home that took place and was recorded as done."""
+    booking = await _book(client, buyer, slot)
+    assert (await client.post(f"/api/v1/owner/bookings/{booking['id']}/approve", headers=tuan)).status_code == 200
+    row = db.get(Booking, booking["id"])
+    row.start_at, row.end_at = datetime.now(UTC) - timedelta(hours=3), datetime.now(UTC) - timedelta(hours=2)
+    db.commit()
+    assert (await client.post(f"/api/v1/owner/bookings/{booking['id']}/complete", headers=tuan)).status_code == 200
+    return booking
+
+
+@pytest.mark.asyncio
+async def test_only_the_buyer_it_was_sold_to_keeps_interest(client, db):
+    """A and B both viewed it. Before the sale both may say "Quan tâm"; sold to A: only A still can, B is told."""
+    a = await otp_auth(client, "0938000111", full_name="Người Mua A", role="CUSTOMER")
+    b = await auth(client, CUSTOMER_AN)
+    tuan = await auth(client, OWNER_TUAN)
+    slots = (await client.get(f"/api/v1/properties/{TUAN_PROPERTY}/slots")).json()
+    seen_a = await _viewed(client, db, a, tuan, slots[0])
+    seen_b = await _viewed(client, db, b, tuan, slots[2])
+    a_id = db.get(Booking, seen_a["id"]).customer_id
+
+    # A buyer who never viewed it cannot be named
+    binh_id = 2
+    r = await client.post(f"/api/v1/owner/properties/{TUAN_PROPERTY}/sold", json={"buyer_id": binh_id}, headers=tuan)
+    assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "BUYER_DID_NOT_VIEW"
+
+    r = await client.post(f"/api/v1/owner/properties/{TUAN_PROPERTY}/sold", json={"buyer_id": a_id}, headers=tuan)
+    assert r.status_code == 200, r.text
+
+    # B: told, deal closed, no "Quan tâm" any more
+    bk = (await client.get(f"/api/v1/bookings/{seen_b['id']}", headers=b)).json()
+    assert bk["sold_to_other"] is True and bk["deal_status"] == "CLOSED"
+    r = await client.post(f"/api/v1/bookings/{seen_b['id']}/feedback", json={"interest": "INTERESTED"}, headers=b)
+    assert r.status_code == 409
+    notes = (await client.get("/api/v1/notifications", headers=b)).json()
+    assert [n["title"] for n in notes if n["event_type"] == "PROPERTY_SOLD"] == ["Căn bạn đã xem đã được bán"]
+
+    # A: the buyer it went to, still says "Quan tâm"
+    ak = (await client.get(f"/api/v1/bookings/{seen_a['id']}", headers=a)).json()
+    assert ak["sold_to_other"] is False and ak["deal_status"] == "VIEWED"
+    r = await client.post(f"/api/v1/bookings/{seen_a['id']}/feedback", json={"interest": "INTERESTED"}, headers=a)
+    assert r.status_code == 200, r.text
+    notes = (await client.get("/api/v1/notifications", headers=a)).json()
+    assert not [n for n in notes if n["event_type"] == "PROPERTY_SOLD"]
+
+
+@pytest.mark.asyncio
+async def test_sold_outside_bookingbot_tells_every_viewer(client, db):
+    b = await auth(client, CUSTOMER_AN)
+    tuan = await auth(client, OWNER_TUAN)
+    slots = (await client.get(f"/api/v1/properties/{TUAN_PROPERTY}/slots")).json()
+    seen = await _viewed(client, db, b, tuan, slots[0])
+    assert (await client.post(f"/api/v1/owner/properties/{TUAN_PROPERTY}/sold", headers=tuan)).status_code == 200
+    bk = (await client.get(f"/api/v1/bookings/{seen['id']}", headers=b)).json()
+    assert bk["sold_to_other"] is True
+
+
+@pytest.mark.asyncio
+async def test_operator_takes_down_a_live_listing(client, db):
+    from tests.helpers import OPERATOR
+
+    an = await auth(client, CUSTOMER_AN)
+    tuan = await auth(client, OWNER_TUAN)
+    op = await auth(client, OPERATOR)
+    slots = (await client.get(f"/api/v1/properties/{TUAN_PROPERTY}/slots")).json()
+    booking = await _book(client, an, slots[0])
+
+    r = await client.post(
+        f"/api/v1/operator/properties/{TUAN_PROPERTY}/take-down", json={"reason": "Ảnh không phải căn này"}, headers=op
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "REJECTED" and r.json()["rejection_reason"] == "Ảnh không phải căn này"
+    db.expire_all()
+    assert db.get(Booking, booking["id"]).status == BookingStatus.REJECTED
+    # The seller sees why; the buyer's request is closed and they are told
+    assert (await client.get(f"/api/v1/properties/{TUAN_PROPERTY}")).status_code == 404
+    notes = (await client.get("/api/v1/notifications", headers=tuan)).json()
+    assert any(n["event_type"] == "LISTING_TAKEN_DOWN" for n in notes)
+    notes = (await client.get("/api/v1/notifications", headers=an)).json()
+    assert any(n["event_type"] == "VIEWING_CANCELLED" and n["booking_id"] == booking["id"] for n in notes)
+    # Only live listings
+    r = await client.post(
+        f"/api/v1/operator/properties/{TUAN_PROPERTY}/take-down", json={"reason": "Ảnh không phải căn này"}, headers=op
+    )
+    assert r.status_code == 409

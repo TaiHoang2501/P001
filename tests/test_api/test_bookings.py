@@ -174,9 +174,24 @@ async def test_operator_can_cancel_as_fallback(client):
     slot = await first_free_slot(client, TUAN_PROPERTY)
     booking = (await _request(client, an, slot)).json()
 
-    r = await client.post(f"/api/v1/operator/bookings/{booking['id']}/cancel", headers=op)
+    # A reason is required: both sides read it
+    r = await client.post(f"/api/v1/operator/bookings/{booking['id']}/cancel", json={"reason": "  "}, headers=op)
+    assert r.status_code == 422
+    r = await client.post(
+        f"/api/v1/operator/bookings/{booking['id']}/cancel",
+        json={"reason": "Chủ căn báo căn đang sửa chữa"},
+        headers=op,
+    )
     assert r.status_code == 200
     assert r.json()["status"] == "CANCELLED"
+    # The owner is told it was the investor, not the buyer
+    tuan = await auth(client, OWNER_TUAN)
+    note = next(
+        n
+        for n in (await client.get("/api/v1/notifications", headers=tuan)).json()
+        if n["event_type"] == "VIEWING_CANCELLED"
+    )
+    assert note["body"].startswith("Chủ đầu tư đã hủy") and "đang sửa chữa" in note["body"]
 
 
 @pytest.mark.asyncio
@@ -241,3 +256,20 @@ async def test_activity_history_keeps_every_important_event(client):
     # Another buyer sees none of it; sellers have their own pages
     assert all(e["booking_id"] != bid for e in (await client.get("/api/v1/bookings/activity", headers=binh)).json())
     assert (await client.get("/api/v1/bookings/activity", headers=tuan)).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_contact_details_in_the_note_are_hidden_from_the_owner(client):
+    an = await auth(client, CUSTOMER_AN)
+    tuan = await auth(client, OWNER_TUAN)
+    slot = await first_free_slot(client, TUAN_PROPERTY)
+    r = await client.post(
+        "/api/v1/bookings",
+        json={"property_id": TUAN_PROPERTY, "slot_id": slot["id"], "note": "Gọi em 0902222333 hoặc an@gmail.com"},
+        headers=an,
+    )
+    assert r.status_code == 201, r.text
+    listed = next(
+        b for b in (await client.get("/api/v1/owner/bookings", headers=tuan)).json() if b["id"] == r.json()["id"]
+    )
+    assert "0902222333" not in listed["customer_note"] and "@" not in listed["customer_note"]

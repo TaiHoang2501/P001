@@ -116,7 +116,7 @@ export function OwnershipCase({ escalation: e }: { escalation: Escalation }) {
                 value={phone}
                 onChange={(ev) => setPhone(ev.target.value.replace(/[^\d]/g, ""))}
               />
-              <button type="button" className="btn-secondary btn-sm" disabled={busy || (phone !== "" && phone.length < 10)} onClick={() => unlock.mutate()}>
+              <button type="button" className="btn-secondary btn-sm" disabled={busy || (phone !== "" && !/^0[35789]\d{8}$/.test(phone))} onClick={() => unlock.mutate()}>
                 {phone ? "Cập nhật SĐT & mở khóa" : "Mở khóa sổ"}
               </button>
               <span className="text-xs text-muted">Người gửi tự làm lại bước OTP</span>
@@ -132,7 +132,7 @@ export function OwnershipCase({ escalation: e }: { escalation: Escalation }) {
             <button
               type="button"
               className="btn-primary btn-sm"
-              disabled={busy || heldByOther || noDocuments || note.trim().length < 3}
+              disabled={busy || heldByOther || noDocuments || note.trim().length < 10}
               title={
                 noDocuments
                   ? "Không có giấy tờ kèm theo: chưa thể xác thực thủ công"
@@ -162,7 +162,7 @@ export function OwnershipCase({ escalation: e }: { escalation: Escalation }) {
               <button
                 type="button"
                 className="btn-danger btn-sm"
-                disabled={busy || revokeReason.trim().length < 3}
+                disabled={busy || revokeReason.trim().length < 10}
                 onClick={() => {
                   if (
                     window.confirm(

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from src.config import get_settings
 from src.core.actor import Actor
 from src.core.errors import NotFoundError
-from src.db.models import Booking, Notification, NotificationStatus, Property
+from src.db.models import Booking, Deal, Notification, NotificationStatus, Property, UserRole
 from src.models.notification import NotificationOut
 
 REMINDERS = (("T-24h", timedelta(hours=24)), ("T-2h", timedelta(hours=2)))
@@ -93,7 +93,7 @@ def viewing_confirmed(db: Session, booking: Booking, *, rescheduled: bool = Fals
         booking.customer_id,
         "RESCHEDULE_CONFIRMED" if rescheduled else "VIEWING_CONFIRMED",
         "Lịch xem đã được xác nhận",
-        f"Chủ căn đã xác nhận lịch xem {label} lúc {when} (deal {booking.deal.code}). "
+        f"Chủ căn đã xác nhận lịch xem {label} lúc {when} (mã {booking.deal.code}). "
         "Căn được giữ riêng cho buổi xem trong khung giờ này.",
         booking=booking,
     )
@@ -102,7 +102,7 @@ def viewing_confirmed(db: Session, booking: Booking, *, rescheduled: bool = Fals
         booking.property.owner_id,
         "HOLD_CREATED",
         "Căn đang được giữ cho buổi xem",
-        f"{label} được giữ cho buổi xem lúc {when} (deal {booking.deal.code}).",
+        f"{label} được giữ cho buổi xem lúc {when} (mã {booking.deal.code}).",
         booking=booking,
     )
     cancel_reminders(db, booking.id)
@@ -184,6 +184,19 @@ def property_sold(db: Session, booking: Booking, *, was_confirmed: bool) -> None
     )
 
 
+def property_sold_to_other(db: Session, deal: Deal) -> None:
+    """A buyer who viewed (or was about to talk about) a home that went to someone else. Shown in their chat."""
+    label = _label(deal.property)
+    notify(
+        db,
+        deal.buyer_id,
+        "PROPERTY_SOLD",
+        "Căn bạn đã xem đã được bán",
+        f"Chủ căn {label} đã bán căn này cho người mua khác. Bạn muốn mình tìm căn tương tự không?",
+        payload={"property_id": deal.property_id, "unit_code": deal.property.unit_code, "deal_id": deal.id},
+    )
+
+
 def viewing_superseded(db: Session, booking: Booking, alternatives: list[datetime]) -> None:
     """The owner confirmed another buyer at an overlapping time: this request can no longer happen.
 
@@ -209,15 +222,19 @@ def viewing_superseded(db: Session, booking: Booking, alternatives: list[datetim
     )
 
 
-def viewing_cancelled(db: Session, booking: Booking, actor: Actor, *, hold_released: bool) -> None:
+def viewing_cancelled(
+    db: Session, booking: Booking, actor: Actor, *, hold_released: bool, reason: str | None = None
+) -> None:
     label, when = _label(booking.property), _when(booking.start_at)
+    by_investor = actor.role == UserRole.INVESTOR_OPERATOR
+    why = f" Lý do: {reason}." if reason else ""
     if actor.id != booking.customer_id:
         notify(
             db,
             booking.customer_id,
             "VIEWING_CANCELLED",
             "Lịch xem đã bị hủy",
-            f"Lịch xem {label} lúc {when} đã bị hủy.",
+            f"{'Chủ đầu tư đã hủy' if by_investor else 'Đã hủy'} lịch xem {label} lúc {when}.{why}",
             booking=booking,
         )
     if actor.id != booking.property.owner_id:
@@ -226,7 +243,9 @@ def viewing_cancelled(db: Session, booking: Booking, actor: Actor, *, hold_relea
             booking.property.owner_id,
             "VIEWING_CANCELLED",
             "Lịch xem đã bị hủy",
-            f"{_buyer(booking)} đã hủy lịch xem {label} lúc {when}.",
+            f"Chủ đầu tư đã hủy lịch xem của {_buyer(booking)} ({label} lúc {when}).{why}"
+            if by_investor
+            else f"{_buyer(booking)} đã hủy lịch xem {label} lúc {when}.",
             booking=booking,
         )
     if hold_released:
@@ -262,7 +281,7 @@ def request_time_changed(db: Session, booking: Booking, old_start: datetime) -> 
         "VIEWING_REQUEST_UPDATED",
         "Khách đổi giờ yêu cầu xem nhà",
         f"{_buyer(booking)} đổi giờ xem {_label(booking.property)} từ "
-        f"{_when(old_start)} sang {_when(booking.start_at)} (deal {booking.deal.code}). "
+        f"{_when(old_start)} sang {_when(booking.start_at)} (mã {booking.deal.code}). "
         "Vui lòng xác nhận hoặc từ chối giờ mới.",
         booking=booking,
     )
@@ -304,6 +323,34 @@ def listing_reviewed(db: Session, prop: Property, *, approved: bool, reason: str
         )
 
 
+def listing_taken_down(db: Session, prop: Property, reason: str, viewings_closed: int) -> None:
+    closed = f" {viewings_closed} lịch xem sắp tới đã được hủy và người mua được báo." if viewings_closed else ""
+    notify(
+        db,
+        prop.owner_id,
+        "LISTING_TAKEN_DOWN",
+        "Tin đăng bị Chủ đầu tư tạm gỡ",
+        f"{_label(prop)} tạm không hiện với người mua. Lý do: {reason}.{closed} "
+        "Sửa lại trong tab “Căn đang yêu cầu duyệt” rồi gửi duyệt lại.",
+        payload={"property_id": prop.id},
+    )
+
+
+def viewing_listing_down(db: Session, booking: Booking, *, was_confirmed: bool) -> None:
+    """The investor took the listing off the market: this buyer's viewing will not happen."""
+    what = "Lịch xem đã hẹn" if was_confirmed else "Yêu cầu xem"
+    cancel_reminders(db, booking.id)
+    notify(
+        db,
+        booking.customer_id,
+        "VIEWING_CANCELLED",
+        "Lịch xem đã bị hủy",
+        f"Tin đăng {_label(booking.property)} đang tạm ngừng, nên {what.lower()} lúc {_when(booking.start_at)} đã "
+        "được hủy. Trợ lý AI có thể tìm căn tương tự cho bạn.",
+        booking=booking,
+    )
+
+
 def seller_reviewed(db: Session, user_id: int, *, verified: bool, reason: str | None = None) -> None:
     if verified:
         notify(
@@ -330,7 +377,7 @@ def schedule_reminders(db: Session, booking: Booking) -> None:
                     user_id=user_id,
                     event_type=f"REMINDER_{name.replace('-', '')}",
                     title="Sắp đến giờ xem nhà",
-                    body=f"Nhắc lịch: xem {label} lúc {when} (deal {booking.deal.code}).",
+                    body=f"Nhắc lịch: xem {label} lúc {when} (mã {booking.deal.code}).",
                     booking_id=booking.id,
                     deal_id=booking.deal_id,
                     status=NotificationStatus.PENDING,

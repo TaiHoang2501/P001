@@ -233,3 +233,20 @@ async def test_cannot_register_another_listings_private_file(client, storage):
     stolen = {**DOC, "s3_key": "properties/1/someone-elses-so-hong.pdf"}
     r = await client.post(f"/api/v1/owner/properties/{pid}/media", json=stolen, headers=owner)
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_photos_from_other_sites_are_refused(client, db):
+    from tests.helpers import OWNER_TUAN, auth
+
+    tuan = await auth(client, OWNER_TUAN)
+    listing = next(
+        p for p in (await client.get("/api/v1/owner/properties", headers=tuan)).json() if p["status"] != "AVAILABLE"
+    )
+    for url in ("https://evil.example.com/x.jpg", "//evil.example.com/x.jpg"):
+        r = await client.post(
+            f"/api/v1/owner/properties/{listing['id']}/media",
+            json={"kind": "IMAGE", "s3_key": url, "content_type": "image/jpeg"},
+            headers=tuan,
+        )
+        assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "EXTERNAL_URL", r.text

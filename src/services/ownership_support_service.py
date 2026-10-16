@@ -183,6 +183,7 @@ def _require_record(db: Session, esc: Escalation) -> PropertyOwnershipVerificati
 def unlock(db: Session, actor: Actor, escalation_id: int, owner_phone: str | None = None) -> OwnershipCaseOut:
     """Unlock a red book locked by wrong codes, optionally with the owner's new phone; the seller verifies again."""
     esc = _case(db, escalation_id)
+    escalation_service.require_handler(esc, actor)
     record = _require_record(db, esc)
     if record.status == OwnershipVerificationStatus.VERIFIED:
         raise StateConflictError("This red book is already verified; revoke it first if it is wrong")
@@ -226,6 +227,7 @@ def verify(db: Session, actor: Actor, escalation_id: int, note: str) -> Ownershi
     the seller then enters the home's details themselves when listing it.
     """
     esc = _case(db, escalation_id)
+    escalation_service.require_handler(esc, actor)
     if esc.requester_id is None:
         raise StateConflictError("This case has no seller to verify")
     record = _record_by_code(db, esc.context.get("red_book_code", ""))
@@ -293,16 +295,25 @@ def revoke(db: Session, actor: Actor, escalation_id: int, reason: str) -> Owners
     book, which can then be verified by its real owner. The case stays open for the next step.
     """
     esc = _case(db, escalation_id)
+    escalation_service.require_handler(esc, actor)
     record = _require_record(db, esc)
     if record.status != OwnershipVerificationStatus.VERIFIED or record.user_id is None:
         raise StateConflictError("This red book is not verified by anyone")
     holder_id = record.user_id
     listing = db.scalar(select(Property).where(Property.verification_id == record.id))
     if listing is not None:
-        for booking_id in db.scalars(
-            select(Booking.id).where(Booking.property_id == listing.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES))
+        # Viewings still ahead are cancelled (both sides told why), in this one transaction; one whose time has
+        # come stays for its outcome
+        for booking in db.scalars(
+            select(Booking)
+            .where(
+                Booking.property_id == listing.id,
+                Booking.status.in_(ACTIVE_BOOKING_STATUSES),
+                Booking.start_at > datetime.now(UTC),
+            )
+            .with_for_update()
         ).all():
-            booking_service.cancel(db, actor, booking_id)  # tells the buyer and the seller
+            booking_service.cancel_in_tx(db, actor, booking, "Chủ đầu tư đang kiểm tra lại quyền sở hữu căn này")
         listing = db.get(Property, listing.id, with_for_update=True)
         before = listing.status
         if listing.status != PropertyStatus.SOLD:

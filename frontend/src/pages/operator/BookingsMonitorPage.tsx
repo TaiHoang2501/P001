@@ -95,7 +95,8 @@ function BookingRow({ booking: b, opened = false, sameTime }: { booking: Booking
   const flash = useJumpFlash(opened);
   const queryClient = useQueryClient();
   const cancel = useMutation({
-    mutationFn: () => call(api.POST("/api/v1/operator/bookings/{booking_id}/cancel", { params: { path: { booking_id: b.id } } })),
+    mutationFn: (reason: string) =>
+      call(api.POST("/api/v1/operator/bookings/{booking_id}/cancel", { params: { path: { booking_id: b.id } }, body: { reason } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["operator-bookings"] }),
   });
   // Only before the viewing: afterwards what happened is recorded by the owner, not cancelled
@@ -140,8 +141,16 @@ function BookingRow({ booking: b, opened = false, sameTime }: { booking: Booking
             disabled={cancel.isPending}
             title="Chỉ dùng khi xử lý sự cố: hủy lịch thay cho các bên, cả hai được báo"
             onClick={() => {
-              if (window.confirm(`Hủy lịch #${b.id} (${b.customer_name ?? "người mua"}) thay cho các bên? Cả hai bên sẽ được báo.`))
-                cancel.mutate();
+              // Both sides read the reason, so it is asked for (at least 10 characters)
+              const reason = window.prompt(
+                `Hủy lịch #${b.id} (${b.customer_name ?? "người mua"}) thay cho các bên. Lý do (cả hai bên đều đọc, ít nhất 10 ký tự):`,
+              );
+              if (reason === null) return;
+              if (reason.trim().length < 10) {
+                window.alert("Lý do cần ít nhất 10 ký tự.");
+                return;
+              }
+              cancel.mutate(reason.trim());
             }}
           >
             Hủy lịch…

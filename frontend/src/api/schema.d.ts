@@ -382,8 +382,7 @@ export interface paths {
         /** My Verification */
         get: operations["my_verification_api_v1_owner_verification_get"];
         put?: never;
-        /** Submit Verification */
-        post: operations["submit_verification_api_v1_owner_verification_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -617,7 +616,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mark Sold */
+        /**
+         * Mark Sold
+         * @description Final. `buyer_id`: who bought it among the buyers who viewed it here (they keep "Quan tâm"; the others are
+         *     told it was sold); omitted = sold outside BookingBot.
+         */
         post: operations["mark_sold_api_v1_owner_properties__property_id__sold_post"];
         delete?: never;
         options?: never;
@@ -748,57 +751,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/operator/sellers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Sellers By Status */
-        get: operations["sellers_by_status_api_v1_operator_sellers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operator/sellers/{user_id}/verify": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Verify Seller */
-        post: operations["verify_seller_api_v1_operator_sellers__user_id__verify_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operator/sellers/{user_id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reject Seller */
-        post: operations["reject_seller_api_v1_operator_sellers__user_id__reject_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/operator/properties": {
         parameters: {
             query?: never;
@@ -850,6 +802,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/properties/{property_id}/take-down": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take Down Property
+         * @description Take a live listing off the market with a reason (back to the seller to fix); viewings ahead are closed.
+         */
+        post: operations["take_down_property_api_v1_operator_properties__property_id__take_down_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/bookings": {
         parameters: {
             query?: never;
@@ -878,7 +850,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel Booking
-         * @description Manual fallback: operator cancels a stuck booking (before its viewing time).
+         * @description Manual fallback: operator cancels a stuck booking (before its viewing time); both sides are told why.
          */
         post: operations["cancel_booking_api_v1_operator_bookings__booking_id__cancel_post"];
         delete?: never;
@@ -1011,7 +983,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Agent Status */
+        /**
+         * Agent Status
+         * @description "maintenance" while the dev team has the assistant turned off (kill switch).
+         */
         get: operations["agent_status_api_v1_status_get"];
         put?: never;
         post?: never;
@@ -1172,7 +1147,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Queue */
+        /**
+         * Queue
+         * @description Open cases; `closed=true`: the handled and dismissed ones, newest first.
+         */
         get: operations["queue_api_v1_operator_escalations_get"];
         put?: never;
         post?: never;
@@ -1590,6 +1568,16 @@ export interface components {
              */
             closed_by_system: boolean;
             /**
+             * Sold To Other
+             * @default false
+             */
+            sold_to_other: boolean;
+            /**
+             * Property Open
+             * @default true
+             */
+            property_open: boolean;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1912,6 +1900,11 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** MarkSoldRequest */
+        MarkSoldRequest: {
+            /** Buyer Id */
+            buyer_id?: number | null;
+        };
         /** MediaCreate */
         MediaCreate: {
             kind: components["schemas"]["MediaKind"];
@@ -1988,6 +1981,14 @@ export interface components {
             sent_at: string | null;
             /** Read At */
             read_at: string | null;
+        };
+        /**
+         * OperatorCancelRequest
+         * @description Why the investor cancels a viewing; both the buyer and the owner read it.
+         */
+        OperatorCancelRequest: {
+            /** Reason */
+            reason: string;
         };
         /** OperatorNote */
         OperatorNote: {
@@ -2346,6 +2347,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Updated At */
+            updated_at?: string | null;
             /** Media */
             media?: components["schemas"]["MediaOut"][];
             /** Image Urls */
@@ -2467,9 +2470,11 @@ export interface components {
         ResolveRequest: {
             /**
              * Resolution
-             * @description What was done / what the people are told
+             * @description What was done (internal)
              */
             resolution: string;
+            /** Message */
+            message?: string | null;
             /** Notify Buyer */
             notify_buyer?: boolean | null;
             /** Notify Seller */
@@ -2563,33 +2568,6 @@ export interface components {
             rejection_reason: string | null;
         };
         /**
-         * SellerReviewItem
-         * @description What an operator sees in the verification queue.
-         */
-        SellerReviewItem: {
-            /** User Id */
-            user_id: number;
-            verification_status: components["schemas"]["SellerVerificationStatus"];
-            source: components["schemas"]["SellerSource"];
-            /** Id Document S3 Key */
-            id_document_s3_key: string | null;
-            /** Verified At */
-            verified_at: string | null;
-            /** Rejection Reason */
-            rejection_reason: string | null;
-            /** Full Name */
-            full_name: string;
-            /** Phone */
-            phone: string;
-            /** Email */
-            email: string | null;
-            /**
-             * Red Book Codes
-             * @default []
-             */
-            red_book_codes: string[];
-        };
-        /**
          * SellerSource
          * @description How the seller reached the platform (spec §4.6).
          * @enum {string}
@@ -2600,11 +2578,6 @@ export interface components {
          * @enum {string}
          */
         SellerVerificationStatus: "UNVERIFIED" | "PENDING" | "VERIFIED" | "REJECTED";
-        /** SellerVerificationSubmit */
-        SellerVerificationSubmit: {
-            /** Id Document S3 Key */
-            id_document_s3_key: string;
-        };
         /** SlotCreate */
         SlotCreate: {
             /**
@@ -3472,39 +3445,6 @@ export interface operations {
             };
         };
     };
-    submit_verification_api_v1_owner_verification_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SellerVerificationSubmit"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SellerProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     my_ownership_support_api_v1_owner_ownership_support_get: {
         parameters: {
             query?: never;
@@ -3927,7 +3867,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MarkSoldRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -4203,103 +4147,6 @@ export interface operations {
             };
         };
     };
-    sellers_by_status_api_v1_operator_sellers_get: {
-        parameters: {
-            query?: {
-                status?: components["schemas"]["SellerVerificationStatus"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SellerReviewItem"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    verify_seller_api_v1_operator_sellers__user_id__verify_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                user_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SellerProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reject_seller_api_v1_operator_sellers__user_id__reject_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                user_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RejectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SellerProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     properties_by_status_api_v1_operator_properties_get: {
         parameters: {
             query?: {
@@ -4397,6 +4244,41 @@ export interface operations {
             };
         };
     };
+    take_down_property_api_v1_operator_properties__property_id__take_down_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                property_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     all_bookings_api_v1_operator_bookings_get: {
         parameters: {
             query?: {
@@ -4437,7 +4319,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorCancelRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -4866,6 +4752,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: components["schemas"]["EscalationStatus"] | null;
+                closed?: boolean;
             };
             header?: never;
             path?: never;

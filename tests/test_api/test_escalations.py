@@ -312,8 +312,35 @@ async def test_operator_cannot_cancel_a_viewing_whose_time_has_come(client, db):
     booking.start_at = datetime.now(UTC) - timedelta(minutes=10)
     booking.end_at = booking.start_at + timedelta(minutes=30)
     db.commit()
-    r = await client.post(f"/api/v1/operator/bookings/{booking_id}/cancel", headers=op)
+    r = await client.post(
+        f"/api/v1/operator/bookings/{booking_id}/cancel", json={"reason": "Chủ căn báo bận đột xuất"}, headers=op
+    )
     assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "VIEWING_STARTED"
     # The list gives the operator both people to call
     row = next(b for b in (await client.get("/api/v1/operator/bookings", headers=op)).json() if b["id"] == booking_id)
     assert row["owner_name"] and row["owner_phone"] and row["customer_phone"]
+
+
+@pytest.mark.asyncio
+async def test_internal_note_stays_internal_and_the_message_hides_contacts(client, db):
+    booking_id = _request(db)
+    db.get(Booking, booking_id).created_at = datetime.now(UTC) - timedelta(hours=25)
+    db.commit()
+    escalation_service.escalate_unanswered_requests(db)
+    esc = db.query(Escalation).one()
+    op = await auth(client, OPERATOR)
+    r = await client.post(
+        f"/api/v1/operator/escalations/{esc.id}/resolve",
+        json={
+            "resolution": "Gọi chủ căn 0918765432 hai lần, đã hẹn lại",
+            "message": "Chủ căn sẽ gọi lại qua số 0918765432 trong hôm nay",
+        },
+        headers=op,
+    )
+    assert r.status_code == 200, r.text
+    bodies = [n.body for n in db.query(Notification).filter_by(event_type="ESCALATION_RESOLVED")]
+    assert bodies and all("hai lần" not in b and "0918765432" not in b for b in bodies)
+    assert all("trong hôm nay" in b for b in bodies)
+    # Blanks are no note
+    r = await client.post(f"/api/v1/operator/escalations/{esc.id}/dismiss", json={"resolution": " " * 12}, headers=op)
+    assert r.status_code == 422

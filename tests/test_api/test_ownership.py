@@ -70,9 +70,12 @@ async def test_new_seller_verifies_red_book_then_lists(client):
     # The verified red book verifies the seller too: no separate review by the operator
     profile = (await client.get("/api/v1/owner/verification", headers=seller)).json()
     assert profile["verification_status"] == "VERIFIED"
+    # ...and there is no other way to become verified: the old manual approval is gone
     operator = await auth(client, OPERATOR)
-    queue = (await client.get("/api/v1/operator/sellers", headers=operator)).json()
-    assert profile["user_id"] not in [s["user_id"] for s in queue]
+    assert (await client.get("/api/v1/operator/sellers", headers=operator)).status_code == 404
+    assert (
+        await client.post("/api/v1/owner/verification", json={"id_document_s3_key": "x"}, headers=seller)
+    ).status_code == 405
     assert [b["red_book_code"] for b in (await client.get("/api/v1/owner/ownership", headers=seller)).json()] == [
         CLAIM["red_book_code"]
     ]

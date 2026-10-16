@@ -78,7 +78,7 @@ export function ViewingDisputeCase({ escalation: e }: { escalation: Escalation }
                 key={o.value}
                 type="button"
                 className="btn-secondary btn-sm"
-                disabled={record.isPending || note.trim().length < 3}
+                disabled={record.isPending || note.trim().length < 10}
                 onClick={() => record.mutate(o.value)}
               >
                 {o.label}
