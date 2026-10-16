@@ -70,9 +70,12 @@ async def test_new_seller_verifies_red_book_then_lists(client):
     # The verified red book verifies the seller too: no separate review by the operator
     profile = (await client.get("/api/v1/owner/verification", headers=seller)).json()
     assert profile["verification_status"] == "VERIFIED"
+    # ...and there is no other way to become verified: the old manual approval is gone
     operator = await auth(client, OPERATOR)
-    queue = (await client.get("/api/v1/operator/sellers", headers=operator)).json()
-    assert profile["user_id"] not in [s["user_id"] for s in queue]
+    assert (await client.get("/api/v1/operator/sellers", headers=operator)).status_code == 404
+    assert (
+        await client.post("/api/v1/owner/verification", json={"id_document_s3_key": "x"}, headers=seller)
+    ).status_code == 405
     assert [b["red_book_code"] for b in (await client.get("/api/v1/owner/ownership", headers=seller)).json()] == [
         CLAIM["red_book_code"]
     ]
@@ -240,3 +243,21 @@ async def test_someone_else_learns_nothing_about_a_red_book(client, red_book):
     stranger = await _new_seller(client, "0966000079")
     r = await client.post("/api/v1/owner/ownership/claim", json=red_book, headers=stranger)
     assert (r.status_code, r.json()["error"]["details"]) == (422, {"reason": "NOT_OWNER_PHONE"})
+
+
+@pytest.mark.asyncio
+async def test_only_the_owner_phone_can_finish_a_red_book(client, db):
+    """Lan (another phone) cannot take the red book the owner is verifying, even with the code, nor lock it by
+    guessing: the confirm step checks the signed-in phone like the claim does."""
+    owner = await _new_seller(client)
+    challenge = await _claim(client, owner)
+    vid = challenge["verification_id"]
+    lan = await auth(client, OWNER_LAN)
+    for code in (challenge["debug_code"], "000000", "111111", "222222", "333333", "444444"):
+        r = await client.post(f"/api/v1/owner/ownership/{vid}/confirm", json={"code": code}, headers=lan)
+        assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "NOT_OWNER_PHONE", r.text
+    # Untouched: the real owner still finishes it
+    r = await client.post(
+        f"/api/v1/owner/ownership/{vid}/confirm", json={"code": challenge["debug_code"]}, headers=owner
+    )
+    assert r.status_code == 200 and r.json()["status"] == "VERIFIED", r.text

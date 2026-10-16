@@ -27,7 +27,9 @@ export function CaseContext({ escalation: e }: { escalation: Escalation }) {
   if (c.seller_name) people.push({ label: "Chủ căn", name: c.seller_name, phone: c.seller_phone });
   const messages = c.messages ?? [];
   const shown = all ? messages : messages.slice(-FIRST_SHOWN);
-  const hidden = messages.length - shown.length + (c.earlier_messages ?? 0);
+  // Older messages than the ones sent are not available here: the button reveals only those it can show
+  const hidden = messages.length - shown.length;
+  const older = c.earlier_messages ?? 0;
 
   return (
     <div className="space-y-3">
@@ -65,8 +67,11 @@ export function CaseContext({ escalation: e }: { escalation: Escalation }) {
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Đoạn chat với Trợ lý AI</p>
           {hidden > 0 && !all && (
             <button type="button" className="mb-2 text-xs font-semibold text-brand-700 hover:underline" onClick={() => setAll(true)}>
-              Xem cả đoạn chat ({hidden} tin trước đó)
+              Xem thêm {hidden} tin trước đó
             </button>
+          )}
+          {older > 0 && (all || hidden === 0) && (
+            <p className="mb-2 text-xs text-muted">Còn {older} tin cũ hơn không hiển thị ở đây.</p>
           )}
           <ol className="space-y-2">
             {shown.map((m, i) => (

@@ -80,7 +80,8 @@ export function BookingStatusCard({
   if (booking.isError)
     return <ErrorBox error={booking.error} onRetry={() => booking.refetch()} />;
   const b = booking.data;
-  const ended = ENDED.has(b.status) || deal.data?.status === "CLOSED";
+  // A viewing that took place stays on its timeline (with "chưa phù hợp" / sold notes), even once its deal closed
+  const ended = ENDED.has(b.status) || (deal.data?.status === "CLOSED" && b.status !== "COMPLETED");
   const upcoming = new Date(b.start_at) > new Date();
 
   async function copyCode() {
@@ -152,7 +153,7 @@ export function BookingStatusCard({
 
       {/* The owner could not take this time and offered others: one tap sends a new request */}
       {b.status === "REJECTED" && (b.suggested_starts?.length ?? 0) > 0 && (
-        <SuggestedTimes booking={b} onBooked={onChanged} />
+        b.property_open && <SuggestedTimes booking={b} onBooked={onChanged} />
       )}
 
       {/* Once the viewing time is over: how it went, or a disagreement with what was recorded */}
@@ -184,14 +185,15 @@ export function BookingStatusCard({
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          {(b.status === "REQUESTED" || b.status === "CONFIRMED") &&
+          {(b.status === "REQUESTED" || b.status === "CONFIRMED" || b.status === "RESCHEDULE_REQUESTED") &&
             upcoming && (
               <button
                 type="button"
                 className="btn-secondary btn-sm"
                 onClick={() => onReschedule(b)}
               >
-                Đổi giờ
+                {/* Waiting for the owner on a new time: pick another one instead */}
+                {b.status === "RESCHEDULE_REQUESTED" ? "Chọn giờ mới khác" : "Đổi giờ"}
               </button>
             )}
           {CANCELLABLE.has(b.status) && upcoming && (
@@ -203,13 +205,16 @@ export function BookingStatusCard({
               Hủy lịch
             </button>
           )}
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            onClick={() => onViewProperty(b.property_id)}
-          >
-            Xem lại căn
-          </button>
+          {/* Sold or off the market: the home's page is gone */}
+          {b.property_open && (
+            <button
+              type="button"
+              className="btn-secondary btn-sm"
+              onClick={() => onViewProperty(b.property_id)}
+            >
+              Xem lại căn
+            </button>
+          )}
         </div>
       )}
     </section>

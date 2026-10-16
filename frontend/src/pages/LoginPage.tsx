@@ -3,7 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router";
 
 import { ApiError } from "../api/client";
 import type { User } from "../api/types";
-import { homePathFor, useAuth } from "../auth/AuthContext";
+import { homePathFor, sessionExpired, useAuth } from "../auth/AuthContext";
 import { sendFirebaseCode, type PhoneChallenge } from "../auth/firebasePhone";
 import { AuthShell, RedBookHomeArt } from "../components/AuthShell";
 import { ErrorBox, Notice } from "../components/ui";
@@ -42,6 +42,11 @@ export function LoginPage() {
       title="Đăng nhập người bán"
       subtitle="Dùng số điện thoại, không cần mật khẩu."
     >
+      {sessionExpired("seller") && (
+        <div className="mb-4">
+          <Notice tone="warning">Phiên đăng nhập đã hết hạn. Đăng nhập lại để tiếp tục.</Notice>
+        </div>
+      )}
       <LoginPanel
         audience="seller"
         onDone={(u) => navigate(from ?? homePathFor(u), { replace: true })}
@@ -64,6 +69,11 @@ export function OperatorLoginPage() {
       <p className="mb-6 mt-1 text-sm text-muted">
         Khu vực dành cho quản trị viên.
       </p>
+      {sessionExpired("operator") && (
+        <div className="mb-4">
+          <Notice tone="warning">Phiên đăng nhập đã hết hạn. Đăng nhập lại để tiếp tục.</Notice>
+        </div>
+      )}
       <PasswordForm
         operator
         onDone={(u) => navigate(from ?? homePathFor(u), { replace: true })}

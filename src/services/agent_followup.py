@@ -31,7 +31,14 @@ from src.db.models import (
 )
 from src.models.booking import TimeWindow, ViewingTimesRequest
 from src.models.property import SearchCriteria
-from src.services import agent_writer, availability_service, buyer_memory, notification_service, property_service
+from src.services import (
+    agent_writer,
+    availability_service,
+    booking_service,
+    buyer_memory,
+    notification_service,
+    property_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +90,10 @@ def run(db: Session, now: datetime | None = None) -> int:
             select(Booking).where(
                 Booking.status == BookingStatus.REJECTED,
                 Booking.responded_at >= now - _REJECTION_LOOKBACK,
+                # Closed by the system (another buyer taken at that time, the home sold): not the owner's "no",
+                # and the buyer already has its own message about it
+                Booking.rejection_reason.is_distinct_from(booking_service.SUPERSEDED_REASON),
+                Booking.rejection_reason.is_distinct_from(booking_service.SOLD_REASON),
             )
         )
     ]
@@ -162,10 +173,10 @@ def _follow_up(db: Session, booking: Booking, kind: str, key: str, now: datetime
     similar = _similar_homes(db, booking)
     prop, code = booking.property, booking.deal.code
     opening = (
-        f"Chủ căn {_label(prop)} chưa phản hồi yêu cầu xem lúc {_when(booking.start_at)} (deal {code}); "
+        f"Chủ căn {_label(prop)} chưa phản hồi yêu cầu xem lúc {_when(booking.start_at)} (mã {code}); "
         "yêu cầu vẫn đang chờ."
         if kind == "waiting"
-        else f"Chủ căn {_label(prop)} đã từ chối lịch xem lúc {_when(booking.start_at)} (deal {code})."
+        else f"Chủ căn {_label(prop)} đã từ chối lịch xem lúc {_when(booking.start_at)} (mã {code})."
     )
     options = []
     if times:

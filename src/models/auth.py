@@ -83,6 +83,15 @@ class OtpVerifyRequest(BaseModel):
     firebase_id_token: str | None = Field(default=None, min_length=20, max_length=4096)
     # Sign-up details, required only the first time this phone is used
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
+
+    @field_validator("full_name")
+    @classmethod
+    def _real_name(cls, v: str | None) -> str | None:
+        # "  " is no name: spaces around are dropped before the length rule
+        if v is not None and len(v.strip()) < 2:
+            raise ValueError("full name must have at least 2 characters")
+        return v.strip() if v is not None else None
+
     # The account kind being signed into (and created on first use; buyer when omitted)
     role: SelfServiceRole | None = None
 

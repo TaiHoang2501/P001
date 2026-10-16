@@ -143,8 +143,12 @@ class OwnershipCaseOut(BaseModel):
 
 class UnlockRequest(BaseModel):
     # The owner's new phone, when the old one no longer works (the OTP goes there)
-    owner_phone: str | None = Field(default=None, pattern=r"^0\d{9,10}$")
+    # A Vietnamese mobile number (the same rule as signing in), so the owner can sign in with it and verify
+    owner_phone: str | None = Field(default=None, pattern=r"^0[35789]\d{8}$")
 
 
 class OperatorNote(BaseModel):
-    note: str = Field(..., min_length=3, max_length=1000)
+    # Spaces around do not count towards a minimum length (a note of blanks is no note)
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    note: str = Field(..., min_length=10, max_length=1000)

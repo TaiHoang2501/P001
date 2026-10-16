@@ -42,7 +42,7 @@ export function EscalationsPage() {
   const queue = useQuery({
     queryKey: ["escalations", showClosed],
     queryFn: () =>
-      call(api.GET("/api/v1/operator/escalations", { params: { query: showClosed ? { status: "RESOLVED" } : {} } })),
+      call(api.GET("/api/v1/operator/escalations", { params: { query: showClosed ? { closed: true } : {} } })),
   });
   const missing = opened !== null && queue.data !== undefined && !queue.data.some((e) => e.id === opened);
   useEffect(() => {
@@ -80,6 +80,8 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [resolution, setResolution] = useState("");
+  // What the buyer / seller read (optional: a standard sentence otherwise); the result above stays internal
+  const [message, setMessage] = useState("");
   // Who hears the outcome: preset for the kind of case, the operator can change it
   const ctx = useQuery({
     queryKey: ["escalation-context", e.id],
@@ -90,7 +92,12 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
   const [tellSeller, setTellSeller] = useState<boolean | null>(null);
   const buyerTold = tellBuyer ?? ctx.data?.notify_buyer_default ?? false;
   const sellerTold = tellSeller ?? ctx.data?.notify_seller_default ?? false;
-  const outcome = { resolution, notify_buyer: buyerTold, notify_seller: sellerTold };
+  const outcome = {
+    resolution,
+    message: message.trim() ? message : null,
+    notify_buyer: buyerTold,
+    notify_seller: sellerTold,
+  };
   const path = { params: { path: { escalation_id: e.id } } };
   const onSuccess = () => queryClient.invalidateQueries({ queryKey: ["escalations"] });
   const assign = useMutation({ mutationFn: () => call(api.POST("/api/v1/operator/escalations/{escalation_id}/assign", path)), onSuccess });
@@ -106,8 +113,9 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
   const busy = assign.isPending || resolve.isPending || dismiss.isPending;
   // A colleague has taken this case: it is theirs to close, unless this operator takes it over
   const othersCase = e.status === "IN_PROGRESS" && e.assigned_to !== null && e.assigned_to !== user?.id;
-  // The people told read this note: a few meaningful words, the same rule for both buttons
-  const noteReady = resolution.trim().length >= MIN_NOTE;
+  // A few meaningful words in the internal note; the message, when written, too
+  const messageReady = !message.trim() || message.trim().length >= MIN_NOTE;
+  const noteReady = resolution.trim().length >= MIN_NOTE && messageReady;
   const canClose = noteReady && !othersCase && !busy;
   const error = assign.error ?? resolve.error ?? dismiss.error;
 
@@ -162,7 +170,8 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
       {e.type !== "OWNERSHIP_SUPPORT" && e.type !== "VIEWING_DISPUTE" && <CaseContext escalation={e} />}
       {e.type === "OWNERSHIP_SUPPORT" && <OwnershipCase escalation={e} />}
       {e.type === "VIEWING_DISPUTE" && <ViewingDisputeCase escalation={e} />}
-      {open && (
+      {/* A dispute is closed by recording what happened at the viewing (its own panel), not with a note */}
+      {open && e.type !== "VIEWING_DISPUTE" && (
         <form
           className="space-y-2 border-t border-line pt-3"
           onSubmit={(ev) => {
@@ -171,7 +180,7 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
           }}
         >
           <label htmlFor={`res-${e.id}`} className="text-sm font-semibold">
-            Kết quả xử lý
+            Kết quả xử lý <span className="font-normal text-muted">(ghi chú nội bộ, khách không thấy)</span>
           </label>
           <input
             id={`res-${e.id}`}
@@ -188,7 +197,7 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
           />
           {(ctx.data?.buyer_name || ctx.data?.seller_name) && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-              <span className="text-muted">Gửi lời nhắn này tới:</span>
+              <span className="text-muted">Báo kết quả cho:</span>
               {ctx.data?.buyer_name && (
                 <label className="flex items-center gap-1.5">
                   <input type="checkbox" checked={buyerTold} onChange={(ev) => setTellBuyer(ev.target.checked)} />
@@ -203,12 +212,31 @@ function EscalationRow({ escalation: e, opened = false }: { escalation: Escalati
               )}
             </div>
           )}
+          {(buyerTold || sellerTold) && (
+            <div>
+              <label htmlFor={`msg-${e.id}`} className="text-sm font-semibold">
+                Lời nhắn gửi khách <span className="font-normal text-muted">(không bắt buộc)</span>
+              </label>
+              <input
+                id={`msg-${e.id}`}
+                className="input w-full"
+                placeholder="Để trống: khách nhận câu “Nhân viên Chủ đầu tư đã xử lý xong yêu cầu này.”"
+                value={message}
+                onChange={(ev) => setMessage(ev.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted">Số điện thoại, email trong lời nhắn sẽ tự được ẩn.</p>
+            </div>
+          )}
           {othersCase ? (
             <p className="text-xs text-amber-800">
               {e.assigned_to_name ?? "Đồng nghiệp"} đang xử lý ca này; bấm “Nhận lại ca” nếu bạn làm tiếp.
             </p>
           ) : (
-            !noteReady && <p className="text-xs text-muted">Ghi ít nhất {MIN_NOTE} ký tự: đây là lời nhắn người được báo sẽ đọc.</p>
+            !noteReady && (
+              <p className="text-xs text-muted">
+                Ghi ít nhất {MIN_NOTE} ký tự cho kết quả xử lý{message.trim() ? " và cho lời nhắn" : ""}.
+              </p>
+            )
           )}
           <div className="flex flex-wrap items-center gap-2">
             <button type="submit" className="btn-primary btn-sm" disabled={!canClose}>

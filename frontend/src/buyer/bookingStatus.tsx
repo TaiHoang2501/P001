@@ -40,6 +40,10 @@ export function progressOf(booking: Booking, deal?: Deal): number {
 }
 
 export function endedLabel(b: Booking): string {
+  // Closed by BookingBot, not by the owner's "no"
+  if (b.rejection_reason === "Căn đã được bán" || (b.status === "CANCELLED" && b.sold_to_other)) return "căn đã được bán";
+  if (b.rejection_reason === "Tin đăng đang tạm ngừng") return "tin đăng đang tạm ngừng";
+  if (b.status === "REJECTED" && b.closed_by_system) return "chủ căn đã nhận lịch xem khác vào giờ này";
   if (b.status === "REJECTED") return "chủ căn từ chối";
   if (b.status === "NO_SHOW") return "ghi nhận bạn không đến";
   if (b.status === "OWNER_ABSENT") return "chủ căn vắng mặt";

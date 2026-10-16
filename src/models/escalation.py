@@ -28,7 +28,13 @@ class EscalationOut(BaseModel):
 
 
 class ResolveRequest(BaseModel):
-    resolution: str = Field(..., min_length=10, max_length=2000, description="What was done / what the people are told")
+    # Spaces around do not count towards the minimum (a note of blanks is no note)
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    # What was done: the operators' own record, never sent to the buyer or seller
+    resolution: str = Field(..., min_length=10, max_length=2000, description="What was done (internal)")
+    # What the people told read; None = a standard sentence. Contact details in it are hidden
+    message: str | None = Field(default=None, min_length=10, max_length=1000)
     # Who is told the outcome; None = the default for the kind of case (see CaseContext.notify_*_default)
     notify_buyer: bool | None = None
     notify_seller: bool | None = None

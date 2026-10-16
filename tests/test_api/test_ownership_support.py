@@ -134,7 +134,9 @@ async def test_red_book_claimed_by_someone_else_is_revoked_then_given_to_its_own
     op = await auth(client, OPERATOR)
     # Cannot hand it over while someone else holds it
     r = await client.post(
-        f"/api/v1/operator/escalations/{case['id']}/ownership/verify", json={"note": "Chủ thật"}, headers=op
+        f"/api/v1/operator/escalations/{case['id']}/ownership/verify",
+        json={"note": "Chủ thật, đã kiểm tra giấy tờ"},
+        headers=op,
     )
     assert r.status_code == 409
 

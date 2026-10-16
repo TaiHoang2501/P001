@@ -67,6 +67,9 @@ export function AfterViewing({ booking: b, onChanged }: { booking: Booking; onCh
   let body = null;
   if (sent) {
     body = <Notice tone="success">Đã gửi. Chủ đầu tư sẽ liên hệ hai bên và báo kết quả cho bạn.</Notice>;
+  } else if (b.sold_to_other && (b.status === "COMPLETED" || (b.status === "CONFIRMED" && over))) {
+    // Sold to someone else after this viewing: nothing left to say about it (the buyer it went to keeps the buttons)
+    body = <Notice tone="warning">Căn này đã được bán cho người mua khác. Nhắn Trợ lý AI để tìm căn tương tự.</Notice>;
   } else if (b.status === "CONFIRMED" && over) {
     body = (
       <>
@@ -125,6 +128,7 @@ export function AfterViewing({ booking: b, onChanged }: { booking: Booking; onCh
 
 /** Does this viewing wait for something from the buyer (or for the owner to record it)? */
 export function needsBuyerAfterViewing(b: Booking): boolean {
+  if (b.sold_to_other) return false;
   return (
     (b.status === "COMPLETED" && b.deal_status === "VIEWED") ||
     b.status === "NO_SHOW" ||

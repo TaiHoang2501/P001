@@ -19,8 +19,11 @@ def my_escalations(actor: AnyActor, db: DbSession) -> list[EscalationOut]:
 
 
 @router.get("/operator/escalations", response_model=list[EscalationOut])
-def queue(actor: OperatorActor, db: DbSession, status: EscalationStatus | None = None) -> list[EscalationOut]:
-    return escalation_service.list_queue(db, status)
+def queue(
+    actor: OperatorActor, db: DbSession, status: EscalationStatus | None = None, closed: bool = False
+) -> list[EscalationOut]:
+    """Open cases; `closed=true`: the handled and dismissed ones, newest first."""
+    return escalation_service.list_queue(db, status, closed=closed)
 
 
 @router.get("/operator/escalations/{escalation_id}/context", response_model=CaseContext)
@@ -37,7 +40,13 @@ def assign(escalation_id: int, actor: OperatorActor, db: DbSession) -> Escalatio
 @router.post("/operator/escalations/{escalation_id}/resolve", response_model=EscalationOut)
 def resolve(escalation_id: int, data: ResolveRequest, actor: OperatorActor, db: DbSession) -> EscalationOut:
     return escalation_service.close(
-        db, actor, escalation_id, data.resolution, notify_buyer=data.notify_buyer, notify_seller=data.notify_seller
+        db,
+        actor,
+        escalation_id,
+        data.resolution,
+        message=data.message,
+        notify_buyer=data.notify_buyer,
+        notify_seller=data.notify_seller,
     )
 
 
@@ -48,6 +57,7 @@ def dismiss(escalation_id: int, data: ResolveRequest, actor: OperatorActor, db: 
         actor,
         escalation_id,
         data.resolution,
+        message=data.message,
         dismissed=True,
         notify_buyer=data.notify_buyer,
         notify_seller=data.notify_seller,

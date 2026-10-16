@@ -198,6 +198,9 @@ export function PropertyFormPage({
     },
   });
 
+  // Every hook before the early returns below (React needs the same hooks on every render)
+  const [showPriceError, setShowPriceError] = useState(false);
+
   if (editingId !== null && existing.isPending) return <Spinner />;
   if (existing.isError) return <ErrorBox error={existing.error} />;
   // A new listing must be backed by a verified red book the seller has not used yet
@@ -228,7 +231,6 @@ export function PropertyFormPage({
       setForm((f) => ({ ...f, [key]: e.target.value as FormState[K] }));
 
   const priceError = priceProblem(form.price_ty);
-  const [showPriceError, setShowPriceError] = useState(false);
   const perM2 = pricePerM2(form.price_ty, form.area_m2);
 
   function onSubmit(e: FormEvent) {

@@ -8,7 +8,7 @@ from src.core.errors import (
     InvalidCredentialsError,
     PhoneInUseError,
 )
-from src.core.security import create_access_token, verify_password
+from src.core.security import create_access_token, hash_password, verify_password
 from src.db.models import BuyerProfile, SellerProfile, User, UserRole, UserStatus
 from src.models.auth import (
     LoginRequest,
@@ -21,18 +21,18 @@ from src.models.auth import (
 )
 from src.services import audit, otp_service
 
+# Checked against when there is no operator password to check, so a wrong account takes as long as a wrong
+# password: the time of the answer does not tell which emails are operators
+_DUMMY_HASH = hash_password("bookingbot-no-such-account")
+
 
 def login(db: Session, data: LoginRequest) -> TokenResponse:
     identifier = data.identifier.strip().lower()
     user = db.scalar(select(User).where(or_(User.phone == identifier, User.email == identifier)))
     # Only operators sign in with a password; buyers and sellers use phone + OTP. Same error for an unknown user,
     # a buyer / seller account and a wrong password: the answer never reveals which accounts exist
-    if (
-        user is None
-        or user.password_hash is None
-        or user.role != UserRole.INVESTOR_OPERATOR
-        or not verify_password(data.password, user.password_hash)
-    ):
+    operator = user is not None and user.password_hash is not None and user.role == UserRole.INVESTOR_OPERATOR
+    if not verify_password(data.password, user.password_hash if operator else _DUMMY_HASH) or not operator:
         raise InvalidCredentialsError("Wrong phone/email or password")
     if user.status == UserStatus.SUSPENDED:
         raise InvalidCredentialsError("Account is suspended")
@@ -55,6 +55,10 @@ def _require_same_role(user: User | None, role: str | None) -> None:
 
 def request_otp(db: Session, data: OtpRequest) -> OtpRequestResponse:
     user = _account_for(db, data.target)
+    if user is not None and user.role == UserRole.INVESTOR_OPERATOR:
+        # Answered like a number nobody uses: this form must not reveal which phones/emails are operators
+        # (signing in with the code is refused later with the same neutral error as a wrong code)
+        user = None
     # Say so before sending a code: a new account needs a phone nobody uses yet...
     if data.purpose == "signup" and user is not None:
         raise PhoneInUseError("This phone is already registered; sign up with another number or sign in")
@@ -82,6 +86,9 @@ def verify_otp(db: Session, data: OtpVerifyRequest) -> TokenResponse:
     """Log in with a valid OTP; the first time a phone is used, sign up with `full_name` + `role`."""
     otp = otp_service.check_proof(db, data.target, code=data.code, firebase_id_token=data.firebase_id_token)
     user = db.scalar(select(User).where(or_(User.phone == data.target, User.email == data.target)))
+    if user is not None and user.role == UserRole.INVESTOR_OPERATOR:
+        # Before the role check, whose answer would name the account kind
+        raise InvalidCredentialsError("This phone number or email cannot be used to sign in here")
     _require_same_role(user, data.role)
 
     if user is None:

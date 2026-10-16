@@ -10,6 +10,7 @@ Safety rules enforced here (not in the UI or the prompt):
 - Invalid status transitions are rejected; every change writes an audit row in the same transaction.
 """
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn
 
@@ -17,6 +18,7 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from src.agents.guardrails import mask_pii
 from src.config import get_settings
 from src.core.actor import Actor
 from src.core.errors import (
@@ -28,6 +30,7 @@ from src.core.errors import (
 )
 from src.db.models import (
     ACTIVE_BOOKING_STATUSES,
+    CLOSED_DEAL_STATUSES,
     AuditLog,
     AvailabilitySlot,
     Booking,
@@ -35,6 +38,8 @@ from src.db.models import (
     Building,
     BuyerAvailability,
     BuyerProfile,
+    Deal,
+    DealStatus,
     Property,
     PropertyStatus,
     User,
@@ -206,11 +211,15 @@ def to_out(booking: Booking, viewer: Actor, profile: BuyerProfile | None = None)
         customer_note=booking.customer_note,
         rejection_reason=booking.rejection_reason,
         suggested_starts=booking.suggested_starts or [],
-        closed_by_system=booking.status == BookingStatus.REJECTED and booking.rejection_reason == SUPERSEDED_REASON,
+        closed_by_system=booking.status == BookingStatus.REJECTED
+        and booking.rejection_reason in (SUPERSEDED_REASON, SOLD_REASON, LISTING_DOWN_REASON),
         responded_at=booking.responded_at,
         created_at=booking.created_at,
         respond_by=respond_by(booking) if booking.status == BookingStatus.REQUESTED else None,
         deal_status=deal.status,
+        property_open=booking.property.status == PropertyStatus.AVAILABLE,
+        sold_to_other=booking.property.status == PropertyStatus.SOLD
+        and booking.property.sold_to_user_id != booking.customer_id,
     )
 
 
@@ -264,7 +273,8 @@ def create_request(db: Session, actor: Actor, data: BookingCreate) -> BookingOut
             end_at=end_at,
             status=BookingStatus.REQUESTED,
             created_via=actor.via,
-            customer_note=data.note,
+            # The owner reads it: contact details stay hidden until both sides continue (AC-03)
+            customer_note=mask_pii(data.note)[0] if data.note else data.note,
         )
         db.add(booking)
         db.flush()
@@ -348,6 +358,142 @@ def _close_overlapping(db: Session, confirmed: Booking) -> None:
             notification_service.reschedule_declined(db, other, SUPERSEDED_REASON)
 
 
+SOLD_REASON = "Căn đã được bán"
+LISTING_DOWN_REASON = "Tin đăng đang tạm ngừng"
+
+
+def viewed_by(db: Session, property_id: int) -> set[int]:
+    """Buyers whose viewing of this home took place (done, or its time came and the outcome is not recorded yet)."""
+    return set(
+        db.scalars(
+            select(Booking.customer_id).where(
+                Booking.property_id == property_id,
+                or_(
+                    Booking.status == BookingStatus.COMPLETED,
+                    and_(Booking.status == BookingStatus.CONFIRMED, Booking.start_at <= _now()),
+                ),
+            )
+        )
+    )
+
+
+def close_ahead(
+    db: Session,
+    actor: Actor,
+    prop: Property,
+    reason: str,
+    notify: Callable[[Booking, bool], None],
+    *,
+    keep_buyer: int | None = None,
+    close_deals: bool = False,
+) -> tuple[int, set[int]]:
+    """Close every viewing of this home still ahead, in the caller's transaction (no commit): unanswered requests
+    are declined, confirmed viewings not yet held are cancelled (their holds released), each buyer told through
+    `notify(booking, was_confirmed)`. A viewing whose time has come stays for its outcome (a new time asked for on it
+    is dropped). `keep_buyer`'s viewings go on; `close_deals`: deals left with nothing to view are closed.
+    Returns how many viewings were closed and the buyers told."""
+    now = _now()
+    bookings = db.scalars(
+        select(Booking)
+        .where(Booking.property_id == prop.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES))
+        .order_by(Booking.start_at)
+        .with_for_update()
+    ).all()
+    closed = 0
+    told: set[int] = set()
+    for booking in bookings:
+        if booking.customer_id == keep_buyer:
+            continue
+        if booking.start_at <= now and booking.status != BookingStatus.REQUESTED:
+            # Already taking place or held: kept for its outcome, without the new time it asked for
+            if booking.status == BookingStatus.RESCHEDULE_REQUESTED:
+                before = _transition(booking, BookingStatus.CONFIRMED)
+                booking.proposed_start_at = booking.proposed_end_at = None
+                _audit_transition(db, actor, "booking.reschedule_decline", booking, before, reason=reason)
+                _sync_deal(db, actor, booking)
+                notification_service.reschedule_declined(db, booking, reason)
+            continue
+        if booking.status == BookingStatus.REQUESTED:
+            before = _transition(booking, BookingStatus.REJECTED)
+            booking.responded_at = now
+            booking.rejection_reason = reason
+        else:
+            before = _transition(booking, BookingStatus.CANCELLED)
+            booking.cancelled_at = now
+            booking.cancelled_by = actor.id
+            hold_service.release(db, actor, booking.id, "listing_closed")
+        booking.proposed_start_at = booking.proposed_end_at = None
+        _audit_transition(
+            db,
+            actor,
+            "booking.closed_sold" if reason == SOLD_REASON else "booking.closed_listing",
+            booking,
+            before,
+            reason=reason,
+        )
+        escalation_service.settle_no_response(db, actor, booking.id, reason)
+        _sync_deal(db, actor, booking)
+        if close_deals and booking.deal.status == DealStatus.MATCHED:
+            # Nothing left to view: the deal is over
+            booking.deal.status = DealStatus.CLOSED
+            audit.record(
+                db,
+                actor,
+                "deal.status",
+                "deal",
+                booking.deal.id,
+                before={"status": DealStatus.MATCHED},
+                after={"status": DealStatus.CLOSED},
+                extra={"reason": reason},
+            )
+        notify(booking, before != BookingStatus.REQUESTED)
+        told.add(booking.customer_id)
+        closed += 1
+    return closed, told
+
+
+def close_for_sold(db: Session, actor: Actor, prop: Property) -> int:
+    """The owner sold the home: every viewing still ahead is closed and its buyer told it was sold (see close_ahead);
+    every other buyer's open deal on it is closed too, except the buyer it was sold to. No commit."""
+    now = _now()
+    closed, told = close_ahead(
+        db,
+        actor,
+        prop,
+        SOLD_REASON,
+        lambda b, was_confirmed: notification_service.property_sold(db, b, was_confirmed=was_confirmed),
+        keep_buyer=prop.sold_to_user_id,
+        close_deals=True,
+    )
+    # Every other buyer still in a deal on this home (viewed it, said they were interested...) is told it went to
+    # someone else; only the buyer it was sold to keeps theirs
+    for deal in db.scalars(
+        select(Deal).where(
+            Deal.property_id == prop.id,
+            Deal.status.not_in(CLOSED_DEAL_STATUSES),
+            *([Deal.buyer_id != prop.sold_to_user_id] if prop.sold_to_user_id is not None else []),
+        )
+    ):
+        before_deal = deal.status
+        deal.status = DealStatus.CLOSED
+        deal.closed_reason = SOLD_REASON
+        deal.closed_at = now
+        audit.record(
+            db,
+            actor,
+            "deal.status",
+            "deal",
+            deal.id,
+            before={"status": before_deal},
+            after={"status": DealStatus.CLOSED},
+            extra={"reason": SOLD_REASON},
+        )
+        if deal.buyer_id not in told:
+            notification_service.property_sold_to_other(db, deal)
+            told.add(deal.buyer_id)
+    return closed
+
+
 def _raise_slot_taken(db: Session, err: DBAPIError, property_id: int) -> NoReturn:
     """Roll back first: the session is unusable after a failed flush."""
     db.rollback()
@@ -395,35 +541,45 @@ def _resolve_time(
 
 
 def cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
-    """Customer cancels their own booking; operators may cancel any (manual fallback)."""
+    """The buyer cancels their own viewing (before its time)."""
     booking = _load(db, booking_id, for_update=True)
-    if not (booking.customer_id == actor.id or actor.role == UserRole.INVESTOR_OPERATOR):
+    if booking.customer_id != actor.id:
         raise NotFoundError(f"Booking {booking_id} not found")
-    if booking.start_at <= _now() and actor.role != UserRole.INVESTOR_OPERATOR:
+    if booking.start_at <= _now():
         raise BusinessRuleViolationError("Viewing has already started")
+    cancel_in_tx(db, actor, booking)
+    db.commit()
+    return to_out(booking, actor)
+
+
+def cancel_in_tx(db: Session, actor: Actor, booking: Booking, reason: str | None = None) -> None:
+    """Cancel in the caller's transaction (no commit), telling the other side(s). `reason`: an operator's, told to
+    both sides; the buyer's own cancel has none."""
     before = _transition(booking, BookingStatus.CANCELLED)
     booking.cancelled_at = _now()
     booking.cancelled_by = actor.id
     booking.proposed_start_at = booking.proposed_end_at = None
     released = hold_service.release(db, actor, booking.id, "cancelled")
-    _audit_transition(db, actor, "booking.cancel", booking, before)
-    escalation_service.settle_no_response(db, actor, booking.id, "Người mua đã hủy yêu cầu xem.")
+    _audit_transition(db, actor, "booking.cancel", booking, before, **({"reason": reason} if reason else {}))
+    escalation_service.settle_no_response(
+        db, actor, booking.id, "Chủ đầu tư đã hủy lịch xem." if reason else "Người mua đã hủy yêu cầu xem."
+    )
     _sync_deal(db, actor, booking)
-    notification_service.viewing_cancelled(db, booking, actor, hold_released=released)
-    db.commit()
-    return to_out(booking, actor)
+    notification_service.viewing_cancelled(db, booking, actor, hold_released=released, reason=reason)
 
 
-def operator_cancel(db: Session, actor: Actor, booking_id: int) -> BookingOut:
+def operator_cancel(db: Session, actor: Actor, booking_id: int, reason: str) -> BookingOut:
     """The operator's manual fallback, only before the viewing: once its time has come, what happened is recorded
-    after the viewing (outcome), not cancelled."""
-    booking = _load(db, booking_id)
+    after the viewing (outcome), not cancelled. Both sides are told it was the investor, with the reason."""
+    booking = _load(db, booking_id, for_update=True)
     if booking.start_at <= _now():
         raise BusinessRuleViolationError(
             "Buổi xem đã tới giờ nên không hủy được; kết quả buổi xem do chủ căn ghi nhận.",
             details={"reason": "VIEWING_STARTED"},
         )
-    return cancel(db, actor, booking_id)
+    cancel_in_tx(db, actor, booking, reason)
+    db.commit()
+    return to_out(booking, actor)
 
 
 def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleRequest) -> BookingOut:
@@ -441,11 +597,21 @@ def reschedule(db: Session, actor: Actor, booking_id: int, data: RescheduleReque
     if booking.customer_id != actor.id:
         raise NotFoundError(f"Booking {booking_id} not found")
     deal_service.require_open(booking.deal)
+    if booking.property.status != PropertyStatus.AVAILABLE:
+        raise StateConflictError("This home is no longer open for viewings", details={"reason": "PROPERTY_UNAVAILABLE"})
+    if booking.start_at <= _now():
+        # Its outcome is recorded now (seen / no-show); a new time would let it slip past that
+        raise BusinessRuleViolationError("This viewing's time has already come", details={"reason": "VIEWING_STARTED"})
     if booking.status == BookingStatus.REQUESTED:
         return _move_request(db, actor, booking, data)
     _, start_at, end_at = _resolve_time(db, booking.property, start_at=data.start_at)
     _require_owner_free(db, booking.property, start_at, end_at, except_booking=booking.id)
-    before = _transition(booking, BookingStatus.RESCHEDULE_REQUESTED)
+    # Asking again while the owner has not answered the last new time: that one is replaced
+    before = (
+        booking.status
+        if booking.status == BookingStatus.RESCHEDULE_REQUESTED
+        else _transition(booking, BookingStatus.RESCHEDULE_REQUESTED)
+    )
     booking.proposed_start_at, booking.proposed_end_at = start_at, end_at
     _audit_transition(db, actor, "booking.reschedule_request", booking, before, proposed_start_at=start_at.isoformat())
     _sync_deal(db, actor, booking)
@@ -503,6 +669,8 @@ def approve(db: Session, actor: Actor, booking_id: int) -> BookingOut:
     _lock_owner(db, actor.id)
     booking = _load_for_owner(db, actor, booking_id)
     deal_service.require_open(booking.deal)
+    if booking.property.status != PropertyStatus.AVAILABLE:
+        raise StateConflictError("This home is no longer open for viewings", details={"reason": "PROPERTY_UNAVAILABLE"})
     property_id = booking.property_id  # read now: attributes can't be loaded after a failed flush
     rescheduling = booking.status == BookingStatus.RESCHEDULE_REQUESTED
     if rescheduling:
@@ -662,6 +830,7 @@ _ACTIVITY_KIND = {
     "booking.cancel": "CANCELLED",
     "booking.complete": "COMPLETED",
     "booking.superseded": "SUPERSEDED",
+    "booking.closed_sold": "SOLD",
     "booking.no_show": "NO_SHOW",
     "booking.unreported": "UNREPORTED",
     "booking.expired": "EXPIRED",

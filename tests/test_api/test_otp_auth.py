@@ -154,9 +154,7 @@ OPERATOR_PHONE, SELLER_PHONE, BUYER_PHONE = "0901234567", "0918765432", "0901111
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("phone", "role"), [(OPERATOR_PHONE, "CUSTOMER"), (SELLER_PHONE, "CUSTOMER"), (BUYER_PHONE, "OWNER")]
-)
+@pytest.mark.parametrize(("phone", "role"), [(SELLER_PHONE, "CUSTOMER"), (BUYER_PHONE, "OWNER")])
 async def test_phone_of_another_kind_of_account_is_refused_before_sending_a_code(client, db, phone, role):
     r = await client.post("/api/v1/auth/otp/request", json={"target": phone, "role": role})
     assert r.status_code == 409
@@ -180,7 +178,7 @@ async def test_login_just_sends_a_code_to_a_known_phone(client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("phone", [BUYER_PHONE, SELLER_PHONE, OPERATOR_PHONE])
+@pytest.mark.parametrize("phone", [BUYER_PHONE, SELLER_PHONE])
 async def test_sign_up_with_a_phone_already_registered_is_refused(client, db, phone):
     r = await client.post("/api/v1/auth/otp/request", json={"target": phone, "role": "CUSTOMER", "purpose": "signup"})
     assert r.status_code == 409
@@ -217,8 +215,23 @@ async def test_phone_written_with_spaces_or_plus84_is_the_same_number(client):
 async def test_buyer_page_names_the_area_of_a_seller_phone(client):
     r = await client.post("/api/v1/auth/otp/request", json={"target": SELLER_PHONE, "role": "CUSTOMER"})
     assert r.json()["error"]["details"] == {"account_role": "OWNER"}
-    r = await client.post("/api/v1/auth/otp/request", json={"target": OPERATOR_PHONE, "role": "CUSTOMER"})
-    assert r.json()["error"]["details"] == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("purpose", ["login", "signup"])
+async def test_operator_phone_is_answered_like_an_unused_one(client, purpose):
+    """The OTP forms must not reveal which phones are operators: the same answer as a new number, then the same
+    neutral refusal as a wrong code (operators sign in with email + password)."""
+    body = {"role": "CUSTOMER", "purpose": purpose}
+    unknown = await client.post("/api/v1/auth/otp/request", json={"target": NEW_PHONE, **body})
+    r = await client.post("/api/v1/auth/otp/request", json={"target": OPERATOR_PHONE, **body})
+    assert r.status_code == unknown.status_code == 202
+    assert r.json()["account_exists"] is False
+    r = await client.post(
+        "/api/v1/auth/otp/verify",
+        json={"target": OPERATOR_PHONE, "code": r.json()["debug_code"], "full_name": "Ai Đó", "role": "CUSTOMER"},
+    )
+    assert r.status_code == 401 and r.json()["error"]["code"] == "INVALID_CREDENTIALS"
 
 
 @pytest.mark.asyncio

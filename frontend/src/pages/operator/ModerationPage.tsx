@@ -17,10 +17,19 @@ const REASONS = [
   "View / nội thất khai chưa đúng",
 ];
 
+type Tab = "pending" | "live";
+
 export function ModerationPage() {
+  // "Chờ duyệt": listings to review; "Đang bán": live listings, which can be taken down when something is wrong
+  const [tab, setTab] = useState<Tab>("pending");
   const pending = useQuery({
-    queryKey: ["moderation"],
-    queryFn: () => call(api.GET("/api/v1/operator/properties", { params: { query: { status: "PENDING_REVIEW" } } })),
+    queryKey: tab === "pending" ? ["moderation"] : ["moderation", "live"],
+    queryFn: () =>
+      call(
+        api.GET("/api/v1/operator/properties", {
+          params: { query: { status: tab === "pending" ? "PENDING_REVIEW" : "AVAILABLE" } },
+        }),
+      ),
   });
 
   return (
@@ -29,28 +38,53 @@ export function ModerationPage() {
         title="Duyệt tin đăng"
         subtitle="Chủ căn đã xác thực sổ đỏ / sổ hồng; kiểm tra ảnh, giá và mô tả. Chỉ tin được duyệt mới được AI gợi ý cho người mua."
       />
+      <div className="mb-4 flex gap-1" role="tablist">
+        {(
+          [
+            ["pending", "Chờ duyệt"],
+            ["live", "Đang bán"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${tab === key ? "bg-brand-50 text-brand-700" : "text-muted hover:text-ink"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {pending.isPending && <Spinner />}
       {pending.isError && <ErrorBox error={pending.error} onRetry={() => pending.refetch()} />}
-      {pending.data?.length === 0 && <EmptyState title="Không có tin nào chờ duyệt" />}
+      {pending.data?.length === 0 && (
+        <EmptyState title={tab === "pending" ? "Không có tin nào chờ duyệt" : "Không có tin nào đang bán"} />
+      )}
       <ul className="space-y-3">
         {pending.data?.map((p) => (
-          <ModerationRow key={p.id} property={p} />
+          <ModerationRow key={p.id} property={p} live={tab === "live"} />
         ))}
       </ul>
     </div>
   );
 }
 
-function ModerationRow({ property: p }: { property: Property }) {
+function ModerationRow({ property: p, live = false }: { property: Property; live?: boolean }) {
   const queryClient = useQueryClient();
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const path = { params: { path: { property_id: p.id } } };
   const onSuccess = () => queryClient.invalidateQueries({ queryKey: ["moderation"] });
+  // A live listing is taken down (back to the seller with the reason), a pending one rejected
+  const endpoint = live
+    ? ("/api/v1/operator/properties/{property_id}/take-down" as const)
+    : ("/api/v1/operator/properties/{property_id}/reject" as const);
 
   const approve = useMutation({ mutationFn: () => call(api.POST("/api/v1/operator/properties/{property_id}/approve", path)), onSuccess });
   const reject = useMutation({
-    mutationFn: () => call(api.POST("/api/v1/operator/properties/{property_id}/reject", { ...path, body: { reason } })),
+    mutationFn: () => call(api.POST(endpoint, { ...path, body: { reason } })),
     onSuccess,
   });
   const busy = approve.isPending || reject.isPending;
@@ -87,17 +121,19 @@ function ModerationRow({ property: p }: { property: Property }) {
                 )
               </>
             )}{" "}
-            · gửi duyệt lúc {formatDateTime(p.created_at)}
+            · {live ? "cập nhật lúc" : "gửi duyệt lúc"} {formatDateTime(p.updated_at ?? p.created_at)}
           </p>
           <Evidence property={p} />
         </div>
         {!rejecting && (
           <div className="flex gap-2">
-            <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => approve.mutate()}>
-              Duyệt
-            </button>
+            {!live && (
+              <button type="button" className="btn-primary btn-sm" disabled={busy} onClick={() => approve.mutate()}>
+                Duyệt
+              </button>
+            )}
             <button type="button" className="btn-danger btn-sm" disabled={busy} onClick={() => setRejecting(true)}>
-              Từ chối
+              {live ? "Gỡ tin" : "Từ chối"}
             </button>
           </div>
         )}
@@ -111,7 +147,10 @@ function ModerationRow({ property: p }: { property: Property }) {
           }}
         >
           <label htmlFor={`reason-${p.id}`} className="block text-sm font-semibold">
-            Lý do từ chối <span className="font-normal text-muted">· chủ căn thấy ngay trên tin và sửa theo</span>
+            {live ? "Lý do gỡ tin" : "Lý do từ chối"}{" "}
+            <span className="font-normal text-muted">
+              · chủ căn thấy ngay trên tin và sửa theo{live ? "; lịch xem sắp tới sẽ bị hủy và người mua được báo" : ""}
+            </span>
           </label>
           {/* Common reasons, one click each; several can be combined, details added below */}
           <div className="flex flex-wrap gap-1.5">
@@ -142,15 +181,15 @@ function ModerationRow({ property: p }: { property: Property }) {
               className="input min-w-0 flex-1"
               rows={2}
               required
-              minLength={3}
+              minLength={10}
               autoFocus
               placeholder="Ghi rõ cần sửa gì, VD: Ảnh phòng khách không phải căn này; giá cao hơn căn cùng tầng khoảng 300 triệu"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
             <div className="flex flex-col gap-2">
-              <button type="submit" className="btn-danger btn-sm" disabled={busy || reason.trim().length < 3}>
-                Gửi từ chối
+              <button type="submit" className="btn-danger btn-sm" disabled={busy || reason.trim().length < 10}>
+                {live ? "Gỡ tin" : "Gửi từ chối"}
               </button>
               <button type="button" className="btn-secondary btn-sm" onClick={() => setRejecting(false)}>
                 Thôi

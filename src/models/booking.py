@@ -113,6 +113,10 @@ class BookingOut(BaseModel):
     responded_at: datetime | None
     # Closed by the system (the owner confirmed someone else at that time), not answered by the owner
     closed_by_system: bool = False
+    # The home was sold, and not to this buyer: no "Quan tâm" any more, the buyer is told it was sold
+    sold_to_other: bool = False
+    # The home is still on the market (links to it work, its other times can be booked)
+    property_open: bool = True
     created_at: datetime
     # Unanswered request: the seller answers by then (24 h after it was sent, but at the latest 1 h before the viewing)
     respond_by: datetime | None = None
@@ -132,6 +136,8 @@ ActivityKind = Literal[
     "COMPLETED",
     # The owner confirmed another buyer at an overlapping time, so this request was closed
     "SUPERSEDED",
+    # The owner sold the home: this viewing (request or confirmed) was closed
+    "SOLD",
     # After the viewing time: the buyer did not come / the owner was not there / nobody recorded it
     "NO_SHOW",
     "OWNER_ABSENT",
@@ -182,8 +188,19 @@ class ViewingDispute(BaseModel):
 class ViewingOutcome(BaseModel):
     """What the operator found after calling both sides."""
 
+    # Spaces around do not count towards a minimum length (a note of blanks is no note)
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     outcome: Literal["VIEWED", "BUYER_NO_SHOW", "OWNER_ABSENT"]
-    note: str = Field(..., min_length=3, max_length=1000)
+    note: str = Field(..., min_length=10, max_length=1000)
+
+
+class OperatorCancelRequest(BaseModel):
+    """Why the investor cancels a viewing; both the buyer and the owner read it."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    reason: str = Field(..., min_length=10, max_length=500)
 
 
 class RescheduleRequest(BaseModel):
@@ -197,6 +214,9 @@ class RescheduleRequest(BaseModel):
 
 
 class BookingRejectRequest(BaseModel):
+    # Spaces around do not count towards a minimum length (a note of blanks is no note)
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     # The buyer reads it: a few words that mean something (the quick reasons are longer than this)
     reason: str = Field(..., min_length=10, max_length=1000)
     # "Đề xuất giờ khác": up to three start times from the owner's own free times, sent to the buyer

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.db.models import ConversationStatus, MessageRole
 from src.models.booking import BookingOut, TimeWindow, ViewingTimesOut
@@ -84,6 +84,14 @@ class AssistantControlOut(AssistantStatusOut):
 
 
 class AssistantToggle(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     enabled: bool
-    # Why (kept in the audit log), e.g. "model provider down"
+    # Why (kept in the audit log), e.g. "model provider down"; required to turn the assistant off
     reason: str | None = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def _reason_to_turn_off(self) -> "AssistantToggle":
+        if not self.enabled and not (self.reason and len(self.reason) >= 5):
+            raise ValueError("say why the assistant is turned off (reason, at least 5 characters)")
+        return self

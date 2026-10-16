@@ -26,8 +26,12 @@ async def test_developer_turns_ai_off_and_on(client, db, script, admin_token):  
     status = (await client.get("/api/v1/chat/assistant-status")).json()
     assert status["enabled"] is True and status["message"] is None
 
+    # Turning it off needs a reason
+    r = await client.put("/api/v1/admin/ai-assistant", json={"enabled": False}, headers=DEV)
+    assert r.status_code == 422
     r = await client.put("/api/v1/admin/ai-assistant", json={"enabled": False, "reason": "provider down"}, headers=DEV)
     assert r.status_code == 200, r.text
+    assert (await client.get("/api/v1/status")).json()["status"] == "maintenance"
     assert r.json()["enabled"] is False
 
     status = (await client.get("/api/v1/chat/assistant-status")).json()
@@ -65,7 +69,9 @@ async def test_no_user_role_can_flip_the_switch(client, admin_token):
     assert (await client.put("/api/v1/operator/ai-assistant", json={"enabled": False}, headers=op)).status_code == 404
     # A user's bearer token is not the admin token
     for headers in (op, an, {}, {"X-Admin-Token": "wrong"}):
-        r = await client.put("/api/v1/admin/ai-assistant", json={"enabled": False}, headers=headers)
+        r = await client.put(
+            "/api/v1/admin/ai-assistant", json={"enabled": False, "reason": "thử quyền"}, headers=headers
+        )
         assert r.status_code == 401, r.text
     assert (await client.get("/api/v1/chat/assistant-status")).json()["enabled"] is True
 
@@ -73,7 +79,9 @@ async def test_no_user_role_can_flip_the_switch(client, admin_token):
 @pytest.mark.asyncio
 async def test_admin_api_is_off_without_a_token(client, monkeypatch):
     monkeypatch.setattr(get_settings(), "admin_api_token", "")
-    r = await client.put("/api/v1/admin/ai-assistant", json={"enabled": False}, headers={"X-Admin-Token": ""})
+    r = await client.put(
+        "/api/v1/admin/ai-assistant", json={"enabled": False, "reason": "thử quyền"}, headers={"X-Admin-Token": ""}
+    )
     assert r.status_code == 403
 
 

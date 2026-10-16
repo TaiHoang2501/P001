@@ -708,7 +708,15 @@ function SuggestTimes({ booking: b, onDone, onCancel }: { booking: Booking; onDo
       call(
         api.POST("/api/v1/owner/bookings/{booking_id}/reject", {
           params: { path: { booking_id: b.id } },
-          body: { reason: note.trim() || "Giờ này tôi không tiếp được, mời bạn chọn giờ khác", suggested_starts: picked, close_time: false },
+          body: {
+            // A short note ("bận") is kept, after a full sentence: the buyer's reason needs a few words
+            reason:
+              note.trim().length >= 10
+                ? note.trim()
+                : `Giờ này tôi không tiếp được, mời bạn chọn giờ khác${note.trim() ? ` (${note.trim()})` : ""}`,
+            suggested_starts: picked,
+            close_time: false,
+          },
         }),
       ),
     onSuccess: onDone,

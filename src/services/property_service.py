@@ -56,9 +56,11 @@ from src.services import (
 # Listing lifecycle (spec §4.11). SOLD is terminal; a WITHDRAWN listing can be re-submitted.
 _TRANSITIONS: dict[PropertyStatus, set[PropertyStatus]] = {
     PropertyStatus.DRAFT: {PropertyStatus.PENDING_REVIEW},
-    PropertyStatus.REJECTED: {PropertyStatus.PENDING_REVIEW},
-    PropertyStatus.PENDING_REVIEW: {PropertyStatus.AVAILABLE, PropertyStatus.REJECTED},
-    PropertyStatus.AVAILABLE: {PropertyStatus.SOLD, PropertyStatus.WITHDRAWN},
+    # A home can be sold while its listing waits for review or was turned down
+    PropertyStatus.REJECTED: {PropertyStatus.PENDING_REVIEW, PropertyStatus.SOLD},
+    PropertyStatus.PENDING_REVIEW: {PropertyStatus.AVAILABLE, PropertyStatus.REJECTED, PropertyStatus.SOLD},
+    # REJECTED from AVAILABLE: the investor takes a live listing down (with a reason); the seller fixes and resubmits
+    PropertyStatus.AVAILABLE: {PropertyStatus.SOLD, PropertyStatus.WITHDRAWN, PropertyStatus.REJECTED},
     PropertyStatus.WITHDRAWN: {PropertyStatus.PENDING_REVIEW, PropertyStatus.SOLD},
     PropertyStatus.SOLD: set(),
 }
@@ -152,6 +154,7 @@ def to_out(p: Property, *, include_private: bool = False) -> PropertyOut:
         verified_red_book=p.verification_id is not None,
         red_book_code=p.verification.red_book_code if include_private and p.verification else None,
         created_at=p.created_at,
+        updated_at=p.updated_at,
         media=[_media_out(m) for m in media],
         image_urls=[media_url(m.s3_key) for m in media if m.kind == MediaKind.IMAGE and m.is_public],
     )
@@ -377,6 +380,12 @@ def _require_no_active_bookings(db: Session, prop: Property, action: str) -> Non
 def add_media(db: Session, actor: Actor, property_id: int, data: MediaCreate) -> PropertyOut:
     prop = _load_owned(db, actor, property_id)
     _require_editable(prop)
+    # Photos are files on BookingBot's own storage (uploaded, or a storage key), never a link to another site:
+    # an outside image could change, track buyers, or show anything
+    if "://" in data.s3_key or data.s3_key.startswith("//"):
+        raise BusinessRuleViolationError(
+            "Upload the photo; links to other sites are not accepted", details={"reason": "EXTERNAL_URL"}
+        )
     upload = media_service.require_own_upload(db, actor, data.s3_key)
     if data.kind == MediaKind.IMAGE:
         limit = get_settings().media_max_photos
@@ -492,12 +501,29 @@ def withdraw(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     return get_property(db, prop.id, actor)
 
 
-def mark_sold(db: Session, actor: Actor, property_id: int) -> PropertyOut:
+def mark_sold(db: Session, actor: Actor, property_id: int, buyer_id: int | None = None) -> PropertyOut:
+    """Final: the listing closes, and every viewing still ahead of it is closed with its buyer told the home was
+    sold (same transaction). A viewing whose time has come stays for its outcome. `buyer_id`: the BookingBot
+    buyer it went to, who must have viewed it here; every other buyer's deal on it is closed and they are told."""
+    from src.services import booking_service  # imported here: booking_service is a lower layer
+
     prop = _load_owned(db, actor, property_id)
-    _require_no_active_bookings(db, prop, "marking the property as sold")
+    if buyer_id is not None and buyer_id not in booking_service.viewed_by(db, prop.id):
+        raise BusinessRuleViolationError(
+            "Choose a buyer who viewed this home on BookingBot, or none", details={"reason": "BUYER_DID_NOT_VIEW"}
+        )
     before = _transition(prop, PropertyStatus.SOLD)
+    prop.sold_to_user_id = buyer_id
+    closed = booking_service.close_for_sold(db, actor, prop)
     audit.record(
-        db, actor, "property.sold", "property", prop.id, before={"status": before}, after={"status": prop.status}
+        db,
+        actor,
+        "property.sold",
+        "property",
+        prop.id,
+        before={"status": before},
+        after={"status": prop.status},
+        extra={"viewings_closed": closed, "sold_to": buyer_id},
     )
     db.commit()
     return get_property(db, prop.id, actor)
@@ -522,6 +548,42 @@ def approve(db: Session, actor: Actor, property_id: int) -> PropertyOut:
     from src.services import agent_followup
 
     agent_followup.announce_listing(db, prop)
+    db.commit()
+    return get_property(db, prop.id, actor)
+
+
+def take_down(db: Session, actor: Actor, property_id: int, reason: str) -> PropertyOut:
+    """The investor takes a live listing off the market (wrong photos found later, a complaint...). It goes back to
+    the seller as REJECTED with the reason; viewings still ahead are closed and those buyers told."""
+    from src.services import booking_service  # imported here: booking_service is a lower layer
+
+    prop = _load(db, property_id, for_update=True)
+    if prop.status != PropertyStatus.AVAILABLE:
+        raise StateConflictError(
+            "Only a listing on the market can be taken down", details={"status": prop.status.value}
+        )
+    before = _transition(prop, PropertyStatus.REJECTED)
+    prop.rejection_reason = reason
+    prop.reviewed_by = actor.id
+    prop.reviewed_at = datetime.now(UTC)
+    closed, _ = booking_service.close_ahead(
+        db,
+        actor,
+        prop,
+        booking_service.LISTING_DOWN_REASON,
+        lambda b, was_confirmed: notification_service.viewing_listing_down(db, b, was_confirmed=was_confirmed),
+    )
+    audit.record(
+        db,
+        actor,
+        "property.take_down",
+        "property",
+        prop.id,
+        before={"status": before},
+        after={"status": prop.status, "reason": reason},
+        extra={"viewings_closed": closed},
+    )
+    notification_service.listing_taken_down(db, prop, reason, closed)
     db.commit()
     return get_property(db, prop.id, actor)
 

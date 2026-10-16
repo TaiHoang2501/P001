@@ -11,6 +11,7 @@ export const CHAT_EVENTS = new Set([
   "VIEWING_SUPERSEDED",
   "VIEWING_TIMES_SUGGESTED",
   "VIEWING_EXPIRED",
+  "PROPERTY_SOLD",
 ]);
 
 type Note = {
@@ -36,6 +37,9 @@ export function notificationTarget(n: Note, role: Role): string | null {
       if (n.event_type.startsWith("OWNERSHIP_") && payload.escalation_id)
         return `/owner/verify?case=${payload.escalation_id}&${jump}`;
       if (n.event_type.startsWith("SELLER_") || n.event_type.startsWith("OWNERSHIP_")) return "/owner/verify";
+      // A support case the seller raised is about a red book (their only kind of case)
+      if (n.event_type.startsWith("ESCALATION_"))
+        return payload.escalation_id ? `/owner/verify?case=${payload.escalation_id}&${jump}` : "/owner/verify";
       return null;
     case "CUSTOMER":
       // Always the "Hoạt động" page: the card of the viewing it is about (also for the assistant's messages about
@@ -77,7 +81,7 @@ const GROUPS: Partial<Record<Role, NoteGroup[]>> = {
     {
       key: "assistant",
       label: "Trợ lý AI gợi ý",
-      events: ["AGENT_FOLLOWUP", "AGENT_NEW_MATCH", "VIEWING_SUPERSEDED", "VIEWING_EXPIRED"],
+      events: ["AGENT_FOLLOWUP", "AGENT_NEW_MATCH", "VIEWING_SUPERSEDED", "VIEWING_EXPIRED", "PROPERTY_SOLD"],
     },
     {
       key: "declined",

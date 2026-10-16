@@ -81,6 +81,17 @@ export function SellerShell() {
                 Đăng xuất
               </button>
             </span>
+            {/* Phones: the name block above is hidden, the sign-out stays reachable */}
+            <button
+              type="button"
+              className="rounded-full px-3 py-1.5 text-xs font-semibold text-muted ring-1 ring-ink/15 hover:text-ink sm:hidden"
+              onClick={() => {
+                logout();
+                navigate("/");
+              }}
+            >
+              Đăng xuất
+            </button>
           </div>
         </div>
       </header>

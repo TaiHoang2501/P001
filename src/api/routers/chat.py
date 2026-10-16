@@ -95,8 +95,10 @@ def assistant_status(db: DbSession) -> AssistantStatusOut:
 
 
 @router.get("/status")
-async def agent_status() -> dict[str, str]:
-    return {"status": "ready", "agent": "BookingBot LangGraph Agent v2"}
+def agent_status(db: DbSession) -> dict[str, str]:
+    """ "maintenance" while the dev team has the assistant turned off (kill switch)."""
+    ready = assistant_control.status(db)["enabled"]
+    return {"status": "ready" if ready else "maintenance", "agent": "BookingBot LangGraph Agent v2"}
 
 
 @router.get("/chat/conversations", response_model=list[ConversationOut])

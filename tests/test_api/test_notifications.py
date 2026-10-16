@@ -133,7 +133,7 @@ async def test_rejection_notifies_buyer(client):
 @pytest.mark.asyncio
 async def test_listing_review_notifies_owner(client):
     op = await auth(client, OPERATOR)
-    await client.post("/api/v1/operator/properties/33/reject", json={"reason": "Thiếu ảnh"}, headers=op)
+    await client.post("/api/v1/operator/properties/33/reject", json={"reason": "Thiếu ảnh phòng khách"}, headers=op)
     lan = await auth(client, "lan.hoang@gmail.com")
     assert await _events(client, lan) == ["LISTING_REJECTED"]
 

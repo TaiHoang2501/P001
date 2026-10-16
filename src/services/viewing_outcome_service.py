@@ -31,6 +31,7 @@ from src.db.models import (
     EscalationStatus,
     EscalationType,
     Notification,
+    PropertyStatus,
     UserRole,
 )
 from src.models.booking import BookingOut
@@ -116,6 +117,9 @@ def feedback(db: Session, actor: Actor, booking_id: int, interest: Interest, not
     if booking.status != BookingStatus.COMPLETED:
         raise StateConflictError("You can say how you found the home after the viewing took place")
     deal = booking.deal
+    prop = booking.property
+    if prop.status == PropertyStatus.SOLD and prop.sold_to_user_id != actor.id:
+        raise StateConflictError("This home has been sold to another buyer", details={"reason": "PROPERTY_SOLD"})
     if deal.status != DealStatus.VIEWED:
         raise StateConflictError("You already told us about this viewing", details={"deal_status": deal.status.value})
     before = deal.status
@@ -135,7 +139,7 @@ def feedback(db: Session, actor: Actor, booking_id: int, interest: Interest, not
             booking.property.owner_id,
             "BUYER_INTERESTED",
             "Người mua quan tâm căn của bạn",
-            f"{booking.customer.full_name} đã xem {_label(booking)} và cho biết quan tâm (deal {deal.code}).",
+            f"{booking.customer.full_name} đã xem {_label(booking)} và cho biết quan tâm (mã {deal.code}).",
             booking=booking,
         )
     else:
@@ -218,6 +222,7 @@ def record_outcome(db: Session, actor: Actor, escalation_id: int, outcome: Outco
         raise NotFoundError(f"Viewing dispute {escalation_id} not found")
     if esc.status not in OPEN_ESCALATION_STATUSES:
         raise StateConflictError(f"This case is already {esc.status.value}")
+    escalation_service.require_handler(esc, actor)
     booking = booking_service._load(db, esc.booking_id, for_update=True)
     before = booking.status
     booking.status = _OUTCOME_STATUS[outcome]

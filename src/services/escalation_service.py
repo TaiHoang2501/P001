@@ -12,6 +12,7 @@ from sqlalchemy import Integer, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from src.agents.guardrails import mask_pii
 from src.config import get_settings
 from src.core.actor import Actor
 from src.core.errors import NotFoundError, StateConflictError
@@ -328,15 +329,17 @@ def _load(db: Session, escalation_id: int) -> Escalation:
     return esc
 
 
-def list_queue(db: Session, status: EscalationStatus | None = None) -> list[EscalationOut]:
-    """Operator queue; without a status filter it shows everything still open, oldest first."""
+def list_queue(db: Session, status: EscalationStatus | None = None, *, closed: bool = False) -> list[EscalationOut]:
+    """Operator queue; without a filter it shows everything still open, oldest first. `closed`: every closed case
+    (handled or dismissed), newest first."""
     stmt = select(Escalation)
-    stmt = (
-        stmt.where(Escalation.status == status)
-        if status
-        else stmt.where(Escalation.status.in_(OPEN_ESCALATION_STATUSES))
-    )
-    return [_out(db, e) for e in db.scalars(stmt.order_by(Escalation.created_at))]
+    if closed:
+        stmt = stmt.where(Escalation.status.not_in(OPEN_ESCALATION_STATUSES)).order_by(Escalation.resolved_at.desc())
+    elif status:
+        stmt = stmt.where(Escalation.status == status).order_by(Escalation.created_at)
+    else:
+        stmt = stmt.where(Escalation.status.in_(OPEN_ESCALATION_STATUSES)).order_by(Escalation.created_at)
+    return [_out(db, e) for e in db.scalars(stmt)]
 
 
 def assign(db: Session, actor: Actor, escalation_id: int) -> EscalationOut:
@@ -353,26 +356,34 @@ def assign(db: Session, actor: Actor, escalation_id: int) -> EscalationOut:
     return _out(db, esc)
 
 
+def require_handler(esc: Escalation, actor: Actor) -> None:
+    """A case a colleague has taken is theirs to act on: anyone else first takes it over ("Nhận lại ca"). Applies
+    to every action on a case (closing, unlocking a red book, recording a viewing's outcome...)."""
+    if esc.status == EscalationStatus.IN_PROGRESS and esc.assigned_to not in (None, actor.id):
+        raise StateConflictError(
+            'Ca này đang do nhân viên khác xử lý; bấm "Nhận lại ca" nếu bạn tiếp quản.',
+            details={"reason": "ASSIGNED_TO_OTHER", "assigned_to": esc.assigned_to},
+        )
+
+
 def close(
     db: Session,
     actor: Actor,
     escalation_id: int,
     resolution: str,
     *,
+    message: str | None = None,
     dismissed: bool = False,
     notify_buyer: bool | None = None,
     notify_seller: bool | None = None,
 ) -> EscalationOut:
-    """Close a case with what was done. The buyer and/or the seller it is about are told (default by the kind of
-    case, see _TELL_BUYER / _TELL_SELLER; the operator may change it). Each sees only the operator's words."""
+    """Close a case with what was done (`resolution`: the operators' record only). The buyer and/or the seller it is
+    about are told (default by the kind of case, see _TELL_BUYER / _TELL_SELLER; the operator may change it): the
+    operator's `message` with any phone/email hidden, or a standard sentence."""
     esc = _load(db, escalation_id)
     if esc.status not in OPEN_ESCALATION_STATUSES:
         raise StateConflictError(f"Escalation is already {esc.status.value}")
-    if esc.status == EscalationStatus.IN_PROGRESS and esc.assigned_to not in (None, actor.id):
-        raise StateConflictError(
-            'Ca này đang do nhân viên khác xử lý; bấm "Nhận lại ca" nếu bạn tiếp quản.',
-            details={"reason": "ASSIGNED_TO_OTHER", "assigned_to": esc.assigned_to},
-        )
+    require_handler(esc, actor)
     before = esc.status
     esc.status = EscalationStatus.DISMISSED if dismissed else EscalationStatus.RESOLVED
     esc.resolution = resolution
@@ -385,7 +396,7 @@ def close(
         "escalation",
         esc.id,
         before={"status": before},
-        after={"status": esc.status, "resolution": resolution},
+        after={"status": esc.status, "resolution": resolution, "message": message},
     )
     buyer, seller, booking, prop = _parties(db, esc)
     if notify_buyer is None:
@@ -393,6 +404,12 @@ def close(
     if notify_seller is None:
         notify_seller = seller is not None and (esc.type in _TELL_SELLER or seller.id == esc.requester_id)
     told = {u.id: u for u, yes in ((buyer, notify_buyer), (seller, notify_seller)) if u is not None and yes}
+    if message:
+        told_text, _ = mask_pii(message)
+    elif dismissed:
+        told_text = "Nhân viên Chủ đầu tư đã xem xét và đóng yêu cầu này."
+    else:
+        told_text = "Nhân viên Chủ đầu tư đã xử lý xong yêu cầu này."
     for user_id in told:
         notification_service.notify(
             db,
@@ -401,7 +418,7 @@ def close(
             "Yêu cầu hỗ trợ đã được xử lý"
             if user_id == esc.requester_id
             else f"Cập nhật từ nhân viên Chủ đầu tư{f' về căn {prop.unit_code}' if prop else ''}",
-            resolution,
+            told_text,
             # Linked to the viewing it is about, so opening the notice leads there
             booking=booking,
             payload={"escalation_id": esc.id},
@@ -416,8 +433,19 @@ def close(
 # ---------- Requester ----------
 
 
+# What a buyer/seller may read back of their own case: only what they wrote themselves. The rest of `context` is
+# for operators (the other side's phone, no-show counters, internal ids) and never goes to the requester (AC-03)
+_REQUESTER_CONTEXT = {"reason", "red_book_code", "red_book_holder_name", "note", "documents", "claim"}
+
+
+def for_requester(e: Escalation) -> EscalationOut:
+    out = EscalationOut.model_validate(e)
+    out.context = {k: v for k, v in out.context.items() if k in _REQUESTER_CONTEXT}
+    return out
+
+
 def list_mine(db: Session, actor: Actor) -> list[EscalationOut]:
     rows = db.scalars(
         select(Escalation).where(Escalation.requester_id == actor.id).order_by(Escalation.created_at.desc())
     )
-    return [EscalationOut.model_validate(e) for e in rows]
+    return [for_requester(e) for e in rows]
