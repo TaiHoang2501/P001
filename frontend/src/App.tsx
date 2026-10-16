@@ -15,6 +15,7 @@ import { LiveNotifications } from "./components/LiveNotifications";
 import { EmptyState } from "./components/ui";
 import { LoginPage, OperatorLoginPage } from "./pages/LoginPage";
 import { PassCheckPage } from "./pages/PassCheckPage";
+import { DevPage } from "./pages/dev/DevPage";
 import { BookingsMonitorPage } from "./pages/operator/BookingsMonitorPage";
 import { EscalationsPage } from "./pages/operator/EscalationsPage";
 import { ModerationPage } from "./pages/operator/ModerationPage";
@@ -131,6 +132,9 @@ export function App() {
           path="operator/bookings"
           element={as(["INVESTOR_OPERATOR"], <BookingsMonitorPage />)}
         />
+
+        {/* Developers: metrics + AI kill switch, unlocked with ADMIN_API_TOKEN (not linked from any menu) */}
+        <Route path="dev" element={<DevPage />} />
 
         <Route path="*" element={<EmptyState title="Không tìm thấy trang" />} />
       </Route>
