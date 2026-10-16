@@ -78,9 +78,12 @@ class AssistantStatusOut(BaseModel):
 
 
 class AssistantControlOut(AssistantStatusOut):
+    reason: str | None = None
     updated_at: datetime | None = None
     updated_by: int | None = None
 
 
 class AssistantToggle(BaseModel):
     enabled: bool
+    # Why (kept in the audit log), e.g. "model provider down"
+    reason: str | None = Field(default=None, max_length=300)

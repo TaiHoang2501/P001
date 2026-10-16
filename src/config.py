@@ -190,7 +190,10 @@ class Settings(BaseSettings):
     guardrail_judge_provider: Literal["", "openai", "google", "openrouter", "groq", "anthropic"] = ""
     guardrail_judge_model: str = ""
     guardrail_judge_timeout_seconds: float = Field(default=8, gt=0)
-    # Support phone shown when the AI assistant is turned off by an operator (kill switch)
+    # Developer-only API (/api/v1/admin: AI kill switch, client IP check), header X-Admin-Token. Empty = disabled.
+    # A long random secret known to the dev team only (python -c "import secrets; print(secrets.token_urlsafe(32))")
+    admin_api_token: str = ""
+    # Support phone shown when the dev team has the AI assistant turned off (kill switch)
     support_hotline: str = "1900xxxx"
     # Chat messages to the AI assistant (each is a model call): per signed-in buyer, and per IP for guests
     chat_messages_per_minute: int = Field(default=10, ge=1)
@@ -201,7 +204,7 @@ class Settings(BaseSettings):
     guest_chat_messages_per_day_total: int = Field(default=3000, ge=1)
     # Guest IP for rate limits: a header the platform sets itself (e.g. "cf-connecting-ip"), else the
     # TRUSTED_PROXY_HOPS-th X-Forwarded-For entry from the right (the address our proxy appended; check it with
-    # GET /operator/diagnostics/client-ip after a deploy)
+    # `python scripts/ai_switch.py client-ip` after a deploy)
     client_ip_header: str = ""
     trusted_proxy_hops: int = Field(default=1, ge=0)
     # Developer traces of chat turns (ai_turns) and unclaimed guest conversations are kept this many days

@@ -1,4 +1,5 @@
-"""The AI assistant kill switch: an operator turns the assistant off (and on) from the Operator Console.
+"""The AI assistant kill switch: a developer turns the assistant off (and on) through the admin API
+(src/api/routers/admin.py, scripts/ai_switch.py); operators only see whether it is on.
 
 The state is a row in system_settings, so every API instance (Render, Cloud Run) sees the same switch at once.
 While off, chat endpoints answer AI_DISABLED without calling the model, the buyer chat shows a maintenance
@@ -34,6 +35,7 @@ def status(db: Session) -> dict[str, Any]:
         "enabled": enabled,
         "message": None if enabled else maintenance_message(),
         "hotline": get_settings().support_hotline,
+        "reason": row.value.get("reason") if row else None,
         "updated_at": row.updated_at if row else None,
         "updated_by": row.updated_by if row else None,
     }
@@ -55,14 +57,15 @@ def ensure_enabled() -> None:
         raise AiDisabledError(maintenance_message(), details={"hotline": get_settings().support_hotline})
 
 
-def set_enabled(db: Session, actor: Actor, enabled: bool) -> dict[str, Any]:
+def set_enabled(db: Session, actor: Actor | None, enabled: bool, reason: str | None = None) -> dict[str, Any]:
+    """Turn the assistant on or off. `actor` None: a developer through the admin API (audited as SYSTEM)."""
     row = db.get(SystemSetting, KEY, with_for_update=True)
     before = bool(row is None or row.value.get("enabled", True))
     if row is None:
         row = SystemSetting(key=KEY, value={})
         db.add(row)
-    row.value = {**row.value, "enabled": enabled}
-    row.updated_by = actor.id
+    row.value = {**row.value, "enabled": enabled, "reason": reason}
+    row.updated_by = actor.id if actor else None
     db.flush()
     audit.record(
         db,
@@ -72,9 +75,9 @@ def set_enabled(db: Session, actor: Actor, enabled: bool) -> dict[str, Any]:
         0,
         before={"enabled": before},
         after={"enabled": enabled},
-        extra={"key": KEY},
+        extra={"key": KEY, "reason": reason, "via": "admin_api" if actor is None else "user"},
     )
     db.commit()
     db.refresh(row)
-    logger.warning("AI assistant turned %s by user %s", "on" if enabled else "off", actor.id)
+    logger.warning("AI assistant turned %s (%s)", "on" if enabled else "off", reason or "no reason given")
     return status(db)

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src import jobs
 from src.agents import graph as agent_graph
 from src.api.routers import (
+    admin,
     auth,
     bookings,
     chat,
@@ -75,6 +76,7 @@ app.include_router(chat.router, prefix=API_PREFIX)
 app.include_router(notifications.router, prefix=API_PREFIX)
 app.include_router(escalations.router, prefix=API_PREFIX)
 app.include_router(media.router, prefix=API_PREFIX)
+app.include_router(admin.router, prefix=API_PREFIX)
 
 
 @app.get("/health")

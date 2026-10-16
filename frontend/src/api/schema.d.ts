@@ -894,33 +894,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Ai Assistant */
+        /**
+         * Ai Assistant
+         * @description Read only: whether buyers can chat with the assistant (the dev team turns it off/on, see routers/admin.py),
+         *     so operators know why support calls may rise.
+         */
         get: operations["ai_assistant_api_v1_operator_ai_assistant_get"];
-        /**
-         * Set Ai Assistant
-         * @description Kill switch: turn the AI assistant off (buyers see a maintenance notice) or back on. Audited.
-         */
-        put: operations["set_ai_assistant_api_v1_operator_ai_assistant_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/operator/diagnostics/client-ip": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Client Ip
-         * @description After a deploy: which address guest rate limits use for this request. `client_ip` must be your own public IP;
-         *     if it is the platform's proxy instead, adjust TRUSTED_PROXY_HOPS / CLIENT_IP_HEADER.
-         */
-        get: operations["client_ip_api_v1_operator_diagnostics_client_ip_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1506,6 +1485,8 @@ export interface components {
             message?: string | null;
             /** Hotline */
             hotline: string;
+            /** Reason */
+            reason?: string | null;
             /** Updated At */
             updated_at?: string | null;
             /** Updated By */
@@ -1522,11 +1503,6 @@ export interface components {
             message?: string | null;
             /** Hotline */
             hotline: string;
-        };
-        /** AssistantToggle */
-        AssistantToggle: {
-            /** Enabled */
-            enabled: boolean;
         };
         /** Body_upload_media_api_v1_owner_properties__property_id__media_upload_post */
         Body_upload_media_api_v1_owner_properties__property_id__media_upload_post: {
@@ -4513,61 +4489,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssistantControlOut"];
-                };
-            };
-        };
-    };
-    set_ai_assistant_api_v1_operator_ai_assistant_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssistantToggle"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantControlOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    client_ip_api_v1_operator_diagnostics_client_ip_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string | number | null;
-                    };
                 };
             };
         };
