@@ -1072,6 +1072,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live Notifications
+         * @description Server-Sent Events: `notification` {NotificationOut} as soon as a new one is sent to you (the web app shows
+         *     it as a pop-up), `ready` once connected, and `bye` {after} when the stream ends after a few minutes: reconnect
+         *     with `?after=` to carry on without missing any.
+         */
+        get: operations["live_notifications_api_v1_notifications_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications/unread-count": {
         parameters: {
             query?: never;
@@ -4708,6 +4730,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["NotificationOut"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    live_notifications_api_v1_notifications_stream_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

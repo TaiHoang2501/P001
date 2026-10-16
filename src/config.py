@@ -193,6 +193,10 @@ class Settings(BaseSettings):
     # Developer-only API (/api/v1/admin: AI kill switch, client IP check), header X-Admin-Token. Empty = disabled.
     # A long random secret known to the dev team only (python -c "import secrets; print(secrets.token_urlsafe(32))")
     admin_api_token: str = ""
+    # Live notifications (GET /notifications/stream): how often the stream checks for new ones, and how long one
+    # stream lasts before the client reconnects (below the platform request timeout, Cloud Run: 300 s)
+    notification_stream_poll_seconds: float = Field(default=2, gt=0)
+    notification_stream_max_seconds: float = Field(default=240, gt=0)
     # Support phone shown when the dev team has the AI assistant turned off (kill switch)
     support_hotline: str = "1900xxxx"
     # Chat messages to the AI assistant (each is a model call): per signed-in buyer, and per IP for guests

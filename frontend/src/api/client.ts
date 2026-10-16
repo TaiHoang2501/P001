@@ -1,7 +1,7 @@
 import createClient, { type Middleware } from "openapi-fetch";
 
 import type { paths } from "./schema";
-import type { ChatResponse } from "./types";
+import type { ChatResponse, Notification } from "./types";
 
 /**
  * Typed API client generated from the FastAPI OpenAPI spec.
@@ -195,4 +195,52 @@ export async function streamChat(
   }
   // The connection closed before the reply was complete
   throw new ApiError("AGENT_UNAVAILABLE", "Stream ended early", 503);
+}
+
+
+/**
+ * Live notifications (GET /notifications/stream, Server-Sent Events): `onNotification` for each new one as soon as
+ * it is sent. Resolves with the cursor to reconnect with (`after`) when the server ends the stream after a few
+ * minutes; rejects on a network error or when the session is gone (ApiError 401).
+ */
+export async function streamNotifications(
+  onNotification: (n: Notification) => void,
+  opts: { after?: string | null; signal?: AbortSignal; onReady?: () => void } = {},
+): Promise<string | null> {
+  const query = opts.after ? `?after=${encodeURIComponent(opts.after)}` : "";
+  const response = await fetch(`${API_BASE}/api/v1/notifications/stream${query}`, {
+    headers: { Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    signal: opts.signal,
+  });
+  if (!response.ok || !response.body) {
+    if (response.status === 401 && token) onUnauthorized?.();
+    throw toApiError(await response.json().catch(() => null), response.status);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let after: string | null = opts.after ?? null;
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) return after;
+    buffer += decoder.decode(chunk.value, { stream: true });
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      let name = "message";
+      let data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event: ")) name = line.slice(7);
+        else if (line.startsWith("data: ")) data += line.slice(6);
+      }
+      if (!data) continue; // ": ping" keep-alive
+      const payload = JSON.parse(data);
+      if (name === "ready") opts.onReady?.();
+      else if (name === "notification") {
+        after = payload.sent_at ?? after;
+        onNotification(payload as Notification);
+      } else if (name === "bye") return payload.after ?? after;
+    }
+  }
 }

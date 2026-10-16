@@ -11,6 +11,7 @@ import { BuyerLoginPage } from "./buyer/BuyerLoginPage";
 import { BuyerStartPage } from "./buyer/BuyerStartPage";
 import { RequireBuyer, RequireBuyerOrGuest } from "./buyer/shared";
 import { Layout } from "./components/Layout";
+import { LiveNotifications } from "./components/LiveNotifications";
 import { EmptyState } from "./components/ui";
 import { LoginPage, OperatorLoginPage } from "./pages/LoginPage";
 import { PassCheckPage } from "./pages/PassCheckPage";
@@ -56,7 +57,10 @@ function LegacyPropertyRedirect() {
 
 export function App() {
   return (
-    <Routes>
+    <>
+      {/* New notifications pop up at once, for every role */}
+      <LiveNotifications />
+      <Routes>
       {/* Entry: "view homes" -> buyer area, "sell a home" -> BookingBot */}
       <Route index element={<RoleSelectPage />} />
       {/* Scanned at the building's gate from the buyer's QR (public) */}
@@ -131,5 +135,6 @@ export function App() {
         <Route path="*" element={<EmptyState title="Không tìm thấy trang" />} />
       </Route>
     </Routes>
+    </>
   );
 }
