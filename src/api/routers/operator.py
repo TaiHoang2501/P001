@@ -6,9 +6,8 @@ from src.core.deps import DbSession, OperatorActor
 from src.db.models import BookingStatus, PropertyStatus, SellerVerificationStatus
 from src.models.booking import BookingOut
 from src.models.property import PropertyOut, RejectRequest
-from src.models.schemas import AssistantControlOut
 from src.models.seller import SellerProfileOut, SellerReviewItem
-from src.services import assistant_control, booking_service, property_service, seller_service
+from src.services import booking_service, property_service, seller_service
 
 router = APIRouter(prefix="/operator", tags=["operator"])
 
@@ -56,10 +55,3 @@ def all_bookings(actor: OperatorActor, db: DbSession, status: BookingStatus | No
 def cancel_booking(booking_id: int, actor: OperatorActor, db: DbSession) -> BookingOut:
     """Manual fallback: operator cancels a stuck booking (before its viewing time)."""
     return booking_service.operator_cancel(db, actor, booking_id)
-
-
-@router.get("/ai-assistant", response_model=AssistantControlOut)
-def ai_assistant(actor: OperatorActor, db: DbSession) -> AssistantControlOut:
-    """Read only: whether buyers can chat with the assistant (the dev team turns it off/on, see routers/admin.py),
-    so operators know why support calls may rise."""
-    return AssistantControlOut.model_validate(assistant_control.status(db))

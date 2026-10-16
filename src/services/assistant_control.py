@@ -1,5 +1,5 @@
 """The AI assistant kill switch: a developer turns the assistant off (and on) through the admin API
-(src/api/routers/admin.py, scripts/ai_switch.py); operators only see whether it is on.
+(src/api/routers/admin.py, scripts/ai_switch.py); there is no operator page for it.
 
 The state is a row in system_settings, so every API instance (Render, Cloud Run) sees the same switch at once.
 While off, chat endpoints answer AI_DISABLED without calling the model, the buyer chat shows a maintenance

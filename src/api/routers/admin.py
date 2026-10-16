@@ -2,7 +2,7 @@
 
 The AI kill switch belongs here, not in the Operator Console: the people who see that the assistant must stop
 (wrong answers in the traces, the model provider failing, cost spikes, an attack) are the developers watching the
-system. Operators only see whether the assistant is on (GET /operator/ai-assistant). Use scripts/ai_switch.py.
+system. Use scripts/ai_switch.py.
 Hidden from the OpenAPI schema (the web app never calls these).
 """
 

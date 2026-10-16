@@ -1,5 +1,5 @@
 """AI kill switch: a developer (X-Admin-Token) turns the assistant off; chat answers AI_DISABLED without calling the
-model. Operators only see the state; no user role can flip it."""
+model. No user role (operators included) can see or flip it."""
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -21,7 +21,6 @@ def admin_token(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_developer_turns_ai_off_and_on(client, db, script, admin_token):  # noqa: F811
-    op = await auth(client, OPERATOR)
     an = await auth(client, CUSTOMER_AN)
 
     status = (await client.get("/api/v1/chat/assistant-status")).json()
@@ -34,9 +33,6 @@ async def test_developer_turns_ai_off_and_on(client, db, script, admin_token):  
     status = (await client.get("/api/v1/chat/assistant-status")).json()
     assert status["enabled"] is False
     assert "đang bảo trì" in status["message"] and status["hotline"] in status["message"]
-    # Operators see the state and the reason, read only
-    seen = (await client.get("/api/v1/operator/ai-assistant", headers=op)).json()
-    assert seen["enabled"] is False and seen["reason"] == "provider down"
 
     # No model reply is scripted: every chat endpoint must stop before the model
     script()
@@ -65,8 +61,8 @@ async def test_developer_turns_ai_off_and_on(client, db, script, admin_token):  
 async def test_no_user_role_can_flip_the_switch(client, admin_token):
     op = await auth(client, OPERATOR)
     an = await auth(client, CUSTOMER_AN)
-    # Operators have no write endpoint any more
-    assert (await client.put("/api/v1/operator/ai-assistant", json={"enabled": False}, headers=op)).status_code == 405
+    # Operators have no kill switch endpoint at all
+    assert (await client.put("/api/v1/operator/ai-assistant", json={"enabled": False}, headers=op)).status_code == 404
     # A user's bearer token is not the admin token
     for headers in (op, an, {}, {"X-Admin-Token": "wrong"}):
         r = await client.put("/api/v1/admin/ai-assistant", json={"enabled": False}, headers=headers)

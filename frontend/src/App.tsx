@@ -14,7 +14,6 @@ import { Layout } from "./components/Layout";
 import { EmptyState } from "./components/ui";
 import { LoginPage, OperatorLoginPage } from "./pages/LoginPage";
 import { PassCheckPage } from "./pages/PassCheckPage";
-import { AiControlPage } from "./pages/operator/AiControlPage";
 import { BookingsMonitorPage } from "./pages/operator/BookingsMonitorPage";
 import { EscalationsPage } from "./pages/operator/EscalationsPage";
 import { ModerationPage } from "./pages/operator/ModerationPage";
@@ -127,10 +126,6 @@ export function App() {
         <Route
           path="operator/bookings"
           element={as(["INVESTOR_OPERATOR"], <BookingsMonitorPage />)}
-        />
-        <Route
-          path="operator/ai"
-          element={as(["INVESTOR_OPERATOR"], <AiControlPage />)}
         />
 
         <Route path="*" element={<EmptyState title="Không tìm thấy trang" />} />
