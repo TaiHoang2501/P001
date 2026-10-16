@@ -144,7 +144,8 @@ def claim(db: Session, actor: Actor, data: OwnershipClaim) -> OwnershipChallenge
                 details={"reason": "UNIT_CLAIMED", "unit_code": record.unit_code},
             )
 
-    if otp_service.uses_firebase():
+    firebase = otp_service.uses_firebase(record.owner_phone)
+    if firebase:
         # The browser has Firebase send the SMS to the phone on record (the seller's own, checked above)
         code, ttl = None, get_settings().otp_ttl_seconds
     else:
@@ -157,9 +158,10 @@ def claim(db: Session, actor: Actor, data: OwnershipClaim) -> OwnershipChallenge
         status=record.status,
         masked_phone=mask_phone(record.owner_phone),
         expires_in=ttl,
-        provider="firebase" if otp_service.uses_firebase() else "local",
-        firebase=otp_service.firebase_config(),
-        debug_code=code if code is not None and get_settings().otp_code_visible else None,
+        provider="firebase" if firebase else "local",
+        firebase=otp_service.firebase_config() if firebase else None,
+        debug_code=code if code is not None and otp_service.code_visible(record.owner_phone) else None,
+        demo=otp_service.is_demo(record.owner_phone),
     )
 
 

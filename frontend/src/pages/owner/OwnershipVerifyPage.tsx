@@ -55,7 +55,8 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
       return res;
     },
     onSuccess: (res) => {
-      setOtp("");
+      // Demo sellers get no SMS: their code is filled in
+      setOtp(res.demo ? (res.debug_code ?? "") : "");
       if (res.status === "VERIFIED") {
         // Already this seller's: nothing to confirm
         queryClient.invalidateQueries({ queryKey: ["owner-ownership"] });
@@ -130,7 +131,11 @@ function VerifyForm({ onNeedHelp }: { onNeedHelp: (prefill: SupportPrefill) => v
         <p className="text-sm">
           Đã gửi mã tới số điện thoại của chủ sở hữu trên sổ: <strong className="font-mono">{challenge.masked_phone}</strong>.
         </p>
-        {challenge.debug_code && (
+        {challenge.demo ? (
+          <Notice>
+            <strong>Tài khoản demo</strong>: không gửi SMS, mã OTP đã được điền sẵn. Bấm xác nhận để tiếp tục.
+          </Notice>
+        ) : challenge.debug_code && (
           <Notice>
             <strong>Chế độ thử nghiệm</strong> (không gửi SMS): mã là <strong className="font-mono">{challenge.debug_code}</strong>.
             Bản chính thức chỉ gửi mã tới điện thoại của chủ sở hữu, không hiện ở đây.

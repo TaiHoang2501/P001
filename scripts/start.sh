@@ -11,7 +11,8 @@ if [ "$1" = "setup" ] || [ "${DB_SETUP_ON_START:-true}" = "true" ]; then
   alembic upgrade head
 
   if [ "${SEED_DEMO_DATA:-true}" = "true" ]; then
-    python -m src.db.seed --if-empty --ensure-red-books --ensure-listings --ensure-seller-story --ensure-red-book-units --ensure-sellers-verified --ensure-photos --ensure-slots 14 --ensure-requests --ensure-showcase --ensure-rich-demo
+    # No seeded buyers or extra sellers any more (real SMS sign-in): only the demo accounts, see --demo-accounts-only
+    python -m src.db.seed --if-empty --ensure-red-books --ensure-listings --ensure-seller-story --ensure-red-book-units --ensure-sellers-verified --demo-accounts-only --ensure-photos --ensure-slots 14
   fi
 fi
 

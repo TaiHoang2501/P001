@@ -179,6 +179,9 @@ class Settings(BaseSettings):
     # Return a local code in the API response (no SMS with OTP_PROVIDER=local). Default: everywhere except production;
     # a public demo with fake data can turn it on explicitly.
     otp_expose_code: bool | None = None
+    # Demo accounts (src/db/seed.py; DEMO_PHONES='[...]', '[]' = none): no SMS is sent to them, their sign-in and
+    # red book code is always DEMO_OTP_CODE, shown and filled in on screen (a simulation of the OTP step)
+    demo_phones: list[str] = ["0901111222", "0902222333", "0912345678", "0918765432"]
     # Wrong holder name / red book code attempts one seller account may make per hour (stops guessing codes)
     ownership_claim_failures_per_hour: int = Field(default=5, ge=1)
     # Guardrail judge (src/agents/guardrail_judge.py): a small model double-checks risky messages and replies.

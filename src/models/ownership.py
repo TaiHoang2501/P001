@@ -45,6 +45,8 @@ class OwnershipChallengeOut(BaseModel):
     firebase: FirebaseWebConfig | None = None
     # Local codes only, outside production (no SMS is sent for them)
     debug_code: str | None = None
+    # A demo seller's phone: no SMS was sent, `debug_code` is its fixed code (fill it in for the tester)
+    demo: bool = False
 
 
 class OwnershipOtpConfirm(BaseModel):

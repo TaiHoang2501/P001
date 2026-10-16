@@ -3,7 +3,7 @@ import { Link } from "react-router";
 
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "../buyer/icons";
 
-/** The fixed sign-in code of the demo phones (Firebase test numbers; no SMS is sent to them). */
+/** The fixed sign-in code of the demo phones (DEMO_PHONES on the backend: no SMS, filled in on the sign-in page). */
 const DEMO_OTP = "123456";
 
 /** Accounts loaded by src/db/seed.py. Buyers and sellers have no password: they sign in with phone + OTP. */
@@ -23,7 +23,7 @@ const ACCOUNTS: DemoAccount[] = [
   { role: "Người mua", name: "Nguyễn Văn An", note: "Có sẵn nhiều lịch xem", login: "0901111222", password: null, where: "/buyer/login" },
   { role: "Người mua", name: "Trần Thị Bình", note: "Tài khoản mới", login: "0902222333", password: null, where: "/buyer/login" },
   { role: "Người bán", name: "Hoàng Thị Lan", note: "8 sổ đã xác thực, 4 căn đang bán", login: "0912345678", password: null, where: "/login" },
-  { role: "Người bán", name: "Phạm Minh Tuấn", note: "Người bán đã xác thực", login: "0918765432", password: null, where: "/login" },
+  { role: "Người bán", name: "Phạm Minh Tuấn", note: "Sở hữu các căn còn lại", login: "0918765432", password: null, where: "/login" },
   { role: "Chủ đầu tư", name: "Nguyễn Quang Dũng", note: "Duyệt tin, xử lý ngoại lệ", login: "operator@vinhomes.vn", password: SEED_PASSWORD, where: "/operator/login" },
   { role: "Chủ đầu tư", name: "Trần Thu Hà", note: "Điều phối viên", login: "coordinator@vinhomes.vn", password: SEED_PASSWORD, where: "/operator/login" },
 ];
@@ -91,8 +91,8 @@ export function DemoAccountsTable() {
                           {a.password ? (
                             <Credential label="Mật khẩu" value={a.password} />
                           ) : (
-                            // Demo phones are Firebase "Phone numbers for testing": no SMS, always this code
-                            <Credential label="Mã OTP (không cần mật khẩu)" value={DEMO_OTP} />
+                            // Demo phones get no SMS: the sign-in page fills in this code
+                            <Credential label="Mã OTP (tự điền sẵn, không gửi SMS)" value={DEMO_OTP} />
                           )}
                         </dl>
                         <Link to={a.where} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline">

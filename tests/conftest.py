@@ -35,6 +35,8 @@ for _var in ("MEDIA_BASE_URL", "S3_ENDPOINT_URL", "S3_ACCESS_KEY_ID", "S3_SECRET
     os.environ[_var] = ""
 # Local sign-in codes (the API returns them), whatever .env says; Firebase tests switch it on themselves
 os.environ["OTP_PROVIDER"] = "local"
+# Seeded phones go through the real code checks; demo-phone tests switch DEMO_PHONES on themselves
+os.environ["DEMO_PHONES"] = "[]"
 get_settings.cache_clear()
 
 from alembic.config import Config  # noqa: E402

@@ -70,6 +70,8 @@ class OtpRequestResponse(BaseModel):
     firebase: FirebaseWebConfig | None = None
     # Local codes only, outside production (no SMS is sent for them)
     debug_code: str | None = None
+    # A demo account's phone: no SMS was sent, `debug_code` is its fixed code (fill it in for the tester)
+    demo: bool = False
     # With `role` on a login: the phone already has an account of that kind (no sign-up details needed)
     account_exists: bool = False
 

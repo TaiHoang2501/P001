@@ -61,7 +61,7 @@ def request_otp(db: Session, data: OtpRequest) -> OtpRequestResponse:
     # ...and a seller's or operator's phone cannot sign in as a buyer (and back)
     _require_same_role(user, data.role)
     account_exists = data.role is not None and user is not None
-    if otp_service.uses_firebase():
+    if otp_service.uses_firebase(data.target):
         # The checks above passed: the browser now has Firebase send the SMS (to phones only)
         if not is_phone(data.target):
             raise InvalidCredentialsError("Sign in with a phone number")
@@ -72,8 +72,10 @@ def request_otp(db: Session, data: OtpRequest) -> OtpRequestResponse:
             account_exists=account_exists,
         )
     code, ttl = otp_service.request_code(db, data.target)
-    debug_code = code if get_settings().otp_code_visible else None
-    return OtpRequestResponse(expires_in=ttl, debug_code=debug_code, account_exists=account_exists)
+    debug_code = code if otp_service.code_visible(data.target) else None
+    return OtpRequestResponse(
+        expires_in=ttl, debug_code=debug_code, demo=otp_service.is_demo(data.target), account_exists=account_exists
+    )
 
 
 def verify_otp(db: Session, data: OtpVerifyRequest) -> TokenResponse:

@@ -2,7 +2,8 @@
 
 Two providers (OTP_PROVIDER): "firebase" = Firebase Phone Auth generates, sends by SMS and checks the code in the
 browser, and we verify the resulting ID token (`firebase_auth`); "local" = the codes below, which only reach the
-server log (and the API response outside production), for development, tests and the demo.
+server log (and the API response outside production), for development, tests and the demo. Demo phones
+(DEMO_PHONES) always use local codes, whatever the provider: no SMS, the fixed DEMO_CODE, shown on screen.
 
 Only a keyed hash of each code is stored. A code expires after `otp_ttl_seconds`, is burned
 after `otp_max_attempts` wrong guesses, and each target may have at most `otp_max_requests` unused
@@ -29,6 +30,8 @@ from src.services import firebase_auth
 logger = logging.getLogger(__name__)
 
 CODE_LENGTH = 6
+# The fixed code of the demo phones (shared by every tester, so nothing is stored or rate-limited for them)
+DEMO_CODE = "123456"
 
 
 def normalize_target(target: str) -> str:
@@ -40,8 +43,19 @@ def _hash(target: str, code: str) -> str:
     return hmac.new(key, f"{target}:{code}".encode(), hashlib.sha256).hexdigest()
 
 
-def uses_firebase() -> bool:
-    return get_settings().otp_provider == "firebase"
+def is_demo(target: str) -> bool:
+    """A demo account's phone (DEMO_PHONES): its code is always DEMO_CODE and is never sent by SMS."""
+    return normalize_phone(normalize_target(target)) in get_settings().demo_phones
+
+
+def uses_firebase(target: str | None = None) -> bool:
+    """Firebase sends and checks the code (for `target`, when given: never for a demo phone)."""
+    return get_settings().otp_provider == "firebase" and not (target is not None and is_demo(target))
+
+
+def code_visible(target: str) -> bool:
+    """May the local code for `target` be returned to the browser (to show and fill in)?"""
+    return is_demo(target) or get_settings().otp_code_visible
 
 
 def firebase_config() -> FirebaseWebConfig | None:
@@ -64,6 +78,9 @@ def _deliver(target: str, code: str) -> None:
 def request_code(db: Session, target: str, purpose: OtpPurpose = OtpPurpose.LOGIN) -> tuple[str, int]:
     """Create and send a new code. Returns (code, ttl_seconds); callers must not expose the code in production."""
     settings = get_settings()
+    if is_demo(target):
+        logger.info("Demo OTP for %s (no SMS)", target)
+        return DEMO_CODE, settings.otp_ttl_seconds
     target = normalize_target(target)
     now = datetime.now(UTC)
 
@@ -92,11 +109,16 @@ def request_code(db: Session, target: str, purpose: OtpPurpose = OtpPurpose.LOGI
     return code, settings.otp_ttl_seconds
 
 
-def check_code(db: Session, target: str, code: str, purpose: OtpPurpose = OtpPurpose.LOGIN) -> OtpCode:
+def check_code(db: Session, target: str, code: str, purpose: OtpPurpose = OtpPurpose.LOGIN) -> OtpCode | None:
     """Validate `code` against the newest live code for `target` (row-locked, not yet consumed).
 
     A wrong guess is counted and committed before raising. Call `consume` once the login succeeds.
+    A demo phone takes DEMO_CODE (no stored code: None is returned).
     """
+    if is_demo(target):
+        if not hmac.compare_digest(code.strip(), DEMO_CODE):
+            raise InvalidCredentialsError("Code is invalid or expired", details={"new_code_needed": False})
+        return None
     settings = get_settings()
     target = normalize_target(target)
     otp = db.scalar(
@@ -130,7 +152,7 @@ def check_proof(
 ) -> OtpCode | None:
     """Check that the caller controls `target` with the active provider's proof: a Firebase ID token for that
     phone, or one of our local codes. Returns the local code row to `consume` (None for Firebase)."""
-    if uses_firebase():
+    if uses_firebase(target):
         if firebase_id_token is None:
             raise InvalidCredentialsError("Code is invalid or expired", details={"new_code_needed": True})
         if firebase_auth.verify_phone_token(firebase_id_token) != normalize_phone(normalize_target(target)):

@@ -162,7 +162,7 @@ function PasswordForm({
 /** Buyer: phone + OTP; Seller: phone/email + OTP (spec §4.17). First use of a phone signs up with the audience's role. */
 export type OtpIntent = "login" | "signup";
 
-type Sent = { provider?: "local" | "firebase"; debug_code?: string | null; expires_in?: number };
+type Sent = { provider?: "local" | "firebase"; debug_code?: string | null; demo?: boolean; expires_in?: number };
 
 /**
  * login: a code goes to any phone; a phone with no account yet is then signed up (name asked after the code).
@@ -249,7 +249,8 @@ function OtpForm({
     if (res.provider === "firebase" && res.firebase) setChallenge(await sendFirebaseCode(res.firebase, phone));
     setIdToken(null);
     gotCode(res);
-    setCode("");
+    // Demo accounts get no SMS: their code is filled in, the tester only presses "Đăng nhập"
+    setCode(res.demo ? (res.debug_code ?? "") : "");
   }
 
   const verify = (e: FormEvent) => {
@@ -333,7 +334,7 @@ function OtpForm({
       <Steps step={2} />
       {error !== null && <ErrorBox error={error} />}
       {/* A Firebase SMS code keeps its own expiry; Firebase says when it has run out */}
-      {!firebase && (
+      {!firebase && !sent.demo && (
         <p className={`text-sm ${expiresIn === 0 ? "font-medium text-red-700" : "text-muted"}`}>
           {expiresIn > 0
             ? `Mã hết hạn sau ${Math.floor(expiresIn / 60)}:${String(expiresIn % 60).padStart(2, "0")}.`
@@ -341,7 +342,8 @@ function OtpForm({
         </p>
       )}
       <p className="text-sm text-muted">
-        Đã gửi mã {firebase ? "qua tin nhắn SMS " : ""}tới <strong className="text-ink">{target}</strong>.{" "}
+        {sent.demo ? "Tài khoản demo, không gửi SMS: mã đã được điền sẵn cho " : `Đã gửi mã ${firebase ? "qua tin nhắn SMS " : ""}tới `}
+        <strong className="text-ink">{target}</strong>.{" "}
         <button
           type="button"
           className="font-semibold text-brand-700 hover:underline"
@@ -353,7 +355,7 @@ function OtpForm({
           Đổi số
         </button>
       </p>
-      {sent.debug_code && (
+      {sent.debug_code && !sent.demo && (
         <div className="flex items-center gap-3 rounded-2xl border border-dashed border-brand-200 bg-brand-50 px-4 py-3">
           <div className="min-w-0 flex-1 text-sm">
             <p className="text-muted">

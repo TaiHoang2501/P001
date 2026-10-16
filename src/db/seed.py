@@ -19,7 +19,8 @@ from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import case as sql_case
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from src.config import get_settings
@@ -256,9 +257,10 @@ def ensure_listings(db: Session) -> int:
 
 
 # Demo story for the seller "Hoàng Thị Lan" (0912345678): she has verified 8 red books but sells only 4 homes,
-# so the seller pages show more "đã xác thực" than "đang bán". Her other seeded listings go to another demo
-# seller (still on sale, so buyers have the same homes to choose from).
+# so the seller pages show more "đã xác thực" than "đang bán". Her other seeded listings go to the other demo
+# seller, Phạm Minh Tuấn (still on sale, so buyers have the same homes to choose from).
 STORY_SELLER_PHONE = "0912345678"
+STORY_OTHER_SELLER_PHONE = "0918765432"
 STORY_SELLING = {  # unit code -> the red book behind it
     "S1.08-2410": "SD-2018-0778901",
     "S1.08-1026": "SD-2021-0778902",
@@ -266,7 +268,6 @@ STORY_SELLING = {  # unit code -> the red book behind it
     "S1.08-0904": "SD-2024-0778904",
 }
 STORY_UNLISTED = ["SD-2019-0778905", "SD-2020-0778906", "SD-2022-0778907", "SD-2025-0778908"]
-STORY_OTHER_SELLER = ("Vũ Đức Hải", "0934567890", "hai.vu@gmail.com")
 
 
 def ensure_seller_story(db: Session) -> str:
@@ -275,7 +276,9 @@ def ensure_seller_story(db: Session) -> str:
     Only listings without any deal are moved to the other seller, so no buyer's viewing changes hands.
     """
     seller = db.scalar(select(User).where(User.phone == STORY_SELLER_PHONE, User.role == UserRole.OWNER))
-    if seller is None:
+    # The other demo seller who takes over her remaining listings
+    other = db.scalar(select(User).where(User.phone == STORY_OTHER_SELLER_PHONE, User.role == UserRole.OWNER))
+    if seller is None or other is None:
         return "skipped (no demo seller)"
 
     # Her red books: the four behind her listings and four not listed yet
@@ -302,23 +305,6 @@ def ensure_seller_story(db: Session) -> str:
             db.add(books[code])
             added_books += 1
     db.flush()
-
-    # The other demo seller who takes over her remaining listings
-    name, phone, email = STORY_OTHER_SELLER
-    other = db.scalar(select(User).where(User.phone == phone))
-    if other is None:
-        other = User(role=UserRole.OWNER, full_name=name, phone=phone, email=email, status=UserStatus.ACTIVE)
-        db.add(other)
-        db.flush()
-        operator = db.scalar(select(User.id).where(User.role == UserRole.INVESTOR_OPERATOR).limit(1))
-        db.add(
-            SellerProfile(
-                user_id=other.id,
-                verification_status=SellerVerificationStatus.VERIFIED,
-                id_document_s3_key=f"private/sellers/{other.id}/cccd.jpg",
-                verified_by=operator,
-            )
-        )
 
     linked = moved = 0
     used = set(db.scalars(select(Property.verification_id).where(Property.verification_id.is_not(None))))
@@ -841,7 +827,7 @@ def ensure_slots(db: Session, days: int = 7) -> int:
     Only seeded demo owners are touched; real sellers manage their own availability.
     Slots that already exist or overlap an existing one are skipped. Returns how many were added.
     """
-    owners = DEMO_OWNER_IDS | set(db.scalars(select(User.id).where(User.phone == STORY_OTHER_SELLER[1])))
+    owners = DEMO_OWNER_IDS | set(db.scalars(select(User.id).where(User.phone.in_(DEMO_SELLER_PHONES))))
     props = db.scalars(
         select(Property).where(Property.owner_id.in_(owners), Property.status == PropertyStatus.AVAILABLE)
     ).all()
@@ -861,6 +847,158 @@ def ensure_slots(db: Session, days: int = 7) -> int:
                 added += 1
     db.commit()
     return added
+
+
+# Sign-in codes now go by real SMS, so the seeded people with made-up phone numbers (which may be someone's real
+# number) are removed: only these demo accounts stay, and the demo phones sign in without an SMS (DEMO_PHONES).
+DEMO_BUYER_PHONES = (RICH_DEMO_BUYER_PHONE, "0902222333")
+DEMO_SELLER_PHONES = (STORY_SELLER_PHONE, STORY_OTHER_SELLER_PHONE)
+DEMO_ACCOUNTS_ONLY_MARKER = "seed.demo_accounts_only"
+
+
+def ensure_demo_accounts_only(db: Session) -> str:
+    """Once per database: every home and red book goes to a demo seller, the other sellers and buyers are deleted.
+
+    - Homes, deals and uploaded photos of other sellers go to Phạm Minh Tuấn; their red books too, and so do red
+      books nobody has claimed yet, so the demo sellers can verify them. A home of a seller who was never verified
+      goes back to the investor's review queue instead of on sale.
+    - A demo buyer's confirmed viewing that would clash with one of Tuấn's own is cancelled (one owner, one place).
+    - Buyers other than the demo ones are deleted with their deals, viewings, chats and the notifications and cases
+      about them; private documents of deleted sellers and their support cases go too.
+    Operators are never touched. A marker in audit_logs makes later runs do nothing, so people who sign up after
+    this are kept.
+    """
+    from src.db.models import (
+        OWNER_BUSY_STATUSES,
+        AuditLog,
+        BookingStatus,
+        HoldStatus,
+        MediaFile,
+        OtpCode,
+        PropertyHold,
+    )
+    from src.services import audit
+    from src.services.availability_service import owner_busy
+
+    if db.scalar(select(AuditLog.id).where(AuditLog.action == DEMO_ACCOUNTS_ONLY_MARKER)) is not None:
+        return "already done"
+    sellers = {
+        u.phone: u
+        for u in db.scalars(select(User).where(User.role == UserRole.OWNER, User.phone.in_(DEMO_SELLER_PHONES)))
+    }
+    if len(sellers) < len(DEMO_SELLER_PHONES):
+        return "skipped (demo sellers missing)"
+    heir = sellers[STORY_OTHER_SELLER_PHONE]
+    keep = {u.id for u in sellers.values()}
+
+    gone_sellers = db.scalars(select(User).where(User.role == UserRole.OWNER, User.id.not_in(keep))).all()
+    gone_seller_ids = [u.id for u in gone_sellers]
+    gone_buyers = db.scalars(
+        select(User).where(User.role == UserRole.CUSTOMER, User.phone.not_in(DEMO_BUYER_PHONES))
+    ).all()
+    gone_buyer_ids = [u.id for u in gone_buyers]
+    gone_ids = gone_seller_ids + gone_buyer_ids
+    unverified = set(
+        db.scalars(
+            select(SellerProfile.user_id).where(
+                SellerProfile.user_id.in_(gone_seller_ids),
+                SellerProfile.verification_status != SellerVerificationStatus.VERIFIED,
+            )
+        )
+    )
+
+    # 1. The deleted buyers' deals and viewings, and what was said about them
+    deal_ids = list(db.scalars(select(Deal.id).where(Deal.buyer_id.in_(gone_buyer_ids))))
+    booking_ids = list(
+        db.scalars(
+            select(Booking.id).where(or_(Booking.deal_id.in_(deal_ids), Booking.customer_id.in_(gone_buyer_ids)))
+        )
+    )
+    db.execute(
+        delete(Escalation).where(
+            or_(
+                Escalation.requester_id.in_(gone_ids),
+                Escalation.deal_id.in_(deal_ids),
+                Escalation.booking_id.in_(booking_ids),
+            )
+        )
+    )
+    db.execute(
+        delete(Notification).where(or_(Notification.deal_id.in_(deal_ids), Notification.booking_id.in_(booking_ids)))
+    )
+    db.execute(
+        delete(PropertyHold).where(
+            or_(PropertyHold.booking_id.in_(booking_ids), PropertyHold.buyer_id.in_(gone_buyer_ids))
+        )
+    )
+    db.execute(delete(Booking).where(Booking.id.in_(booking_ids)))
+    db.execute(delete(Deal).where(Deal.id.in_(deal_ids)))
+    db.flush()
+
+    # 2. The other sellers' homes, deals and viewings go to the heir
+    tz = ZoneInfo(get_settings().timezone)
+    now = datetime.now(tz)
+    moved = cancelled = 0
+    for prop in db.scalars(select(Property).where(Property.owner_id.in_(gone_seller_ids)).order_by(Property.id)):
+        if prop.owner_id in unverified and prop.status == PropertyStatus.AVAILABLE:
+            prop.status = PropertyStatus.PENDING_REVIEW
+        if prop.description == "Tin của chủ nhà chưa xác minh - không được hiển thị.":
+            prop.description = "Căn 2PN, chờ Chủ đầu tư duyệt."
+        prop.owner_id = heir.id
+        db.execute(update(Deal).where(Deal.property_id == prop.id).values(seller_id=heir.id))
+        for booking in db.scalars(select(Booking).where(Booking.property_id == prop.id).order_by(Booking.id)):
+            if booking.status in OWNER_BUSY_STATUSES and owner_busy(db, heir.id, booking.start_at, booking.end_at):
+                booking.status = BookingStatus.CANCELLED
+                booking.cancelled_by = None
+                db.execute(
+                    update(PropertyHold)
+                    .where(PropertyHold.booking_id == booking.id, PropertyHold.status == HoldStatus.ACTIVE)
+                    .values(status=HoldStatus.RELEASED, released_at=now, release_reason="OWNER_CHANGED")
+                )
+                cancelled += 1
+            booking.owner_id = heir.id
+            db.flush()  # the next owner_busy check sees this viewing under its new owner
+        moved += 1
+    db.flush()
+
+    # 3. Red books: the other sellers' ones and those nobody has claimed are now the heir's
+    books = db.execute(
+        update(PropertyOwnershipVerification)
+        .where(
+            or_(
+                PropertyOwnershipVerification.user_id.in_(gone_seller_ids),
+                PropertyOwnershipVerification.user_id.is_(None)
+                & PropertyOwnershipVerification.owner_phone.not_in(DEMO_SELLER_PHONES),
+            )
+        )
+        .values(
+            user_id=sql_case((PropertyOwnershipVerification.user_id.is_(None), None), else_=heir.id),
+            red_book_holder_name=heir.full_name,
+            owner_phone=heir.phone,
+        )
+    ).rowcount
+
+    # 4. Photos of the moved homes stay; private documents of the deleted sellers go
+    db.execute(delete(MediaFile).where(MediaFile.owner_id.in_(gone_seller_ids), MediaFile.is_private.is_(True)))
+    db.execute(update(MediaFile).where(MediaFile.owner_id.in_(gone_seller_ids)).values(owner_id=heir.id))
+
+    # 5. The accounts (profiles, notifications, AI chats go with them); the audit trail stays, without the actor
+    db.execute(update(AuditLog).where(AuditLog.actor_id.in_(gone_ids)).values(actor_id=None))
+    db.execute(update(Booking).where(Booking.cancelled_by.in_(gone_ids)).values(cancelled_by=None))
+    phones = [u.phone for u in (*gone_sellers, *gone_buyers) if u.phone]
+    db.execute(delete(OtpCode).where(OtpCode.target.in_(phones)))
+    db.execute(delete(User).where(User.id.in_(gone_ids)))
+
+    done = {
+        "sellers_deleted": len(gone_seller_ids),
+        "buyers_deleted": len(gone_buyer_ids),
+        "homes_moved": moved,
+        "red_books_moved": books,
+        "viewings_cancelled": cancelled,
+    }
+    audit.record(db, None, DEMO_ACCOUNTS_ONLY_MARKER, "user", heir.id, after=done)
+    db.commit()
+    return ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in done.items())
 
 
 def has_data(db: Session) -> bool:
@@ -1224,6 +1362,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Add demo red books missing from an existing database (never changes existing rows)",
     )
+    parser.add_argument(
+        "--demo-accounts-only",
+        action="store_true",
+        help="Once: give every home and red book to a demo seller, delete the other sellers and buyers",
+    )
     args = parser.parse_args()
     with get_sessionmaker()() as session:
         if args.if_empty and has_data(session):
@@ -1243,6 +1386,9 @@ if __name__ == "__main__":
             print(f"Red books: {ensure_red_book_units(session)}.")
         if args.ensure_sellers_verified:
             print(f"Verified {ensure_sellers_verified(session)} seller(s) by their red book.")
+        # Before the slots, so the homes moved to a demo seller get theirs
+        if args.demo_accounts_only:
+            print(f"Demo accounts only: {ensure_demo_accounts_only(session)}.")
         if args.ensure_slots:
             print(f"Added {ensure_slots(session, args.ensure_slots)} demo viewing slot(s).")
         # Last: the demo requests book the slots topped up above

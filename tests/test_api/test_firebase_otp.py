@@ -143,3 +143,52 @@ async def test_seller_verifies_red_book_with_firebase(client):
     r = await client.post(url, json={"firebase_id_token": _token(UNCLAIMED_RED_BOOK_PHONE)}, headers=headers)
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "VERIFIED"
+
+
+@pytest.mark.asyncio
+async def test_demo_phone_signs_in_without_sms(client, db, monkeypatch):
+    monkeypatch.setattr(get_settings(), "demo_phones", [BUYER])
+    before = db.query(OtpCode).count()
+    for _ in range(get_settings().otp_max_requests + 1):  # shared by every tester: never rate-limited
+        r = await client.post("/api/v1/auth/otp/request", json={"target": BUYER, "role": "CUSTOMER"})
+        assert r.status_code == 202, r.text
+    body = r.json()
+    assert body["provider"] == "local" and body["firebase"] is None
+    assert body["demo"] is True and body["debug_code"] == "123456"
+    assert db.query(OtpCode).count() == before
+
+    r = await client.post("/api/v1/auth/otp/verify", json={"target": BUYER, "code": "000000"})
+    assert r.status_code == 401
+    r = await client.post("/api/v1/auth/otp/verify", json={"target": BUYER, "code": "123456"})
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["phone"] == BUYER
+
+
+@pytest.mark.asyncio
+async def test_other_phones_still_go_through_firebase(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "demo_phones", [NEW_PHONE])
+    r = await client.post("/api/v1/auth/otp/request", json={"target": BUYER})
+    assert r.json()["provider"] == "firebase" and r.json()["demo"] is False
+    r = await client.post("/api/v1/auth/otp/verify", json={"target": BUYER, "code": "123456"})
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_demo_seller_verifies_red_book_without_sms(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "demo_phones", [UNCLAIMED_RED_BOOK_PHONE])
+    r = await client.post(
+        "/api/v1/auth/otp/verify",
+        json={"target": UNCLAIMED_RED_BOOK_PHONE, "code": "123456", "full_name": "Chủ Mới", "role": "OWNER"},
+    )
+    assert r.status_code == 200, r.text
+    headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    claim = {k: v for k, v in UNCLAIMED_RED_BOOK.items() if k != "id"}
+    r = await client.post("/api/v1/owner/ownership/claim", json=claim, headers=headers)
+    challenge = r.json()
+    assert challenge["provider"] == "local" and challenge["demo"] is True and challenge["debug_code"] == "123456"
+    r = await client.post(
+        f"/api/v1/owner/ownership/{challenge['verification_id']}/confirm", json={"code": "123456"}, headers=headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "VERIFIED"

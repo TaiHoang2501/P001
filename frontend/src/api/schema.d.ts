@@ -2065,6 +2065,11 @@ export interface components {
             /** Debug Code */
             debug_code?: string | null;
             /**
+             * Demo
+             * @default false
+             */
+            demo: boolean;
+            /**
              * Account Exists
              * @default false
              */
@@ -2162,6 +2167,11 @@ export interface components {
             firebase?: components["schemas"]["FirebaseWebConfig"] | null;
             /** Debug Code */
             debug_code?: string | null;
+            /**
+             * Demo
+             * @default false
+             */
+            demo: boolean;
         };
         /**
          * OwnershipClaim

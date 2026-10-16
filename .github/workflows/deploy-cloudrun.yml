@@ -90,7 +90,8 @@ jobs:
             # Traces of AI chat turns (src/services/llm_observability.py)
             LANGFUSE_BASE_URL=https://cloud.langfuse.com
             # Sign-in codes by real SMS: Firebase Phone Auth (Firebase added to this GCP project). The web API key is
-            # public (it ships to the browser); demo phones are Firebase "Phone numbers for testing" with fixed codes
+            # public (it ships to the browser). The demo phones (DEMO_PHONES, default in src/config.py) skip Firebase:
+            # no SMS, fixed code 123456 filled in on screen
             OTP_PROVIDER=firebase
             FIREBASE_PROJECT_ID=booking-bot-510910
             FIREBASE_WEB_API_KEY=AIzaSyDYR4D56eErKNaps9QgaioGynRAuL_0Sl4
