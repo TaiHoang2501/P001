@@ -887,27 +887,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/operator/ai-assistant": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Ai Assistant
-         * @description Read only: whether buyers can chat with the assistant (the dev team turns it off/on, see routers/admin.py),
-         *     so operators know why support calls may rise.
-         */
-        get: operations["ai_assistant_api_v1_operator_ai_assistant_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/chat": {
         parameters: {
             query?: never;
@@ -1085,6 +1064,28 @@ export interface paths {
         };
         /** My Notifications */
         get: operations["my_notifications_api_v1_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live Notifications
+         * @description Server-Sent Events: `notification` {NotificationOut} as soon as a new one is sent to you (the web app shows
+         *     it as a pop-up), `ready` once connected, and `bye` {after} when the stream ends after a few minutes: reconnect
+         *     with `?after=` to carry on without missing any.
+         */
+        get: operations["live_notifications_api_v1_notifications_stream_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1477,21 +1478,6 @@ export interface components {
          * @enum {string}
          */
         ActorType: "USER" | "AI_AGENT" | "SYSTEM";
-        /** AssistantControlOut */
-        AssistantControlOut: {
-            /** Enabled */
-            enabled: boolean;
-            /** Message */
-            message?: string | null;
-            /** Hotline */
-            hotline: string;
-            /** Reason */
-            reason?: string | null;
-            /** Updated At */
-            updated_at?: string | null;
-            /** Updated By */
-            updated_by?: number | null;
-        };
         /**
          * AssistantStatusOut
          * @description Whether the AI assistant answers (operator kill switch); `message` is shown in the chat while it is off.
@@ -4473,26 +4459,6 @@ export interface operations {
             };
         };
     };
-    ai_assistant_api_v1_operator_ai_assistant_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantControlOut"];
-                };
-            };
-        };
-    };
     chat_api_v1_chat_post: {
         parameters: {
             query?: never;
@@ -4764,6 +4730,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["NotificationOut"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    live_notifications_api_v1_notifications_stream_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
