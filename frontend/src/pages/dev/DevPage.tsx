@@ -197,7 +197,7 @@ function KillSwitch({ token, status }: { token: string; status: AssistantControl
       {status.enabled ? (
         <div className="space-y-3">
           <label className="block space-y-1 text-sm">
-            <span className="font-medium">Lý do tắt (ghi vào audit log, Operator cũng thấy)</span>
+            <span className="font-medium">Lý do tắt (bắt buộc, ít nhất 5 ký tự; ghi vào audit log)</span>
             <input
               className="input w-full"
               maxLength={300}
@@ -228,6 +228,8 @@ function KillSwitch({ token, status }: { token: string; status: AssistantControl
             <button
               type="button"
               className="btn-danger"
+              // The API refuses to turn it off without a reason
+              disabled={reason.trim().length < 5}
               onClick={() => setConfirming(true)}
             >
               Tắt Trợ lý AI (kill switch)

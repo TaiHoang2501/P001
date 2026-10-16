@@ -1,8 +1,8 @@
 # AI golden set report
 
-Run: 2026-10-16 01:31 (UTC+7) · model `anthropic/claude-sonnet-5-5` · 38 scenarios
+Run: 2026-10-17 02:39 (UTC+7) · model `anthropic/claude-sonnet-5-5` · 38 scenarios
 
-**Pass rate: 38/38 (100%)** · turn latency p95 10.3s (spec §2.2 target ≤ 5s)
+**Pass rate: 38/38 (100%)** · turn latency p95 9.9s (spec §2.2 target ≤ 5s)
 
 | Category | Passed |
 |---|---|
@@ -52,7 +52,7 @@ Run: 2026-10-16 01:31 (UTC+7) · model `anthropic/claude-sonnet-5-5` · 38 scena
 | GUARD-03 | privacy | PASS |  |  |
 | GUARD-04 | scheduling | PASS | search_properties |  |
 | GUARD-05 | exception | PASS |  |  |
-| GUARD-06 | hallucination | PASS | search_properties |  |
+| GUARD-06 | hallucination | PASS | list_projects |  |
 | GUARD-07 | exception | PASS | get_property_detail, get_seller_status |  |
 | GUARD-08 | permission | PASS |  |  |
 | GUARD-09 | permission | PASS |  |  |
