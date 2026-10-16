@@ -48,6 +48,11 @@ export function Layout() {
   const items = NAV[user?.role ?? "GUEST"];
   const path = useLocation().pathname;
   const sellerPage = user?.role === "OWNER" && path.startsWith("/owner");
+  // The investor/operator console and the sellers' site share this frame but are separate places: each signs in on
+  // its own page and never points to the other's sign-in
+  const operatorArea = path.startsWith("/operator");
+  const loginPath = operatorArea ? "/operator/login" : "/login";
+  const onLoginPage = path === loginPath;
   const counts = useOperatorCounts(user?.role === "INVESTOR_OPERATOR");
   // The browser tab says which page this is, and how much is waiting there ("(4) Ngoại lệ · BookingBot")
   const current = [...items].sort((a, b) => b.to.length - a.to.length).find((i) => (i.end ? path === i.to : path.startsWith(i.to)));
@@ -86,6 +91,7 @@ export function Layout() {
             <span className="flex select-none items-center gap-2 font-semibold text-brand-700">
               <span className="grid size-7 place-items-center rounded-lg bg-brand-600 text-xs text-white">BB</span>
               BookingBot
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">Chủ đầu tư</span>
             </span>
           ) : (
             <Link to="/" className="flex items-center gap-2 font-semibold text-brand-700">
@@ -131,9 +137,11 @@ export function Layout() {
                 </button>
               </>
             ) : (
-              <Link to="/login" className="btn-primary btn-sm">
-                Đăng nhập
-              </Link>
+              !onLoginPage && (
+                <Link to={loginPath} className="btn-primary btn-sm">
+                  Đăng nhập
+                </Link>
+              )
             )}
           </div>
 
@@ -144,7 +152,7 @@ export function Layout() {
           )}
           <button
             type="button"
-            className={`btn-secondary btn-sm lg:hidden ${user ? "" : "ml-auto"}`}
+            className={`btn-secondary btn-sm lg:hidden ${user ? "" : "ml-auto"} ${!user && onLoginPage ? "hidden" : ""}`}
             aria-expanded={open}
             aria-controls="mobile-nav"
             onClick={() => setOpen((v) => !v)}
@@ -188,13 +196,11 @@ export function Layout() {
                   Đăng xuất ({user.full_name})
                 </button>
               ) : (
-                <Link
-                  to="/login"
-                  className="btn-primary btn-sm"
-                  onClick={() => setOpen(false)}
-                >
-                  Đăng nhập
-                </Link>
+                !onLoginPage && (
+                  <Link to={loginPath} className="btn-primary btn-sm" onClick={() => setOpen(false)}>
+                    Đăng nhập
+                  </Link>
+                )
               )}
             </div>
           </nav>
