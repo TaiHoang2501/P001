@@ -89,6 +89,7 @@ jobs:
             MODEL_FALLBACK_NAME=google/gemini-3.8-flash
             # Traces of AI chat turns (src/services/llm_observability.py)
             LANGFUSE_BASE_URL=https://cloud.langfuse.com
+            LANGSMITH_PROJECT=bookingbot
             # Sign-in codes by real SMS: Firebase Phone Auth (Firebase added to this GCP project). The web API key is
             # public (it ships to the browser). The demo phones (DEMO_PHONES, default in src/config.py) skip Firebase:
             # no SMS, fixed code 123456 filled in on screen
@@ -108,6 +109,7 @@ jobs:
             OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest
             LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest
             LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest
+            LANGSMITH_API_KEY=LANGSMITH_API_KEY:latest
           # max-instances=1: hold expiry, reminders and follow-ups run in-process (src/jobs.py) and must not
           # run twice. min-instances=1 keeps one instance up so users never wait for a cold start (idle billing,
           # roughly $10-15/month); CPU is still throttled between requests, so those jobs only run while requests

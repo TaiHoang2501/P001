@@ -222,6 +222,24 @@ class Settings(BaseSettings):
     def langfuse_enabled(self) -> bool:
         return bool(self.langfuse_public_key and self.langfuse_secret_key) and self.app_env != "test"
 
+    # LangSmith (LLM observability) for chat turns, alongside or instead of Langfuse; off when the key is empty
+    # and always off in tests. The old LANGCHAIN_* names are accepted too.
+    langsmith_api_key: str = Field(default="", validation_alias=AliasChoices("langsmith_api_key", "langchain_api_key"))
+    langsmith_project: str = Field(
+        default="bookingbot", validation_alias=AliasChoices("langsmith_project", "langchain_project")
+    )
+    # EU region: https://eu.api.smith.langchain.com
+    langsmith_endpoint: str = Field(
+        default="https://api.smith.langchain.com",
+        validation_alias=AliasChoices("langsmith_endpoint", "langchain_endpoint"),
+    )
+    # Share of chat turns sent to LangSmith (1.0 = all)
+    langsmith_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @property
+    def langsmith_enabled(self) -> bool:
+        return bool(self.langsmith_api_key) and self.app_env != "test"
+
     # Recommendation scoring weights (spec §4.6: TBD, calibrate with real data)
     score_weight_price: float = 0.25
     score_weight_area: float = 0.15

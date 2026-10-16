@@ -1,12 +1,17 @@
-"""Langfuse tracing of buyer chat turns (developer observability, like ai_turns; never shown to users).
+"""Langfuse and LangSmith tracing of buyer chat turns (developer observability, like ai_turns; never shown to users).
 
 One chat turn = one Langfuse trace, with the same trace id as the turn's ai_turns row, so the id returned to the
 client opens the same turn in both places. The trace root is the turn (input: the buyer's message, output: the
 reply); under it the LangChain callback handler records the agent graph: each model call as a generation (model,
 tokens, cost) and each tool call. Traces of one conversation share a session, signed-in buyers carry their user id.
 
-Phone numbers and email addresses are masked before anything leaves the server (AC-03). Tracing is optional:
-without keys (and in tests) nothing is sent, and a Langfuse failure never stops a chat turn.
+LangSmith gets the same turn through its LangChain tracer: the agent graph run is the trace root, tagged with the
+ai_turns trace id (metadata `ai_turn_id`) and grouped into threads by `conversation_id`.
+
+Phone numbers and email addresses are masked before anything leaves the server (AC-03); the buyer's name and memory
+are left out of LangSmith metadata. Tracing is optional: without keys (and in tests) nothing is sent, and a
+Langfuse or LangSmith failure never stops a chat turn. Do not set LANGSMITH_TRACING / LANGCHAIN_TRACING_V2: that
+would also trace model calls outside chat turns, without masking.
 """
 
 import logging
@@ -16,8 +21,10 @@ from contextlib import ExitStack, contextmanager
 from functools import lru_cache
 from typing import Any
 
+import langsmith
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tracers.langchain import LangChainTracer
 from langfuse import Langfuse, propagate_attributes
 from langfuse.langchain import CallbackHandler
 from langfuse.span_filter import is_default_export_span
@@ -82,19 +89,93 @@ def get_langfuse() -> Langfuse | None:
         return None
 
 
+def _mask_value(value: Any) -> Any:
+    """Mask strings anywhere in a run's inputs/outputs (messages arrive as objects or as serialized dicts)."""
+    if isinstance(value, str):
+        return mask_text(value)
+    if isinstance(value, dict):
+        return {k: _mask_value(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_mask_value(v) for v in value]
+    if hasattr(value, "model_dump"):
+        return _mask_value(value.model_dump())
+    return value
+
+
+def _mask_run_data(data: dict) -> dict:
+    return _mask_value(data)
+
+
+# Copied from the agent config by LangGraph: personal (the name) or bulky (long-term memory of the buyer)
+_HIDDEN_METADATA = {"buyer_name", "buyer_memory"}
+
+
+def _mask_metadata(metadata: dict) -> dict:
+    return {k: _mask_value(v) for k, v in metadata.items() if k not in _HIDDEN_METADATA}
+
+
+@lru_cache
+def get_langsmith() -> langsmith.Client | None:
+    settings = get_settings()
+    if not settings.langsmith_enabled:
+        return None
+    try:
+        return langsmith.Client(
+            api_url=settings.langsmith_endpoint,
+            api_key=settings.langsmith_api_key,
+            hide_inputs=_mask_run_data,
+            hide_outputs=_mask_run_data,
+            hide_metadata=_mask_metadata,
+            tracing_sampling_rate=settings.langsmith_sample_rate,
+            tracing_error_callback=lambda e: logger.warning("LangSmith upload failed: %s", e),
+        )
+    except Exception:
+        logger.exception("could not start LangSmith; chat turns are not traced there")
+        return None
+
+
+def _langsmith_tracer(trace_id: str, config: RunnableConfig, *, streamed: bool) -> BaseCallbackHandler | None:
+    client = get_langsmith()
+    if client is None:
+        return None
+    try:
+        configurable = config.get("configurable", {})
+        user_id = configurable.get("user_id")
+        return LangChainTracer(
+            project_name=get_settings().langsmith_project,
+            client=client,
+            tags=["buyer" if user_id is not None else "guest", "stream" if streamed else "sync"],
+            metadata={
+                "ai_turn_id": trace_id,
+                "environment": get_settings().app_env,
+                # LangSmith threads group runs by this key: a guest conversation keeps its thread after sign-up
+                "conversation_id": configurable.get("conversation_id"),
+            },
+        )
+    except Exception:
+        logger.exception("could not start the LangSmith tracer (trace=%s)", trace_id)
+        return None
+
+
 def shutdown() -> None:
     """Send what is still queued (at server shutdown)."""
     client = get_langfuse()
     if client is not None:
         client.shutdown()
+    smith = get_langsmith()
+    if smith is not None:
+        try:
+            smith.flush()
+        except Exception:
+            logger.exception("could not flush LangSmith traces")
 
 
 class TurnTrace:
     """The Langfuse side of one chat turn; every method is a no-op when tracing is off."""
 
-    def __init__(self, root: Any = None, handler: BaseCallbackHandler | None = None) -> None:
+    def __init__(self, root: Any = None, *handlers: BaseCallbackHandler | None) -> None:
         self._root = root
-        self.callbacks: list[BaseCallbackHandler] = [handler] if handler is not None else []
+        self.callbacks: list[BaseCallbackHandler] = [h for h in handlers if h is not None]
 
     def finish(self, reply: str) -> None:
         if self._root is not None:
@@ -108,9 +189,10 @@ class TurnTrace:
 @contextmanager
 def chat_turn(trace_id: str, config: RunnableConfig, message: str, *, streamed: bool) -> Iterator[TurnTrace]:
     """Trace one turn. `config` is the agent config built by the chat service (user, conversation)."""
+    smith = _langsmith_tracer(trace_id, config, streamed=streamed)
     client = get_langfuse()
     if client is None:
-        yield TurnTrace()
+        yield TurnTrace(None, smith)
         return
     configurable = config.get("configurable", {})
     user_id = configurable.get("user_id")
@@ -134,8 +216,8 @@ def chat_turn(trace_id: str, config: RunnableConfig, message: str, *, streamed: 
                     tags=["buyer" if user_id is not None else "guest", "stream" if streamed else "sync"],
                 )
             )
-            trace = TurnTrace(root, CallbackHandler(public_key=get_settings().langfuse_public_key))
+            trace = TurnTrace(root, CallbackHandler(public_key=get_settings().langfuse_public_key), smith)
         except Exception:
             logger.exception("could not start the Langfuse trace (trace=%s)", trace_id)
-            trace = TurnTrace()
+            trace = TurnTrace(None, smith)
         yield trace
