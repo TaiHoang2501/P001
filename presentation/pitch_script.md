@@ -173,7 +173,7 @@ kể bằng ảnh.
 >
 > Mời các bạn quét mã và thử ngay — chat như chị Bình, không cần tạo tài khoản cho tới lúc đặt lịch. Cảm ơn các bạn."
 
-*(Để slide này trên màn hình suốt phần hỏi đáp. Câu trả lời soạn sẵn: [`qa_prep.md`](qa_prep.md).)*
+*(Để slide này trên màn hình suốt phần hỏi đáp.)*
 
 ---
 
