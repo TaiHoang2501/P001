@@ -93,7 +93,7 @@ bookingbot-mvp/
 │   ├── property_ownership_verifications_seed.csv # Dữ liệu Sổ đỏ mẫu
 │   └── demo_uploads/       # Ảnh demo cho tin đăng
 ├── docs/                   # Deliverables Demo Day: architecture, evaluation, ai-logs, video-demo, journal/worklog, screenshots, diagrams (PNG/SVG)
-├── presentation/           # demo_script.md (AIDA), qa_prep.md
+├── presentation/           # demo_script.md (AIDA)
 ├── DIagram/                # Sơ đồ thiết kế hệ thống
 │   ├── Data Flow Diagram.md        # Luồng dữ liệu chi tiết giữa các tầng & tác nhân (sơ đồ chính)
 │   ├── System Overview Diagram.md  # Kiến trúc tổng thể

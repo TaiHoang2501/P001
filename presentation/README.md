@@ -6,7 +6,6 @@
 |---|---|---|
 | [`pitch_script.md`](pitch_script.md) | Kịch bản nói cho cả 12 slide (~8 phút, gồm 2 phút demo live), có câu chuyển giữa các slide | Có — đội điền `[__]` |
 | [`demo_script.md`](demo_script.md) | Kịch bản demo 3 phút theo AIDA (click → màn hình → lời nói), cũng là kịch bản quay video | Có — đội điền số liệu `[__]` |
-| [`qa_prep.md`](qa_prep.md) | Câu hỏi BGK hay gặp + câu trả lời soạn sẵn, phân công người trả lời | Có — đội điền `[__]` |
 | [`../docs/pitch-deck.pdf`](../docs/pitch-deck.pdf) | Pitch deck 12 slide (16:9) | Có — còn các chỗ `[__]` đội cần điền |
 | `../docs/video-demo.md` | Link YouTube video demo 3–5 phút | Chờ quay |
 
