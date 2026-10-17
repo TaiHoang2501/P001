@@ -1,69 +1,73 @@
 # Deployment Diagram (Sơ đồ Triển khai Hạ tầng)
 
-> Sơ đồ kiến trúc triển khai hệ thống **BookingBot AI Agent** theo đặc tả kỹ thuật tại **§10 của [spec_updated.md](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/.specify/spec_updated.md)** (Docker + AWS, Next.js, FastAPI, PostgreSQL với Full-text search, S3 Media, WebSocket Realtime Chat, OpenAI API).
+> Hạ tầng đang chạy của **BookingBot AI Agent**: frontend SPA trên Vercel, backend Docker trên **Render**
+> ([`render.yaml`](../render.yaml)) hoặc **Google Cloud Run** ([`.github/workflows/deploy-cloudrun.yml`](../.github/workflows/deploy-cloudrun.yml)),
+> cả hai dùng chung Dockerfile và một database Neon Postgres. Hướng dẫn: mục 8 của [`README.md`](../README.md).
 
 ```mermaid
 graph LR
-    subgraph Clients["Các Bên Sử dụng (Clients - Responsive Web)"]
-        C_USER["Khách hàng (Customer)<br/>Web Chat & Tra cứu căn"]
-        O_USER["Chủ nhà (Owner)<br/>Dashboard duyệt lịch & Đăng căn"]
-        OP_USER["Ban Quản trị (Investor / Operator)<br/>Kiểm duyệt, Giám sát & Báo cáo"]
+    subgraph Clients["Người dùng (Responsive Web)"]
+        C_USER["Người mua<br/>AI Chat (SSE), trang Hoạt động, mã QR"]
+        O_USER["Chủ căn<br/>sổ đỏ, tin đăng, lịch trống, yêu cầu xem"]
+        OP_USER["Chủ đầu tư / Operator<br/>duyệt tin, ngoại lệ, giám sát lịch xem"]
+        DEV_USER["Dev<br/>/dev: kill switch + số liệu, scripts/ai_traces.py"]
+        GUARD["Bảo vệ / lễ tân<br/>/pass/:token quét mã QR"]
     end
 
-    subgraph ExternalServices["Dịch vụ SaaS & Bên thứ 3"]
-        GITHUB["GitHub (Repository & CI/CD Actions)"]
-        LLM_API["OpenAI API (gpt-4o-mini / gpt-4o)<br/>Bóc tách nhu cầu & Tool calling"]
-        NOTIF_GATEWAY["Dịch vụ Thông báo (SMS / Zalo Provider)<br/>Nhắc lịch T-24h & T-2h, Báo duyệt"]
+    subgraph Vercel["Vercel"]
+        SPA["React 19 + Vite SPA (frontend/)<br/>VITE_API_URL → backend"]
     end
 
-    subgraph AWSCloud["Hạ tầng Đám mây (AWS Cloud / Docker Infrastructure)"]
-        subgraph FrontendTier["Frontend Layer (Vercel / AWS Amplify)"]
-            NEXTJS["Next.js + TypeScript (Responsive Web)
-            - AI Chat Interface (Streaming SSE)
-            - Owner Approval & Listing UI
-            - Investor/Operator Moderation Dashboard"]
-        end
-
-        subgraph BackendTier["Backend Application Layer (Docker on AWS ECS / EC2)"]
-            FASTAPI["FastAPI Server (Python 3.11+)
-            - RESTful Endpoints & Schema Validation
-            - LangGraph AI Agent Orchestrator
-            - Recommendation Engine (Hard+Soft scoring)
-            - Booking State Machine & Viewing Hold Engine
-            - WebSocket Chat Server (Khách ↔ Chủ nhà)"]
-        end
-
-        subgraph StorageTier["Data & Media Storage Layer"]
-            POSTGRES[("PostgreSQL Database
-            - Relational Tables (Users, Listings, Bookings)
-            - Full-text Search + pg_trgm (Tra cứu)
-            - Atomic Transactions & Row Locks
-            - Structured Audit Logs")]
-
-            S3_BUCKET[("Amazon S3 Bucket
-            - Lưu trữ Hình ảnh & Video căn hộ Vinhomes
-            - Tách biệt hoàn toàn media khỏi Database")]
-        end
+    subgraph Backend["Backend: 1 container Docker (Python 3.11, FastAPI)"]
+        direction TB
+        RENDER["Render Web Service (free, Singapore)<br/>start.sh: alembic + seed_once rồi uvicorn<br/>Gemini flash-lite, dự phòng flash<br/>OTP local (mã hiện trên màn hình)"]
+        CLOUDRUN["Cloud Run (asia-southeast1, 1 instance)<br/>job bookingbot-setup: migration + seed mỗi deploy<br/>Claude Sonnet, dự phòng OpenRouter Gemini<br/>OTP qua Firebase, secret từ Secret Manager"]
+        APP["Trong mỗi container:<br/>REST API + chat SSE + thông báo SSE<br/>LangGraph agent + guardrails<br/>job nền trong tiến trình (src/jobs.py, mỗi 60 s)<br/>ảnh tải lên phục vụ qua /api/v1/media/{id}"]
     end
 
-    %% Client Connections
-    C_USER -- "HTTPS / WSS (Chat)" --> NEXTJS
-    O_USER -- "HTTPS (Dashboard & Duyệt lịch)" --> NEXTJS
-    OP_USER -- "HTTPS (Giám sát & Báo cáo)" --> NEXTJS
+    subgraph Data["Dữ liệu"]
+        NEON[("Neon Serverless PostgreSQL<br/>24 bảng nghiệp vụ + checkpoint* LangGraph<br/>media_files: ảnh và giấy tờ tải lên<br/>exclusion constraint chống trùng lịch")]
+    end
 
-    %% Frontend to Backend
-    NEXTJS -- "HTTPS REST API & Streaming SSE" --> FASTAPI
-    NEXTJS <== "WSS: WebSocket Realtime Chat" ==> FASTAPI
+    subgraph External["Dịch vụ ngoài"]
+        LLM_API["LLM API<br/>Google Gemini / Anthropic Claude / OpenAI<br/>OpenRouter / Groq"]
+        FIREBASE["Firebase Phone Auth<br/>gửi SMS OTP (khi OTP_PROVIDER=firebase)"]
+        OBS["Langfuse / LangSmith<br/>trace AI (tùy chọn)"]
+        SCHED["Cloud Scheduler<br/>gọi /health 5 phút/lần (Cloud Run)"]
+    end
 
-    %% Backend to Internal Storage
-    FASTAPI -- "SQL Queries, Full-text Search & Tx Locks" --> POSTGRES
-    FASTAPI -- "Upload / Presigned URL" --> S3_BUCKET
+    GITHUB["GitHub Actions<br/>ci.yml: ruff + pytest<br/>cd.yml: image lên GHCR<br/>deploy-cloudrun.yml"]
 
-    %% Backend to External
-    FASTAPI -- "HTTPS API Calls (JSON Tools)" --> LLM_API
-    FASTAPI -- "Webhook / API Dispatches" --> NOTIF_GATEWAY
+    C_USER -- HTTPS --> SPA
+    O_USER -- HTTPS --> SPA
+    OP_USER -- HTTPS --> SPA
+    DEV_USER -- HTTPS --> SPA
+    GUARD -- HTTPS --> SPA
 
-    %% CI/CD
-    GITHUB -. "Build & Deploy Frontend" .-> NEXTJS
-    GITHUB -. "Build Docker Image & Deploy" .-> FASTAPI
+    SPA -- "REST (openapi-fetch) + SSE" --> RENDER
+    SPA -- "REST (openapi-fetch) + SSE" --> CLOUDRUN
+    RENDER --- APP
+    CLOUDRUN --- APP
+
+    APP -- "SQL, transaction, khóa dòng" --> NEON
+    APP -- "prompt + tool calling" --> LLM_API
+    APP -- "xác minh Firebase ID token" --> FIREBASE
+    SPA -- "gửi / kiểm mã SMS trên trình duyệt" --> FIREBASE
+    APP -. trace .-> OBS
+    SCHED -. ping .-> CLOUDRUN
+
+    GITHUB -. "Render tự deploy từ main" .-> RENDER
+    GITHUB -. "build image, Artifact Registry, deploy" .-> CLOUDRUN
 ```
+
+## Ghi chú
+
+- **Một instance backend**: hold hết hạn, nhắc lịch, hết hạn yêu cầu, escalation, follow-up chạy trong tiến trình
+  API (`src/jobs.py`), nên Cloud Run đặt `--max-instances=1`. Thông báo realtime (`GET /notifications/stream`) đọc
+  bảng `notifications` theo chu kỳ nên vẫn đúng nếu sau này chạy nhiều instance; luồng SSE tự đóng sau 240 s (dưới
+  timeout Cloud Run) và web tự nối lại.
+- **Media**: ảnh người bán tải lên và giấy tờ hỗ trợ xác thực lưu trong PostgreSQL (`media_files`), giấy tờ là
+  riêng tư (chỉ người gửi và Operator xem). Amazon S3 là đích dài hạn, chưa dùng.
+- **Chưa có**: gửi SMS/Zalo cho thông báo (chỉ in-app + bong bóng realtime), WebSocket chat Người mua ↔ Chủ căn
+  (post-MVP), Vector DB.
+- **Seed demo**: chỉ chạy một lần mỗi DB (`src/db/seed_once.py`, `SEED_VERSION`); `SEED_DEMO_DATA=false` cho DB thật.

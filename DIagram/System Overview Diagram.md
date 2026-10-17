@@ -1,107 +1,95 @@
 # Sơ đồ Kiến trúc Tổng thể (System Overview Diagram)
 
-> Sơ đồ kiến trúc tổng thể của hệ thống **BookingBot AI Agent** được thiết kế theo cấu trúc phân tầng trực quan, tinh gọn giúp người đọc hiểu ngay toàn bộ hệ thống gồm những gì (Client $\rightarrow$ FastAPI Backend $\rightarrow$ AI Agent LangGraph $\rightarrow$ Data Layer & External Services).
+> Hệ thống **BookingBot AI Agent** gồm những gì, theo code hiện tại: Web (React) → FastAPI (router → service)
+> → AI Agent (LangGraph) → PostgreSQL và dịch vụ ngoài. Chi tiết luồng dữ liệu: [`Data Flow Diagram.md`](Data%20Flow%20Diagram.md);
+> quy tắc nghiệp vụ: [`CLAUDE.md`](../CLAUDE.md).
 
 ```mermaid
 flowchart TD
-    %% ==========================================
-    %% 1. CLIENT LAYER
-    %% ==========================================
-    subgraph Client["Client"]
-        WEB["Web Browser<br/>(Desktop Web)"]
-        MOBILE["Mobile App / Web<br/>(Responsive Mobile)"]
+    subgraph Client["Web React 19 + Vite (Responsive, Vercel)"]
+        W_BUYER["Người mua /buyer/*<br/>AI Chat streaming, Hoạt động, mã QR"]
+        W_OWNER["Chủ căn /owner/*<br/>sổ đỏ, tin đăng, lịch trống, yêu cầu xem"]
+        W_OPER["Chủ đầu tư /operator/*<br/>duyệt tin, ngoại lệ, giám sát lịch xem"]
+        W_DEV["Dev /dev<br/>kill switch + số liệu"]
+        W_PASS["/pass/:token<br/>quét mã QR"]
     end
 
-    %% ==========================================
-    %% 2. FASTAPI BACKEND LAYER
-    %% ==========================================
-    subgraph Backend["FastAPI Backend"]
-        GW["API Gateway<br/>(Routing & Middleware)"]
-        AUTH["Auth Module<br/>(JWT + OTP / RBAC)"]
-        SESSION["Session Manager<br/>(Phiên chat & Chat Gating)"]
-        CHAT_HANDLER["Chat Handler<br/>(Streaming SSE & WebSocket)"]
+    subgraph Backend["FastAPI Backend (src/api/routers)"]
+        AUTH["Auth<br/>SĐT + OTP (local / Firebase) cho người mua & chủ căn<br/>email + mật khẩu (Argon2) cho Operator, JWT + RBAC"]
+        CHAT["Chat API<br/>/chat, /chat/stream, /chat/guest(/stream), /claim<br/>kill switch → rate limit → guardrails"]
+        REST["REST nghiệp vụ<br/>properties · bookings · deals · owner · operator<br/>escalations · media · notifications (+ SSE stream)"]
+        ADMIN["API dev /admin<br/>X-Admin-Token, ẩn khỏi OpenAPI"]
+        JOBS["Job nền (src/jobs.py)<br/>nhả hold, nhắc lịch, hết hạn yêu cầu,<br/>escalation, follow-up, ghi nhận sau buổi xem"]
     end
 
-    %% ==========================================
-    %% 3. AI AGENT LAYER (LANGGRAPH)
-    %% ==========================================
-    subgraph Agent["AI Agent (LangGraph)"]
-        ORCH["Agent Orchestrator<br/>(LangGraph StateGraph)"]
-        MEM["Memory Manager<br/>(Ngữ cảnh & Checkpointer)"]
-        ROUTER["Intent Router<br/>(Bóc tách nhu cầu & Phân loại)"]
-        
-        TOOL_SEARCH["Property Search<br/>(Hard Filter + Soft Score)"]
-        TOOL_AVAIL["Availability & Hold<br/>(Atomic Viewing Hold)"]
-        TOOL_BOOK["Booking Manager<br/>(Tạo lịch & Gửi duyệt Owner)"]
+    subgraph Agent["AI Agent (src/agents)"]
+        GRAPH["LangGraph: agent ⇄ tools<br/>checkpoint PostgreSQL"]
+        GUARD["Guardrails + giám khảo AI<br/>che PII, chặn injection, chặn câu sai"]
+        TOOLS["12 tool có kiểm soát<br/>tìm căn · chi tiết · lịch trống · trạng thái<br/>đặt / đổi / hủy lịch · chuyển người thật"]
     end
 
-    %% ==========================================
-    %% 4. DATA LAYER
-    %% ==========================================
-    subgraph DataLayer["Data Layer"]
-        DB[("PostgreSQL DB<br/>(Users, Properties, Bookings)")]
-        S3[("Amazon S3<br/>(Media Ảnh/Video căn hộ)")]
+    subgraph Services["Service layer (src/services) — nơi duy nhất ghi dữ liệu nghiệp vụ"]
+        S_CORE["property · availability/scheduling · booking<br/>deal · hold · pass · viewing_outcome"]
+        S_OWN["ownership · ownership_support · seller · media"]
+        S_OPS["notification · notification_live · escalation<br/>audit · rate_limit · assistant_control · ai_trace"]
     end
 
-    %% ==========================================
-    %% 5. EXTERNAL SERVICES
-    %% ==========================================
-    subgraph External["External Services"]
-        LLM["OpenAI API<br/>(gpt-4o-mini / gpt-4o)"]
-        NOTIF["Notification Gateway<br/>(SMS / Zalo Provider)"]
+    subgraph Data["PostgreSQL (Neon)"]
+        DB[("24 bảng: danh tính, sổ đỏ, kho căn, lịch trống,<br/>deals/bookings/holds, AI, vận hành<br/>+ media_files (ảnh, giấy tờ) + checkpoint*")]
     end
 
-    %% ==========================================
-    %% CÁC ĐƯỜNG KẾT NỐI (HIERARCHICAL FLOW)
-    %% ==========================================
-    %% Client -> Backend
-    WEB --> GW
-    MOBILE --> GW
+    subgraph External["Dịch vụ ngoài"]
+        LLM["LLM: Gemini / OpenAI / Claude / OpenRouter / Groq<br/>model chính + dự phòng"]
+        FIRE["Firebase Phone Auth (SMS OTP)"]
+        OBS["Langfuse / LangSmith (tùy chọn)"]
+    end
 
-    %% Backend Router phân nhánh nội bộ
-    GW --> AUTH
-    GW --> SESSION
-    GW --> CHAT_HANDLER
+    W_BUYER --> CHAT
+    W_BUYER --> REST
+    W_OWNER --> REST
+    W_OPER --> REST
+    W_DEV --> ADMIN
+    W_PASS --> REST
+    Client --> AUTH
 
-    %% Backend Chat Handler -> AI Agent Orchestrator
-    CHAT_HANDLER --> ORCH
+    CHAT --> GUARD
+    GUARD --> GRAPH
+    GRAPH --> TOOLS
+    GRAPH <--> LLM
+    GUARD -. giám khảo .-> LLM
+    TOOLS -- "agent_api: quyền của khách đang chat" --> S_CORE
 
-    %% Agent Orchestrator điều phối nội bộ
-    ORCH --> MEM
-    ORCH --> ROUTER
+    REST --> S_CORE
+    REST --> S_OWN
+    REST --> S_OPS
+    ADMIN --> S_OPS
+    JOBS --> S_CORE
+    JOBS --> S_OPS
+    AUTH --> FIRE
 
-    %% Intent Router gọi các Tools
-    ROUTER --> TOOL_SEARCH
-    ROUTER --> TOOL_AVAIL
-    ROUTER --> TOOL_BOOK
-
-    %% Kết nối tới Data Layer
-    MEM --> DB
-    TOOL_SEARCH --> DB
-    TOOL_SEARCH --> S3
-    TOOL_AVAIL --> DB
-
-    %% Kết nối tới External Services
-    ROUTER --> LLM
-    TOOL_BOOK --> NOTIF
+    S_CORE --> DB
+    S_OWN --> DB
+    S_OPS --> DB
+    GRAPH --> DB
+    GRAPH -. trace .-> OBS
 ```
 
 ---
 
-## Bóc tách vai trò các khối chức năng theo `spec_updated.md`
+## Vai trò các khối
 
-| Phân tầng (Layer) | Khối thành phần | Chức năng kỹ thuật chi tiết |
+| Phân tầng | Khối | Chức năng |
 |---|---|---|
-| **Client** | **Web Browser / Mobile App** | Giao diện Web Responsive hỗ trợ cả Desktop và Mobile: Khách hàng tìm căn & chat AI; Chủ nhà (Owner) quản lý tin & duyệt lịch; Ban quản trị (Operator) kiểm duyệt. |
-| **FastAPI Backend** | **API Gateway** | Cổng tiếp nhận request tập trung, điều hướng RESTful endpoints và kiểm soát Pydantic validation. |
-| | **Auth Module** | Quản lý định danh: Khách hàng xác thực qua OTP/mã booking; Chủ nhà và Operator đăng nhập qua JWT + Argon2id/bcrypt. |
-| | **Session Manager** | Duy trì trạng thái phiên người dùng và quản lý **Chat Gating** (chỉ mở kênh chat trực tiếp sau khi xem nhà thành công và có Purchase Request). |
-| | **Chat Handler** | Xử lý streaming Server-Sent Events (SSE) cho hội thoại AI và WebSocket server phục vụ nhắn tin thời gian thực 1-1 Khách ↔ Chủ nhà. |
-| **AI Agent (LangGraph)** | **Agent Orchestrator** | Quản lý đồ thị trạng thái (StateGraph), điều phối luồng xử lý và đảm bảo AI tuân thủ đúng ranh giới an toàn. |
-| | **Memory Manager** | Lưu trữ ngữ cảnh hội thoại đa lượt (Multi-turn state), ghi nhớ tiêu chí đã bóc tách qua LangGraph Checkpointer. |
-| | **Intent Router** | Phân loại ý định từ câu chat tự nhiên, trích xuất cấu trúc `CustomerPreference` và điều hướng chọn Tool phù hợp. |
-| | **Controlled Tools** | • **Property Search:** Lọc SQL + tính điểm soft scoring.<br/>• **Availability & Hold:** Kiểm tra lịch trống và kích hoạt Viewing Hold nguyên tử.<br/>• **Booking Manager:** Tạo yêu cầu đặt lịch và kích hoạt luồng Owner Approval. |
-| **Data Layer** | **PostgreSQL DB** | Lưu trữ dữ liệu quan hệ (Properties, Bookings, Holds, Audit Logs); Full-text search + `pg_trgm`; ACID transaction và Row-level lock. |
-| | **Amazon S3** | Lưu trữ độc lập toàn bộ hình ảnh và video căn hộ Vinhomes, tách biệt hoàn toàn khỏi Database. |
-| **External Services** | **OpenAI API** | Cung cấp mô hình ngôn ngữ lớn (mặc định `gpt-4o-mini`) phục vụ bóc tách nhu cầu và suy luận. |
-| | **Notification Gateway** | Dịch vụ gửi thông báo đẩy (In-app, SMS/Zalo) để nhắc lịch hẹn tự động trước **T-24h** và **T-2h**. |
+| **Client** | **Web React + Vite** | Một SPA responsive cho 3 vai trò + trang dev + trang quét mã QR. Chỉ gọi REST/SSE (`openapi-fetch`, kiểu sinh từ OpenAPI); không có logic nghiệp vụ nào chỉ nằm ở web. Người mua không có trang tìm kiếm/bộ lọc: vào thẳng AI Chat. |
+| **FastAPI Backend** | **Auth** | Người mua và chủ căn chỉ dùng SĐT + OTP (`OTP_PROVIDER=local` hoặc `firebase`; SĐT demo dùng mã cố định `123456`); Operator dùng email + mật khẩu. JWT + RBAC Buyer / Seller / Operator. |
+| | **Chat API** | Nhận tin nhắn (cả khách chưa đăng nhập), kiểm tra kill switch và rate limit, chạy agent, stream câu trả lời đã qua guardrails (SSE). `/claim` chuyển chat của khách sang tài khoản mới. |
+| | **REST nghiệp vụ** | Tìm căn / giờ xem, đặt / đổi / hủy lịch, trang Hoạt động, mã QR; cổng chủ căn (sổ đỏ, tin đăng, lịch trống, xác nhận / từ chối, ghi nhận sau buổi xem, đánh dấu đã bán); Operator (duyệt / gỡ tin, hủy lịch, ngoại lệ); thông báo + luồng SSE realtime. |
+| | **Job nền** | Chạy trong tiến trình API mỗi `JOB_INTERVAL_SECONDS` (60 s). |
+| **AI Agent** | **LangGraph** | Đồ thị 2 node `agent` ⇄ `tools`; bộ nhớ hội thoại trong checkpoint PostgreSQL; prompt có lịch ngày tháng và tiêu chí khách đã nói (`buyer_memory`). |
+| | **Guardrails** | Lớp code quanh mỗi lượt chat (`guardrails.py`) + giám khảo AI model nhỏ (`guardrail_judge.py`) chỉ gọi khi có dấu hiệu rủi ro. |
+| | **12 tool** | Chỉ gọi Service layer với quyền của khách; không có tool xác nhận lịch, tạo hold, gửi thông báo hay đọc SĐT/email. |
+| **Service layer** | **Services** | Kiểm tra quyền + business rules, chạy Deal + Booking + Hold trong một transaction có khóa dòng và exclusion constraint, ghi `audit_logs` và `notifications`. |
+| **Data** | **PostgreSQL** | Source of truth. Ảnh / giấy tờ tải lên lưu trong `media_files` (S3 là đích dài hạn, chưa dùng). Không dùng Vector DB. |
+| **External** | **LLM** | Chọn bằng `LLM_PROVIDER`; model dự phòng có thể ở provider khác (`LLM_FALLBACK_PROVIDER`). LLM không bao giờ chạm DB. |
+| | **Firebase** | Gửi / kiểm mã SMS trên trình duyệt; backend chỉ xác minh Firebase ID token. |
+| | **Thông báo** | Hiện chỉ in-app (chuông + bong bóng realtime); SMS/Zalo cho thông báo chưa tích hợp. |

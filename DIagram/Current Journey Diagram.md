@@ -1,46 +1,54 @@
 # Customer Journey Diagram (Hành trình Khách hàng)
 
-> So sánh **Hiện trạng truyền thống (Current Painful Journey)** và **Hành trình giải pháp mới với BookingBot AI Agent (Target Journey theo §4.4 của [spec_updated.md](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/.specify/spec_updated.md))**.
+> So sánh **hiện trạng truyền thống** và **hành trình với BookingBot AI Agent** theo hệ thống đang chạy
+> (đặc tả: §4.4 của [`.specify/spec_final.md`](../.specify/spec_final.md); quy tắc: [`CLAUDE.md`](../CLAUDE.md)).
+> MVP kết thúc tại buổi xem nhà; các bước sau đó (Purchase Request, chat trực tiếp, giao dịch) là post-MVP.
 
 ---
 
-## 1. Hành trình Khách hàng mới với BookingBot AI Agent (Target Journey - §4.4)
-
-Sơ đồ tuần tự theo phong cách ngang (Horizontal Flowchart) thể hiện toàn bộ quy trình khép kín: từ lúc tìm kiếm, nhận đề xuất, đặt lịch, chủ nhà phê duyệt, giữ căn, xem nhà cho tới khi gửi yêu cầu mua và mở kênh chat trực tiếp.
+## 1. Hành trình người mua với BookingBot AI Agent
 
 ```mermaid
 flowchart LR
-    J1["1. Landing Page<br/>& Mở AI Chat"] --> J2["2. Thu thập nhu cầu<br/>(Ngân sách, PN, Khu vực)"]
-    J2 --> J3["3. Tìm kiếm, Lọc &<br/>Xếp hạng (Hard+Soft)"]
-    J3 --> J4["4. Gợi ý Thẻ căn hộ<br/>(Property Cards + Lý do)"]
-    J4 --> J5["5. Xem chi tiết căn<br/>& Chọn khung giờ xem"]
-    J5 --> J6["6. Kiểm tra Lịch trống<br/>& Tạo Booking Request"]
-    J6 --> J7["7. Chủ nhà duyệt lịch<br/>(Owner Approval)"]
-    J7 --> J8["8. Kích hoạt Viewing Hold<br/>(Tạm khóa căn giờ xem)"]
-    J8 --> J9["9. Nhắc lịch tự động<br/>(T-24h & T-2h)"]
-    J9 --> J10["10. Khách đến xem nhà<br/>& Gửi Purchase Request"]
-    J10 --> J11["11. Mở kênh Chat 1-1<br/>Khách ↔ Chủ nhà"]
+    J1["1. Vào /buyer<br/>chat ngay với AI<br/>(chưa cần tài khoản)"] --> J2["2. AI bóc tách nhu cầu<br/>ngân sách, PN, dự án,<br/>hướng, tầng — hỏi lại khi thiếu"]
+    J2 --> J3["3. Tìm & xếp hạng<br/>SQL hard filter + soft score<br/>chỉ căn AVAILABLE đã xác thực"]
+    J3 --> J4["4. Thẻ căn + lý do,<br/>ảnh, chi tiết căn"]
+    J4 --> J5["5. AI đề xuất giờ xem<br/>khớp lịch trống chủ căn<br/>(sớm nhất sau 2 giờ)"]
+    J5 --> J6["6. Đăng ký SĐT + OTP<br/>(nếu là khách)<br/>→ Deal ID + yêu cầu REQUESTED"]
+    J6 --> J7["7. Chủ căn xác nhận<br/>(Owner Approval)"]
+    J7 --> J8["8. Viewing Hold<br/>+ mã QR vào cửa<br/>(trang Hoạt động)"]
+    J8 --> J9["9. Nhắc lịch<br/>T-24h & T-2h"]
+    J9 --> J10["10. Xem nhà<br/>chủ căn ghi nhận kết quả"]
+    J10 --> J11["11. Người mua: Quan tâm /<br/>Chưa phù hợp<br/>(→ AI gợi ý căn khác)"]
 ```
 
 ---
 
-## 2. Phân nhánh chi tiết tại điểm phê duyệt của Chủ nhà (Owner Decision Fork)
+## 2. Phân nhánh tại bước chủ căn trả lời
 
 ```mermaid
 flowchart TD
-    REQ[Khách hàng gửi Booking Request] --> NOTIF[Thông báo cho Chủ nhà]
-    NOTIF --> DECISION{Chủ nhà quyết định}
-    
-    DECISION -- Đồng ý (Approve) --> CONFIRMED[Xác nhận Booking: CONFIRMED]
-    CONFIRMED --> HOLD[Viewing Hold: Tạm khóa căn trong giờ xem]
-    HOLD --> REMINDER[Nhắc lịch T-24h & T-2h]
-    REMINDER --> VIEWING[Đi xem nhà thực tế]
-    VIEWING --> BUY_REQ[Gửi Purchase Request]
-    BUY_REQ --> CHAT_OPEN[Mở Chat trực tiếp Khách ↔ Chủ nhà]
+    REQ[Người mua gửi yêu cầu xem: Booking REQUESTED] --> NOTIF[Thông báo cho chủ căn: chuông + bong bóng realtime]
+    NOTIF --> DECISION{Chủ căn quyết định}
 
-    DECISION -- Từ chối (Reject) --> REJECTED[Từ chối Booking: REJECTED]
-    REJECTED --> ALT_SUGGEST[AI gợi ý khung giờ khác hoặc căn tương tự]
-    ALT_SUGGEST --> REQ
+    DECISION -- Xác nhận --> CONFIRMED[CONFIRMED + Viewing Hold]
+    CONFIRMED --> CLASH[Yêu cầu khác của chủ căn trùng giờ tự đóng<br/>AI báo người mua kèm giờ khác]
+    CONFIRMED --> REMINDER[Nhắc lịch T-24h & T-2h]
+    REMINDER --> VIEWING[Đi xem nhà, quét mã QR]
+    VIEWING --> OUTCOME[Chủ căn: Đã xem xong / Khách không đến]
+    OUTCOME --> FEEDBACK[Người mua: Quan tâm / Chưa phù hợp / Không đồng ý kết quả]
+    FEEDBACK -- Không đồng ý --> DISPUTE[Ca tranh chấp: Chủ đầu tư gọi hai bên rồi ghi kết quả]
+
+    DECISION -- Từ chối, đề xuất tối đa 3 giờ khác --> REJECTED[REJECTED]
+    REJECTED --> PICK[Người mua bấm một giờ đề xuất → yêu cầu mới, cùng Deal]
+    PICK --> REQ
+    REJECTED --> ALT_SUGGEST[AI gợi ý giờ khác hoặc căn tương tự]
+
+    DECISION -- Quá hạn chưa trả lời --> ESC[Chuyển Chủ đầu tư xử lý + AI gợi ý giờ / căn khác]
+    DECISION -- Tới giờ xem vẫn chưa trả lời --> EXPIRED[EXPIRED, người mua được báo]
+
+    REQ -. Người mua đổi giờ khi chưa xác nhận .-> REQ
+    CONFIRMED -. Người mua xin đổi giờ: giữ giờ cũ tới khi chủ căn đồng ý .-> DECISION
 ```
 
 ---
@@ -63,9 +71,9 @@ flowchart LR
 
 | Tiêu chí | Hiện trạng truyền thống (Before) | Với BookingBot AI Agent (After) |
 |---|---|---|
-| **Kênh tìm kiếm** | Phân tán nhiều website, mạng xã hội, tin rác | Một giao diện AI Chat tập trung, chuyên biệt cho căn hộ Vinhomes |
-| **Cách tìm căn** | Khách tự mò bộ lọc phức tạp | Chat ngôn ngữ tự nhiên, AI bóc tách nhu cầu và tự tính điểm phù hợp (Hard filter + Soft score) |
-| **Bảo mật & phiền hà** | Bị nhiều môi giới gọi điện làm phiền | Không spam cuộc gọi, thông tin liên lạc được bảo vệ, chỉ kết nối đúng chủ nhà |
-| **Xác nhận lịch** | Nhắn tin/gọi điện thủ công, mất hàng giờ đến hàng ngày | Tạo request chuẩn hóa, chủ nhà nhận thông báo và duyệt nhanh qua hệ thống |
-| **Giữ căn khi xem** | Không có cơ chế giữ căn; dễ bị khách khác xem trước hoặc bán mất | **Viewing Hold nguyên tử (Atomic)**: Tạm khóa căn đúng khung giờ xem |
-| **Sau buổi xem** | Khó kết nối lại hoặc phải qua nhiều trung gian | Gửi **Purchase Request** tự động mở kênh chat 1-1 trực tiếp với chủ nhà để đàm phán |
+| **Kênh tìm kiếm** | Phân tán nhiều website, mạng xã hội, tin rác | Một khung AI Chat, chỉ căn Vinhomes đã xác thực chủ sở hữu (sổ đỏ) và được Chủ đầu tư duyệt tin |
+| **Cách tìm căn** | Khách tự mò bộ lọc phức tạp | Chat ngôn ngữ tự nhiên, AI bóc tách nhu cầu và chấm điểm phù hợp (Hard filter + Soft score), nhớ tiêu chí cho lần sau |
+| **Bảo mật & phiền hà** | Bị nhiều môi giới gọi điện làm phiền | Chủ căn chỉ thấy họ tên + nhu cầu của người mua, SĐT/email luôn ẩn; AI che PII trong chat |
+| **Xác nhận lịch** | Nhắn tin/gọi điện thủ công, mất hàng giờ đến hàng ngày | Yêu cầu chuẩn hóa kèm Deal ID, chủ căn xác nhận / từ chối kèm giờ khác trên web; quá hạn thì Chủ đầu tư can thiệp |
+| **Giữ căn khi xem** | Không có cơ chế giữ căn; dễ trùng lịch | **Viewing Hold nguyên tử**: tạm khóa căn đúng khung giờ xem; chủ căn không thể có 2 lịch đã xác nhận trùng giờ |
+| **Sau buổi xem** | Khó kết nối lại hoặc phải qua nhiều trung gian | Ghi nhận kết quả, người mua báo Quan tâm (chủ căn được báo) hoặc nhận gợi ý căn khác; tranh chấp có Chủ đầu tư xử lý. Chat trực tiếp / Purchase Request: post-MVP |

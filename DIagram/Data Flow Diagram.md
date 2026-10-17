@@ -1,6 +1,6 @@
 # Data Flow Diagram (Sơ đồ Luồng Dữ liệu)
 
-> Dữ liệu đi qua hệ thống **BookingBot AI Agent** như thế nào, theo đúng code hiện tại (nhánh `feature/Baor-app`):
+> Dữ liệu đi qua hệ thống **BookingBot AI Agent** như thế nào, theo đúng code hiện tại:
 > ai gửi gì, đi qua lớp nào, được ghi vào bảng nào và ai được đọc lại. Database PostgreSQL là nguồn sự thật;
 > AI Agent không truy cập DB trực tiếp mà luôn đi qua Tool Layer → Service Layer.
 
@@ -23,18 +23,18 @@ flowchart LR
     end
 
     %% ---------- Backend ----------
-    subgraph API["FastAPI (Render)"]
+    subgraph API["FastAPI (Render / Cloud Run)"]
         AUTH["Auth: OTP / JWT<br/>phân quyền theo vai trò"]
-        CHAT["Chat service<br/>/chat, /chat/guest, /claim"]
-        SVC["Service layer<br/>property · booking · deal · hold · pass<br/>ownership · ownership_support · media<br/>notification · escalation"]
-        JOBS["Job nền<br/>hết hạn giữ căn, nhắc lịch T-24h/T-2h<br/>agent follow-up: gợi ý giờ/căn khác"]
+        CHAT["Chat service<br/>/chat(/stream), /chat/guest(/stream), /claim<br/>kill switch · rate limit · guardrails"]
+        SVC["Service layer<br/>property · booking · deal · hold · pass · viewing_outcome<br/>ownership · ownership_support · media<br/>notification (+ SSE realtime) · escalation"]
+        JOBS["Job nền<br/>hết hạn giữ căn / yêu cầu, nhắc lịch T-24h/T-2h,<br/>escalation, ghi nhận sau buổi xem,<br/>agent follow-up: gợi ý giờ/căn khác"]
     end
 
     subgraph AI["AI Agent"]
         AGENT["LangGraph agent<br/>nhận mục tiêu, tự gọi tool đến khi xong"]
         TOOLS["Agent tools<br/>tìm căn · khớp lịch · đặt/đổi/hủy · chuyển người thật"]
     end
-    LLM[["Gemini API<br/>flash, dự phòng flash-lite"]]
+    LLM[["LLM API<br/>Gemini / OpenAI / Claude / OpenRouter / Groq<br/>model chính + dự phòng"]]
 
     %% ---------- Kho dữ liệu ----------
     subgraph DB["PostgreSQL (Neon)"]
@@ -42,8 +42,8 @@ flowchart LR
         D_RB[("Sổ đỏ + thông tin căn gốc<br/>property_ownership_verifications")]
         D_INV[("Kho căn<br/>projects · buildings · properties<br/>property_media · media_files · availability_slots")]
         D_DEAL[("Giao dịch xem<br/>deals · bookings · property_holds")]
-        D_AI[("AI<br/>ai_conversations · ai_messages · recommendations<br/>checkpoint* (bộ nhớ hội thoại)")]
-        D_OPS[("Vận hành<br/>notifications · escalations · audit_logs")]
+        D_AI[("AI<br/>ai_conversations · ai_messages · recommendations<br/>ai_turns (trace cho dev) · checkpoint* (bộ nhớ hội thoại)")]
+        D_OPS[("Vận hành<br/>notifications · escalations · audit_logs<br/>system_settings · rate_limit_hits")]
     end
 
     %% ---------- Người mua ----------
@@ -82,6 +82,7 @@ flowchart LR
 
     %% ---------- Dữ liệu trả về ----------
     SVC -. "căn phù hợp, giờ trống, Deal, lịch sử hoạt động, mã QR" .-> W_BUYER
+    SVC -. "thông báo realtime (SSE /notifications/stream)" .-> WEB
     SVC -. "yêu cầu xem: tên người mua + khoảng ngân sách (không SĐT/email)" .-> W_SELLER
     SVC -. "tin chờ duyệt, lịch xem, ngoại lệ + giấy tờ hỗ trợ" .-> W_OPER
 ```
@@ -132,23 +133,29 @@ nào chỉ nằm ở web.
 
 ### 2.3. Backend FastAPI (deploy trên Render)
 
-- **Auth: OTP / JWT** (`src/services/auth_service.py`, `otp_service.py`): gửi và kiểm tra OTP (chỉ lưu hash,
+- **Auth: OTP / JWT** (`src/services/auth_service.py`, `otp_service.py`, `firebase_auth.py`): `OTP_PROVIDER=local`
+  tự sinh mã (không gửi SMS) hoặc `firebase` (Firebase Phone Auth gửi SMS, backend xác minh ID token); SĐT demo
+  luôn dùng mã `123456`. Chế độ local: gửi và kiểm tra OTP (chỉ lưu hash,
   hết hạn 5 phút, sai 5 lần thì hủy; tối đa 5 mã **chưa dùng** mỗi 15 phút), cấp JWT, phân quyền theo vai trò
   Người mua / Người bán / Chủ đầu tư. Người mua và người bán chỉ dùng SĐT + OTP; chỉ Chủ đầu tư có mật khẩu.
-  Đăng ký phân biệt với đăng nhập: SĐT đã có tài khoản thì không cho đăng ký lại.
-- **Chat service** (`src/api/routers/chat.py`, `chat_service.py`): nhận tin nhắn của web và chuyển cho agent.
+  Đăng ký phân biệt với đăng nhập: SĐT đã có tài khoản thì không cho đăng ký lại. Chỉ nhận số di động VN 10 số.
+- **Chat service** (`src/api/routers/chat.py`, `chat_service.py`): nhận tin nhắn của web và chuyển cho agent
+  (bản `/stream` trả SSE). Trước đó: kill switch của dev (`assistant_control`, tắt → 503 `AI_DISABLED`), rate limit
+  theo tài khoản / IP khách (`rate_limit_hits`, 429 `RATE_LIMITED`) và guardrails đầu vào; câu trả lời qua guardrails
+  đầu ra trước khi hiện (xem [`Agent Flow Diagram.md`](Agent%20Flow%20Diagram.md)). Mỗi lượt ghi trace `ai_turns`.
   `/chat/guest` cho khách chưa có tài khoản; `/claim` chuyển lịch sử chat khách sang tài khoản vừa tạo;
   `/chat` lưu lượt chat của người đã đăng nhập vào `ai_conversations` / `ai_messages`.
 - **Service layer** (`src/services/*_service.py`): nơi duy nhất ghi dữ liệu nghiệp vụ. Cả web lẫn agent đều đi
   qua đây, nên cùng một bộ kiểm tra: đúng quyền, căn `AVAILABLE`, người bán `VERIFIED`, Deal chưa đóng, đúng
   trạng thái, đúng khung giờ. Thao tác Deal + Booking + Hold chạy trong một transaction, có khóa dòng và
   ràng buộc chống trùng giờ của PostgreSQL; mọi thao tác quan trọng ghi `audit_logs` và tạo `notifications`.
-  - `property` tìm căn (lọc cứng bằng SQL + chấm điểm), đăng tin (thông tin căn lấy từ sổ đỏ, gửi duyệt ngay), duyệt tin.
+  - `property` tìm căn (lọc cứng bằng SQL + chấm điểm), đăng tin (thông tin căn lấy từ sổ đỏ, gửi duyệt ngay), duyệt tin,
+    Operator gỡ tin đang bán (→ `REJECTED` kèm lý do), đánh dấu đã bán (đóng lịch chưa tới giờ, hỏi bán cho ai).
   - `booking` đặt / đổi giờ / hủy / xác nhận. **Quy tắc trùng giờ theo chủ căn**: yêu cầu chưa xác nhận được trùng
     giờ (chủ căn chọn tiếp ai); một chủ căn không bao giờ có 2 lịch đã xác nhận trùng giờ, kể cả ở 2 căn khác nhau
     (ràng buộc `ex_bookings_owner_no_overlap`). Khi chủ căn xác nhận một lịch, các yêu cầu khác của chủ đó bị trùng
-    giờ tự đóng và agent nhắn người mua kèm giờ khác (`VIEWING_SUPERSEDED`). Lịch sử hoạt động của người mua
-    (`/bookings/activity`) đọc từ `audit_logs`.
+    giờ tự đóng và agent nhắn người mua kèm giờ khác (`VIEWING_SUPERSEDED`). Từ chối có thể đề xuất tối đa 3 giờ khác;
+    tới giờ xem mà chủ căn chưa trả lời → `EXPIRED`. Lịch sử hoạt động của người mua (`/bookings/activity`) đọc từ `audit_logs`.
   - `deal` tạo mã `VH-yyyy-xxxxx` và cập nhật trạng thái Deal, `hold` giữ căn cho buổi xem sau khi chủ căn xác nhận,
     `pass` cấp và kiểm tra mã QR vào cửa.
   - `viewing_outcome` sau giờ xem: chủ căn ghi "Đã xem xong" / "Khách không đến" (quên thì được nhắc, quá 48h tự đóng
@@ -160,8 +167,10 @@ nào chỉ nằm ở web.
     `escalation` hàng ngoại lệ cho người thật.
 - **Job nền** (`src/jobs.py`, chạy trong cùng tiến trình API, mặc định mỗi 60 giây):
   nhả giữ căn khi hết khung giờ xem; gửi nhắc lịch T-24h / T-2h (agent viết lại lời nhắc cho từng khách);
-  chuyển cho người thật các yêu cầu chủ căn để quá lâu không trả lời; agent follow-up — gợi ý giờ hoặc căn khác
-  khi yêu cầu bị từ chối / chưa được trả lời.
+  đóng `EXPIRED` các yêu cầu tới giờ xem chưa được trả lời; chuyển cho người thật các yêu cầu quá hạn `respond_by`
+  và tự đóng ca đã được xử lý; nhắc chủ căn ghi nhận sau buổi xem, quá 48h → `UNREPORTED`; agent follow-up — gợi ý
+  giờ hoặc căn khác khi yêu cầu bị từ chối / chưa được trả lời; dọn trace và bộ đếm rate limit cũ; giữ lịch trống
+  demo 14 ngày tới (chỉ khi `SEED_DEMO_DATA`).
 
 ### 2.4. AI Agent
 
@@ -175,9 +184,14 @@ nào chỉ nằm ở web.
   `cancel_viewing`, `reschedule_viewing`, `create_human_escalation`. Tool chỉ gọi Service layer với đúng
   quyền của khách đang chat; không có tool xác nhận lịch hay tạo giữ căn (việc của chủ căn), không có tool đọc
   SĐT/email. Khách chưa đăng nhập mà muốn đặt lịch → tool trả lỗi, web hiện khung đăng ký và gửi tiếp yêu cầu.
-- **Gemini API** (`src/services/llm.py`): mô hình `gemini-flash-latest`, tự chuyển sang `gemini-flash-lite-latest`
-  khi lỗi / quá tải. LLM chỉ nhận prompt + lịch sử và trả lời hoặc yêu cầu gọi tool; nó không bao giờ chạm DB.
+- **LLM** (`src/services/llm.py`): chọn bằng `LLM_PROVIDER` — `openai` (mặc định `gpt-4o-mini`), `google` (bản Render:
+  `gemini-flash-lite-latest`, dự phòng `gemini-flash-latest`), `anthropic` (mặc định `claude-opus-5-5`; bản Cloud Run:
+  `claude-sonnet-5-5`, dự phòng OpenRouter `google/gemini-3.8-flash` qua `LLM_FALLBACK_PROVIDER`), `openrouter`, `groq`.
+  LLM chỉ nhận prompt + lịch sử và trả lời hoặc yêu cầu gọi tool; nó không bao giờ chạm DB.
   Lỗi LLM → khách thấy thông báo gián đoạn, không có hành động nào được ghi.
+- **Guardrails** (`src/agents/guardrails.py`, `guardrail_judge.py`): che PII khách gõ và trong câu trả lời, chặn prompt
+  injection (không gọi model), thay câu trả lời nói lịch "đã xác nhận" khi chưa có, nhắc mã căn không có thật, hướng dẫn
+  đặt cọc / đàm phán / dự đoán giá / cam kết pháp lý; giám khảo AI model nhỏ chỉ gọi khi có dấu hiệu rủi ro.
 
 ### 2.5. Kho dữ liệu (PostgreSQL, deploy trên Neon)
 
@@ -187,16 +201,16 @@ nào chỉ nằm ở web.
 | **Sổ đỏ** | `property_ownership_verifications` | Dữ liệu sổ đỏ của Chủ đầu tư (người đứng tên, mã sổ, SĐT chủ sở hữu) kèm thông tin căn gốc (tòa, mã căn, diện tích, số phòng, tầng, hướng) mà tin đăng lấy theo |
 | **Kho căn** | `projects`, `buildings`, `properties`, `property_media`, `media_files`, `availability_slots` | Căn đang bán, ảnh (ảnh tải từ máy lưu trong `media_files`), lịch trống của chủ căn |
 | **Giao dịch xem** | `deals`, `bookings`, `property_holds` | Mỗi cặp Người mua + Căn có một Deal; lịch xem và trạng thái; giữ căn trong khung giờ xem đã xác nhận |
-| **AI** | `ai_conversations`, `ai_messages`, `recommendations`, `checkpoint*` | Lịch sử chat, căn đã gợi ý, bộ nhớ hội thoại của agent |
-| **Vận hành** | `notifications`, `escalations`, `audit_logs` | Thông báo trong web, hàng ngoại lệ cho người thật, nhật ký truy vết |
+| **AI** | `ai_conversations`, `ai_messages`, `recommendations`, `ai_turns`, `checkpoint*` | Lịch sử chat, căn đã gợi ý, trace từng lượt chat cho dev, bộ nhớ hội thoại của agent |
+| **Vận hành** | `notifications`, `escalations`, `audit_logs`, `system_settings`, `rate_limit_hits` | Thông báo trong web, hàng ngoại lệ cho người thật, nhật ký truy vết, công tắc vận hành (kill switch, phiên bản seed), bộ đếm rate limit |
 
 Chi tiết ai ghi / ai đọc từng bảng ở mục 5.
 
 ### 2.6. Ý nghĩa các mũi tên
 
 - **Mũi tên liền**: dữ liệu được gửi vào để xử lý hoặc ghi (yêu cầu, lệnh gọi tool, ghi DB). `<-->` là vừa đọc vừa ghi.
-- **Mũi tên đứt**: dữ liệu trả về cho web hiển thị. Đáng chú ý là chiều về Cổng người bán chỉ mang mã người mua
-  + khoảng ngân sách (bảo vệ thông tin cá nhân, AC-03).
+- **Mũi tên đứt**: dữ liệu trả về cho web hiển thị. Đáng chú ý là chiều về Cổng người bán chỉ mang họ tên người mua
+  + khoảng ngân sách + nhu cầu, không bao giờ có SĐT/email (bảo vệ thông tin cá nhân, AC-03).
 
 ---
 
@@ -257,6 +271,7 @@ sequenceDiagram
     S->>W: họ tên người đứng tên + mã số sổ đỏ
     W->>API: POST /owner/ownership/claim
     API->>DB: đối chiếu property_ownership_verifications
+    Note over API,DB: SĐT đăng nhập phải trùng SĐT chủ sở hữu trên sổ (khác → NOT_OWNER_PHONE);<br/>sai tên/mã sổ tối đa 5 lần/giờ; sổ đã có người nhận → UNIT_CLAIMED
     API->>DB: otp_codes (gửi tới owner_phone ghi trên sổ), sổ → OTP_SENT
     S->>W: nhập OTP
     W->>API: POST /owner/ownership/{id}/confirm
@@ -295,7 +310,7 @@ sequenceDiagram
         API->>DB: sổ → VERIFIED cho người bán (thêm sổ nếu chưa có), seller_profiles VERIFIED; ca RESOLVED
     else Sổ bị người khác nhận sai
         O->>API: .../ownership/revoke (lý do)
-        API->>DB: hủy lịch xem của căn, gỡ tin (WITHDRAWN), sổ → UNVERIFIED, báo người đang giữ sổ
+        API->>DB: hủy lịch xem chưa tới giờ của căn (một transaction), gỡ tin (WITHDRAWN), sổ → UNVERIFIED, báo người đang giữ sổ
         O->>API: .../ownership/verify cho chủ thật
     end
     API->>DB: audit_logs cho mọi thao tác, notifications cho người bán
@@ -311,15 +326,17 @@ sequenceDiagram
 | `buyer_profiles` | Auth khi tạo người mua; agent ghi tiêu chí + giờ rảnh khi tìm căn / khớp lịch | Booking (chủ căn chỉ thấy ngân sách); prompt của agent ở các cuộc chat sau; job follow-up | Không chứa SĐT/email |
 | `seller_profiles` | Auth; xác thực sổ đỏ thành công (→ VERIFIED); Chủ đầu tư khi xử lý hỗ trợ / thu hồi | Duyệt tin, tìm căn, đặt lịch | Chỉ người bán VERIFIED mới có căn được gợi ý / đặt lịch |
 | `property_ownership_verifications` | Seed từ dữ liệu Chủ đầu tư (kèm thông tin căn); xác thực sổ đỏ; Chủ đầu tư (mở khóa, đổi SĐT, xác thực thủ công, thu hồi) | Xác thực sổ đỏ, đăng tin (lấy thông tin căn), Chủ đầu tư | Mỗi sổ gắn đúng một tin (`properties.verification_id`) |
-| `properties`, `property_media` | Người bán (thông tin căn theo sổ đỏ, giá, ảnh); Chủ đầu tư duyệt / từ chối | Agent (tìm căn), web | Không có bản nháp: đăng là vào hàng chờ duyệt |
+| `properties`, `property_media` | Người bán (thông tin căn theo sổ đỏ, giá, ảnh; tạm ngừng; đánh dấu đã bán); Chủ đầu tư duyệt / từ chối / gỡ tin | Agent (tìm căn), web | Không có bản nháp: đăng là vào hàng chờ duyệt |
 | `media_files` | Người bán tải ảnh căn / giấy tờ hỗ trợ | Web (ảnh căn công khai); giấy tờ riêng tư chỉ người gửi và Chủ đầu tư | Lưu trong DB để không mất khi server khởi động lại; sau này có thể chuyển S3 |
-| `availability_slots` | Người bán (lịch trống) | Khớp lịch | Seed bổ sung lịch demo 7 ngày tới |
-| `deals`, `bookings` | Đặt lịch (web hoặc agent), chủ căn xác nhận/từ chối, Chủ đầu tư (hủy khi thu hồi sổ) | Người mua, chủ căn, Chủ đầu tư | Ràng buộc DB theo chủ căn: không 2 lịch đã xác nhận trùng giờ; yêu cầu chưa xác nhận được trùng |
+| `availability_slots` | Người bán (lịch trống); chủ căn từ chối kèm đóng khung giờ | Khớp lịch | Job hằng ngày giữ lịch demo 14 ngày tới |
+| `deals`, `bookings` | Đặt lịch (web hoặc agent), chủ căn xác nhận/từ chối/ghi nhận kết quả, người mua phản hồi sau buổi xem, job nền (`EXPIRED`, `UNREPORTED`), Chủ đầu tư (hủy lịch kèm lý do, ghi kết quả tranh chấp, hủy khi thu hồi sổ) | Người mua, chủ căn, Chủ đầu tư | Ràng buộc DB theo chủ căn: không 2 lịch đã xác nhận trùng giờ; yêu cầu chưa xác nhận được trùng |
 | `property_holds` | Khi chủ căn xác nhận; job nền nhả hold | Khớp lịch | Giữ căn cho buổi xem, không phải giữ để mua |
-| `ai_conversations`, `ai_messages`, `recommendations` | Chat service (người đã đăng nhập) | Lịch sử chat | |
+| `ai_conversations`, `ai_messages`, `recommendations` | Chat service (người đã đăng nhập) | Lịch sử chat; Operator xem đoạn chat gần nhất của ca AI chuyển | |
+| `ai_turns` | Chat service (mọi lượt, cả khách và lượt lỗi) | Dev (`scripts/ai_traces.py`, dashboard `/dev`) | Không hiển thị cho người dùng; tự xóa sau `AI_TRACE_RETENTION_DAYS` |
+| `system_settings`, `rate_limit_hits` | Dev (kill switch), seed (`seed.version`); chat API (đếm tin nhắn) | Mọi instance | Job nền dọn bộ đếm sau 25h |
 | `checkpoints`, `checkpoint_*` | LangGraph (bộ nhớ hội thoại, cả chat khách) | Agent mỗi lượt chat | Bảng do LangGraph tự tạo/migrate, Alembic bỏ qua |
-| `notifications` | Booking, sổ đỏ, duyệt tin, hỗ trợ xác thực, job nhắc lịch, agent (`AGENT_FOLLOWUP`, `AGENT_NEW_MATCH`, `VIEWING_SUPERSEDED` — hiện trong chat) | Chuông thông báo trên web | Chưa có SMS/Zalo; mỗi gợi ý của agent gửi một lần (`dedupe_key`) |
-| `escalations` | Agent (`create_human_escalation`), job (chủ căn quá hạn trả lời), người bán (`OWNERSHIP_SUPPORT`) | Chủ đầu tư (hàng ngoại lệ), người gửi (kết quả) | Khi không có giờ chung, khách muốn gặp người thật, người bán không tự xác thực sổ đỏ được… |
+| `notifications` | Booking, sổ đỏ, duyệt tin, hỗ trợ xác thực, job nhắc lịch, agent (`AGENT_FOLLOWUP`, `AGENT_NEW_MATCH`, `VIEWING_SUPERSEDED`, `PROPERTY_SOLD` — hiện trong chat) | Chuông thông báo + bong bóng realtime (SSE `/notifications/stream`) cho cả 3 vai trò | Chưa có SMS/Zalo; mỗi gợi ý của agent gửi một lần (`dedupe_key`) |
+| `escalations` | Agent (`create_human_escalation`), job (chủ căn quá hạn trả lời), người bán (`OWNERSHIP_SUPPORT`), người mua không đồng ý kết quả buổi xem (`VIEWING_DISPUTE`) | Chủ đầu tư (hàng ngoại lệ), người gửi (kết quả) | Khi không có giờ chung, khách muốn gặp người thật, người bán không tự xác thực sổ đỏ được… |
 | `audit_logs` | Mọi hành động quan trọng | Kiểm tra, truy vết; trang Hoạt động của người mua (sự kiện lịch xem) | |
 
 **Bộ nhớ hội thoại** nằm trong PostgreSQL (`AGENT_MEMORY=postgres`), khởi động lại server không mất ngữ cảnh.

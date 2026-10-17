@@ -1,104 +1,94 @@
 # Danh sách Công việc Cụ thể (Tasks Checklist): BookingBot AI Agent
 
-> Bảng phân rã công việc chi tiết từ [plan.md](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/.specify/plan.md) và [spec_updated.md](file:///Users/macos/AI%20Th%E1%BB%B1c%20Chi%E1%BA%BFn/P001-Discovery/P-001/.specify/spec_updated.md). Sử dụng làm checklist thực thi cho nhóm phát triển.
+> Phân rã từ [plan.md](plan.md) và [spec_final.md](spec_final.md); quy tắc đang chạy ở [CLAUDE.md](../CLAUDE.md).
+> `[x]` đã có trong code (kèm vị trí chính), `[ ]` chưa làm, *(post-MVP)* = ngoài phạm vi MVP.
 
 ---
 
 ## Phase 1: Foundation & Data Layer (Hạ tầng & Dữ liệu)
-- [ ] **Task 1.1: Docker & PostgreSQL Setup**
-  - Cấu hình `docker-compose.yml` chạy PostgreSQL với extension `pg_trgm` phục vụ Full-text Search.
-  - Cấu hình file môi trường `.env` và `src/config.py` (Database URL, OpenAI API Key, S3 Credentials, JWT Secrets).
-- [ ] **Task 1.2: Database Models & Migrations (Alembic)**
-  - Viết SQLAlchemy / SQLModel cho các bảng: `users`, `roles`, `properties`, `bookings`, `viewing_holds`, `purchase_requests`, `messages`, `audit_logs`.
-  - Tạo migration ban đầu và script seed data mẫu: 30–50 căn hộ Vinhomes (Ocean Park, Smart City, Grand Park).
-- [ ] **Task 1.3: Authentication & RBAC Engine**
-  - Xây dựng middleware xác thực JWT và cơ chế băm mật khẩu Argon2id/bcrypt.
-  - Phân quyền 3 Role rõ rệt: `Customer` (xác thực OTP/Code), `Owner` (Quản lý căn & Duyệt lịch), `Investor/Operator` (Kiểm duyệt & Vận hành).
-- [ ] **Task 1.4: Media Upload Service (Amazon S3)**
-  - Xây dựng endpoint hỗ trợ upload ảnh/video căn hộ hoặc tạo Presigned URL lên S3, tách biệt hoàn toàn media khỏi Database.
-- [ ] **Task 1.5: Listing Moderation Workflow**
-  - Xây dựng API cho Chủ nhà tạo căn (`DRAFT`), gửi duyệt (`PENDING_REVIEW`).
-  - Xây dựng API cho Ban quản trị phê duyệt (`APPROVED`) hoặc từ chối (`REJECTED`).
+- [x] **Task 1.1: Docker & PostgreSQL Setup**
+  - `docker-compose.yml`, `Dockerfile`, PostgreSQL với `pg_trgm`.
+  - `.env.example` + `src/config.py` (Pydantic Settings: DB, LLM provider/keys, JWT, OTP, rate limit, guardrails…).
+- [x] **Task 1.2: Database Models & Migrations (Alembic)**
+  - SQLAlchemy models trong `src/db/models.py` (24 bảng: users, otp_codes, buyer/seller_profiles, property_ownership_verifications, projects, buildings, properties, property_media, media_files, availability_slots, buyer_availability, deals, bookings, property_holds, ai_*, recommendations, escalations, notifications, audit_logs, system_settings, rate_limit_hits).
+  - Seed demo chạy một lần mỗi DB (`src/db/seed_once.py`, `SEED_VERSION`); dữ liệu chỉ còn tài khoản demo (`--demo-accounts-only`) và đủ mọi trường hợp cho từng vai trò (`--ensure-all-cases`).
+- [x] **Task 1.3: Authentication & RBAC Engine**
+  - JWT; người mua / người bán chỉ SĐT + OTP (`OTP_PROVIDER=local` hoặc `firebase`), Operator email + mật khẩu Argon2id.
+  - 3 role: `CUSTOMER`, `OWNER`, `INVESTOR_OPERATOR` (`src/core/actor.py`, `deps.py`).
+- [x] **Task 1.4: Media Upload Service**
+  - `POST /owner/media` lưu ảnh / giấy tờ trong PostgreSQL (`media_files`), phục vụ qua `/api/v1/media/{id}`; giấy tờ riêng tư.
+  - [ ] Chuyển sang Amazon S3 / presigned URL (`src/services/storage_service.py` đã có nhưng chưa dùng).
+- [x] **Task 1.5: Ownership Verification & Listing Moderation**
+  - Xác thực sổ đỏ: họ tên + mã sổ + SĐT đăng nhập = SĐT trên sổ + OTP → người bán `VERIFIED`; luồng hỗ trợ `OWNERSHIP_SUPPORT`.
+  - "Đăng tin bán" tạo tin `PENDING_REVIEW` ngay (không có bản nháp); Operator duyệt (`AVAILABLE`) / từ chối kèm lý do (`REJECTED`) / gỡ tin đang bán.
 
 ---
 
 ## Phase 2: Customer Discovery & Recommendation Engine
-- [ ] **Task 2.1: LangGraph Agent Core & State Definition**
-  - Định nghĩa `TypedDict` cho Agent State: `messages`, `customer_preference` (ngân sách, số PN, diện tích, phân khu, hướng, tầng, tiện ích), `current_step`.
-  - Thiết lập LangGraph StateGraph hỗ trợ multi-turn conversation và lưu checkpoint.
-- [ ] **Task 2.2: Requirement Extraction Prompting**
-  - Viết System Prompt chuyên sâu bóc tách nhu cầu tự nhiên từ câu chat của khách hàng, nhận diện rõ tiêu chí bắt buộc vs tiêu chí ưu tiên.
-  - Xây dựng luồng phản hồi: Nếu thiếu tiêu chí quan trọng (như ngân sách, số phòng), AI chủ động hỏi lại lịch sự.
-- [ ] **Task 2.3: Hybrid Search & Ranking Service**
-  - Viết hàm `search_properties(criteria)` tại `src/services/property_service.py`:
-    - Bước 1: Hard filter SQL (Lọc căn `APPROVED`, đúng dự án, giá trong ngưỡng, đủ số phòng).
-    - Bước 2: Soft scoring (Giá 30%, Diện tích 20%, Thiết kế 20%, Hướng 15%, Tầng 15%).
-    - Bước 3: Proximity scoring và tính điểm tổng hợp.
-    - Bước 4: Tạo lời giải thích ngắn gọn vì sao căn phù hợp (Explainability).
-- [ ] **Task 2.4: Property Search Tool**
-  - Đóng gói hàm tìm kiếm thành LangChain `@tool` an toàn.
-  - Cập nhật Agent Graph để AI tự động gọi Tool và format danh sách Property Cards trả về kèm nút "Xem chi tiết" & "Đặt lịch".
-- [ ] **Task 2.5: Streaming Chat API Endpoint**
-  - Xây dựng `POST /api/v1/chat` hỗ trợ Server-Sent Events (SSE) để truyền streaming text và thẻ căn hộ mượt mà về Frontend.
+- [x] **Task 2.1: LangGraph Agent Core & State Definition**
+  - `src/agents/state.py`, `graph.py`: node `agent` ⇄ `tools`, checkpoint PostgreSQL (`AGENT_MEMORY=postgres`).
+- [x] **Task 2.2: Requirement Extraction Prompting**
+  - `src/agents/prompts.py`: bóc tách tiêu chí, hỏi lại khi thiếu; tiêu chí + giờ rảnh nhớ qua `buyer_profiles` (`buyer_memory`).
+- [x] **Task 2.3: Hybrid Search & Ranking Service**
+  - `src/services/property_service.py`: hard filter SQL (căn `AVAILABLE` của người bán `VERIFIED`, dự án, giá, PN…) + soft scoring theo trọng số trong `config.py`, kèm lý do phù hợp.
+- [x] **Task 2.4: Agent Tools**
+  - `src/agents/tools.py` → `src/services/agent_api.py`: 12 tool (`list_projects`, `search_properties`, `get_property_detail`, `get_seller_status`, `check_seller_availability`, `check_property_availability`, `get_deal_status`, `get_booking_status`, `create_viewing_request`, `cancel_viewing`, `reschedule_viewing`, `create_human_escalation`).
+- [x] **Task 2.5: Streaming Chat API Endpoint**
+  - `POST /api/v1/chat/stream` và `/chat/guest/stream` (SSE), `/chat/guest/{id}/claim`; thẻ căn + giờ đề xuất ngay trong chat.
+- [x] **Task 2.6: Guardrails**
+  - `src/agents/guardrails.py` + `guardrail_judge.py`: che PII, chặn injection, chặn câu trả lời sai sự thật / ngoài phạm vi, `StreamGate`.
 
 ---
 
 ## Phase 3: Booking & Viewing Hold (Nghiệp vụ Đặt lịch & Giữ căn)
-- [ ] **Task 3.1: Availability Engine**
-  - Xây dựng API và Tool `check_availability(property_id, datetime)`: Kiểm tra lịch trống của căn hộ và khung giờ khả dụng của chủ nhà.
-- [ ] **Task 3.2: Create Booking Request**
-  - Xây dựng API và Tool `create_booking_request`: Tạo bản ghi Booking ở trạng thái `REQUESTED`.
-  - Khách hàng có thể tự hủy lịch (`CANCELLED`) bất cứ lúc nào trước khi duyệt.
-- [ ] **Task 3.3: Owner Approval Workflow (HITL)**
-  - Xây dựng API cho Chủ nhà: `POST /api/v1/owner/bookings/{id}/approve` và `reject`.
-  - Tích hợp thông báo tức thời cho Chủ nhà khi có yêu cầu mới (In-app notification / Webhook).
-- [ ] **Task 3.4: Atomic Viewing Hold Engine**
-  - Khi Chủ nhà bấm Approve $\rightarrow$ chuyển trạng thái Booking thành `CONFIRMED`.
-  - Tự động tạo bản ghi **`Viewing Hold`** nguyên tử với khóa hàng (`SELECT ... FOR UPDATE`), tạm khóa căn đúng khung giờ xem nhà.
-  - Xử lý xung đột (Concurrency): Nếu có yêu cầu khác trùng khung giờ, lập tức báo bận và gợi ý khung giờ thay thế.
-- [ ] **Task 3.5: Reschedule Booking**
-  - Xây dựng luồng đổi lịch (`RESCHEDULE_REQUESTED`): Bắt buộc kiểm tra giờ trống mới và gửi Chủ nhà duyệt lại trước khi đổi.
+- [x] **Task 3.1: Availability Engine**
+  - `availability_service.py`, `scheduling.py` (`propose_viewing_times`, báo trước tối thiểu `VIEWING_MIN_NOTICE_MINUTES`); `POST /properties/{id}/viewing-times`.
+- [x] **Task 3.2: Create Booking Request**
+  - `POST /bookings` / tool `create_viewing_request`: tạo / tái dùng Deal + Booking `REQUESTED`; người mua hủy (`CANCELLED`).
+- [x] **Task 3.3: Owner Approval Workflow (HITL)**
+  - `POST /owner/bookings/{id}/approve` và `/reject` (lý do ≥ 10 ký tự, tối đa 3 giờ đề xuất, có thể đóng khung giờ).
+  - Thông báo in-app + bong bóng realtime (SSE `/notifications/stream`).
+- [x] **Task 3.4: Atomic Viewing Hold Engine**
+  - Xác nhận → `CONFIRMED` + hold `ACTIVE` cùng transaction (`SELECT ... FOR UPDATE` + exclusion constraint theo căn và theo chủ căn).
+  - Yêu cầu trùng giờ của cùng chủ căn tự `REJECTED`, agent báo người mua kèm giờ khác.
+- [x] **Task 3.5: Reschedule & Expiry**
+  - Đổi giờ khi `REQUESTED`: chuyển thẳng giờ mới; khi `CONFIRMED`: `RESCHEDULE_REQUESTED`, giữ giờ cũ tới khi chủ căn đồng ý.
+  - Tới giờ xem mà chủ căn chưa trả lời → `EXPIRED`; quá `respond_by` → escalation `SELLER_NO_RESPONSE`.
 
 ---
 
-## Phase 4: Post-Viewing, Reminders & Realtime Direct Chat
-- [ ] **Task 4.1: Scheduled Reminder Worker**
-  - Cấu hình Background Task / Cron Job quét các booking sắp diễn ra:
-    - Gửi thông báo nhắc lịch trước **T-24h**.
-    - Gửi thông báo nhắc lịch trước **T-2h** kèm hướng dẫn đường đi, vị trí căn hộ.
-- [ ] **Task 4.2: Viewing Status Update**
-  - Endpoint cập nhật kết quả sau buổi xem: `COMPLETED` (hoặc `NO_SHOW`).
-- [ ] **Task 4.3: Purchase Request Workflow**
-  - Khách hàng bấm gửi `Purchase Request` sau khi buổi xem nhà hoàn tất.
-  - Hệ thống ghi nhận nhu cầu mua/thuê thực tế của khách hàng.
-- [ ] **Task 4.4: WebSocket 1-1 Chat Service**
-  - Xây dựng WebSocket Server tại `src/api/websocket.py`.
-  - Cơ chế **Chat Gating**: Chỉ kích hoạt phòng chat 1-1 khi Booking đã `COMPLETED` và có `Purchase Request`.
-  - Cho phép Khách hàng và Chủ nhà nhắn tin trực tiếp để tự do đàm phán giá (AI không can thiệp đàm phán).
+## Phase 4: Post-Viewing & Reminders
+- [x] **Task 4.1: Scheduled Reminder Worker**
+  - `src/jobs.py` (trong tiến trình API, mỗi 60 s): nhắc T-24h / T-2h (agent viết lời nhắc), nhả hold hết hạn, follow-up.
+- [x] **Task 4.2: Viewing Outcome**
+  - `viewing_outcome_service.py`: chủ căn `COMPLETED` / `NO_SHOW`, quá 48h → `UNREPORTED`; người mua Quan tâm / Chưa phù hợp / tranh chấp `VIEWING_DISPUTE`; Operator ghi `COMPLETED` / `NO_SHOW` / `OWNER_ABSENT`.
+- [x] **Task 4.3: Viewing Pass**
+  - Mã QR vào cửa (`GET /bookings/{id}/pass`, trang `/pass/:token`).
+- [ ] **Task 4.4: Purchase Request Workflow** *(post-MVP)*
+- [ ] **Task 4.5: WebSocket 1-1 Chat Service** *(post-MVP)* — chat Người mua ↔ Chủ căn có gating; AI không can thiệp đàm phán.
+- [ ] **Task 4.6: SMS / Zalo notifications** — hiện chỉ in-app.
 
 ---
 
 ## Phase 5: Operations, Monitoring & Dashboards
-- [ ] **Task 5.1: Owner Dashboard UI**
-  - Giao diện đăng tin căn hộ, cập nhật thông tin, tải ảnh lên S3.
-  - Danh sách yêu cầu đặt lịch xem cần duyệt (Approve / Reject / Đổi giờ).
-- [ ] **Task 5.2: Investor / Operator Dashboard UI**
-  - Màn hình duyệt tin đăng căn hộ mới của Chủ nhà.
-  - Bảng theo dõi các buổi xem nhà đang diễn ra và trạng thái Viewing Hold.
-  - Quản lý tranh chấp, can thiệp thủ công khi hệ thống gặp ngoại lệ (Operator Fallback).
-- [ ] **Task 5.3: Structured Audit Logging & Analytics**
-  - Ghi nhận Audit Log toàn diện cho các tác vụ quan trọng: duyệt tin, duyệt booking, kích hoạt hold, hủy booking.
-  - Đo lường các chỉ số vận hành: Thời gian phản hồi của Chủ nhà, Tỷ lệ duyệt, Tỷ lệ chuyển đổi từ chat $\rightarrow$ booking $\rightarrow$ purchase.
+- [x] **Task 5.1: Seller Portal UI** (`frontend/src/pages/owner/`)
+  - Xác thực sổ đỏ + yêu cầu hỗ trợ, đăng / sửa tin (form tự điền từ sổ, ảnh tải từ máy), lịch trống, yêu cầu xem, ghi nhận sau buổi xem, tạm ngừng, đánh dấu đã bán.
+- [x] **Task 5.2: Operator Console UI** (`frontend/src/pages/operator/`)
+  - Duyệt tin (tab "Chờ duyệt" / "Đang bán", gỡ tin), giám sát và hủy lịch xem kèm lý do, hàng ngoại lệ dễ đọc (hỗ trợ sổ đỏ, tranh chấp, chủ căn chưa trả lời, AI chuyển người thật).
+- [x] **Task 5.3: Structured Audit Logging**
+  - `audit_logs` cho duyệt tin, xác nhận / hủy lịch, hold, sổ đỏ, guardrails, kill switch; trang Hoạt động của người mua đọc từ đây.
+- [x] **Task 5.4: Dev operations**
+  - Trace `ai_turns` (`scripts/ai_traces.py`), kill switch (`/dev`, `scripts/ai_switch.py`), rate limit chat, dashboard `GET /admin/metrics`.
+- [ ] **Task 5.5: Business KPI analytics** — tỷ lệ chuyển đổi chat → booking → purchase.
 
 ---
 
 ## Phase 6: QA, Concurrency Testing & Final Evaluation
-- [ ] **Task 6.1: Golden Dataset & AI Extraction Test**
-  - Xây dựng bộ dữ liệu 50 kịch bản hội thoại mẫu để đánh giá khả năng bóc tách thực thể và chọn Tool của LangGraph.
-- [ ] **Task 6.2: Concurrency & Double-Booking Stress Test**
-  - Viết test script (`pytest` + `asyncio`) giả lập 10 requests cùng lúc tranh 1 khung giờ xem nhà $\rightarrow$ Đảm bảo đúng 1 request thành công, các request còn lại nhận thông báo bận an toàn.
-- [ ] **Task 6.3: Guardrail & Hallucination Verification**
-  - Kiểm thử các ca biên: Khách hỏi giá bịa đặt, đòi đặt cọc online, hỏi BĐS ngoài Vinhomes $\rightarrow$ Xác nhận AI từ chối đúng quy định.
-- [ ] **Task 6.4: CI/CD Pipeline & Code Quality**
-  - Chạy `ruff check` và `ruff format` toàn bộ mã nguồn.
-  - Cấu hình GitHub Actions CI chạy tự động bộ test suite trước khi merge.
+- [x] **Task 6.1: Golden Dataset & AI Evaluation**
+  - `eval/golden_set.json`: 38 kịch bản / 14 nhóm; `python eval/run_golden.py` → `eval/results/golden_report.md`.
+- [x] **Task 6.2: Concurrency & Double-Booking Test**
+  - `tests/test_services/test_concurrency.py` (AC-08: chỉ một bên thành công, cả trường hợp chủ căn ở 2 căn).
+- [x] **Task 6.3: Guardrail & Hallucination Verification**
+  - `tests/test_agents/test_guardrails.py`, `test_guardrails_chat.py`: đặt cọc, đàm phán / dự đoán giá, căn bịa, injection, PII.
+- [x] **Task 6.4: CI/CD Pipeline & Code Quality**
+  - `.github/workflows/ci.yml` (ruff check + format, pytest 340+ tests), `cd.yml` (image GHCR), `deploy-cloudrun.yml`; Render qua `render.yaml`.
