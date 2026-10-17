@@ -1,7 +1,6 @@
 # ĐẶC TẢ SẢN PHẨM: TRỢ LÝ AI KẾT NỐI TRỰC TIẾP BẤT ĐỘNG SẢN (AI SPEC)
 
-**Tên sản phẩm:** AI Agent Direct Connect — Trợ lý AI Kết nối Trực tiếp Bất động sản  
-**Tên gọi trong phiên bản thử nghiệm (MVP):** BookingBot AI Agent  
+**Tên sản phẩm:** BookingBot AI Agent  — Trợ lý AI Kết nối Trực tiếp Bất động sản  
 **Nhóm chuyên trách:** Bất động sản (BĐS)  
 **Mã đề án:** BDSO2O-04  
 **Phạm vi áp dụng:** Đại đô thị Vinhomes · Giao diện Web tương thích mọi thiết bị (Responsive Web) · Định hướng AI dẫn dắt (AI-first)  
@@ -145,11 +144,9 @@ Khi hệ thống Trợ lý AI vận hành đồng bộ, sản phẩm kỳ vọng
 | Chỉ số đánh giá | Mục tiêu cần đạt | Ý nghĩa và Cách đo thực tế trên hệ thống |
 |---|:---:|---|
 | **Độ chính xác gợi ý 3 căn đầu tiên** | **Từ 85% trở lên** | Đánh giá qua bộ kịch bản kiểm thử chuẩn vàng (Golden Set): AI lọc và gợi ý đúng ngân sách, số phòng ngủ và phân khu mong muốn. |
-| **Tỷ lệ Chủ nhà phê duyệt lịch hẹn** | **Từ 80% trở lên** | Trong 100 yêu cầu đặt lịch gửi đi, ít nhất 80 yêu cầu được chủ nhà bấm "Đồng ý" (hệ thống đo tự động: số lịch `CONFIRMED` / tổng yêu cầu `REQUESTED`). |
 | **Thời gian Chủ nhà phản hồi** | **Dưới 2 giờ** | Hệ thống tự đo khoảng thời gian từ lúc khách gửi yêu cầu đến khi chủ nhà bấm Đồng ý hoặc Từ chối. |
 | **Tỷ lệ bị trùng lịch xem nhà** | **0% (Tuyệt đối không có)** | Ràng buộc loại trừ trên cơ sở dữ liệu khóa tự động ngay khi chủ nhà duyệt (theo căn và theo chủ căn), bảo đảm 100% không bao giờ bị trùng lịch. |
 | **Thời gian AI trả lời tin nhắn** | **Dưới 5 giây** | Hệ thống đo thời gian phản hồi (p95) của AI trong mỗi lượt trò chuyện, đảm bảo khách không phải chờ lâu. |
-| **Tỷ lệ phải nhờ nhân viên hỗ trợ** | **Dưới 15%** | Hệ thống tự đếm số phiên phát sinh ngoại lệ cần chuyển người thật; AI tự động điều phối thành công ít nhất 85% trường hợp. |
 
 ## 2.3. Tám nguyên tắc sản phẩm bất di bất dịch
 
@@ -822,96 +819,152 @@ Hệ thống được kiểm thử tự động trên bộ dữ liệu chuẩn v
 
 ---
 
-# §9. Đề xuất Kiến trúc Kỹ thuật Hệ thống
+# §9. Kiến trúc Kỹ thuật Hệ thống
 
-## 9.1. Bảng công nghệ khuyến nghị (Tech Stack)
+## 9.1. Bảng công nghệ chi tiết (Tech Stack)
 
-| Phân tầng hệ thống | Công nghệ lựa chọn | Lý do và Lợi ích mang lại |
-|---|---|---|
-| **Giao diện người dùng (Frontend)** | **React 19, TypeScript, Tailwind CSS, Vite, TanStack Query, `openapi-fetch`** | Tạo giao diện mượt mà, tốc độ tải trang cực nhanh, tương thích hoàn hảo với cả điện thoại và máy tính; phân chia rõ ràng 3 cổng chức năng; kiểu dữ liệu API sinh tự động từ OpenAPI của backend; khung chat AI nhận câu trả lời dạng streaming (SSE). |
-| **Máy chủ xử lý (Backend)** | **Python 3.11+, FastAPI, Pydantic v2** | Hiệu năng xử lý bất đồng bộ cao, xử lý mượt mà các tác vụ AI và dữ liệu, tự động sinh tài liệu chuẩn hóa API (Swagger UI). |
-| **Cơ sở dữ liệu (Database)** | **PostgreSQL 15+ (Neon Serverless)** | Hệ quản trị cơ sở dữ liệu hàng đầu thế giới, đảm bảo giao dịch toàn vẹn 100%, hỗ trợ khóa loại trừ độc quyền chống trùng lịch hoàn hảo. |
-| **Tìm kiếm văn bản (Search)** | **PostgreSQL Full-text Search (`pg_trgm`)** | Tận dụng trực tiếp tính năng tìm kiếm văn bản tiếng Việt cực nhanh có sẵn trong PostgreSQL, tiết kiệm chi phí vận hành hạ tầng riêng. |
-| **Cơ sở dữ liệu Vector (Vector DB)** | *Chưa dùng trong bản thử nghiệm* | Do giai đoạn này hệ thống ưu tiên lọc chính xác theo tiêu chí thực tế (giá, số phòng, phân khu) thay vì tìm kiếm tài liệu mở; giúp tối ưu chi phí. |
-| **Mô hình Trí tuệ Nhân tạo (LLM)** | **OpenAI GPT, Google Gemini, Anthropic Claude** | Chọn provider bằng `LLM_PROVIDER`: OpenAI (`gpt-4o-mini`, mặc định trong code), Google Gemini (mặc định trong code `gemini-flash-latest`; bản demo trên Render: `gemini-flash-lite-latest`, dự phòng `gemini-flash-latest`), Claude (`claude-opus-5-5`); hỗ trợ cả OpenRouter / Groq. Model dự phòng có thể ở provider khác (`LLM_FALLBACK_PROVIDER`) khi model chính lỗi. Một model nhỏ làm "giám khảo" kiểm tra các câu trả lời có dấu hiệu rủi ro. |
-| **Khung điều phối Agent** | **LangGraph & LangChain** | Quản lý phiên hội thoại nhiều lượt có nhớ trạng thái, phân nhánh kịch bản linh hoạt và kiểm soát chặt chẽ việc gọi công cụ an toàn. |
-| **Bộ nhớ hội thoại AI** | **PostgreSQL Checkpointer** | Lưu giữ toàn bộ ngữ cảnh và trí nhớ của khách hàng ngay trong cơ sở dữ liệu, đảm bảo không bị mất dữ liệu khi khởi động lại máy chủ. |
-| **Bảo mật & Đăng nhập** | **Mã OTP điện thoại (nội bộ hoặc Firebase Phone Auth) & Khóa Token JWT** | Người mua / người bán đăng nhập bằng số điện thoại qua mã OTP; Operator đăng nhập bằng mật khẩu đã băm; giới hạn tần suất OTP và chat để chống lạm dụng. |
-| **Thông báo (Notification)** | **In-app + SSE realtime** | Chuông thông báo và bong bóng realtime cho cả 3 vai trò; nhắc lịch T-24h / T-2h do tác vụ nền gửi. SMS / Zalo: nhà cung cấp chưa chọn. |
-| **Lưu trữ hình ảnh/video** | **PostgreSQL (`media_files`) — đích dài hạn: Amazon S3** | MVP lưu ảnh người bán tải lên ngay trong PostgreSQL và phục vụ qua API; giấy tờ hỗ trợ xác thực là riêng tư (chỉ người gửi và Operator xem được). Chuyển sang S3 khi mở rộng. |
-| **Đóng gói & Triển khai** | **Docker, Render / Google Cloud Run, Vercel, Neon** | Backend chạy Docker trên Render hoặc Cloud Run, frontend trên Vercel, cơ sở dữ liệu trên Neon Postgres; CI chạy ruff + pytest. Logs + Metrics + Audit. |
+| Phân tầng hệ thống | Công nghệ lựa chọn | Phiên bản / Cấu hình | Vai trò & Lợi ích kỹ thuật mang lại |
+|---|---|---|---|
+| **Giao diện người dùng (Frontend)** | **React, Vite, TypeScript, Tailwind CSS, TanStack Query** | React 19, Vite 6, Tailwind CSS v4, React Router 7, TanStack Query v5 | Giao diện Web Responsive hiện đại, tối ưu tốc độ tải và trải nghiệm người dùng; phân chia độc lập 3 cổng chức năng (Người mua, Chủ căn hộ, Chủ đầu tư/Operator). Hỗ trợ hội thoại AI thời gian thực (SSE streaming) và tạo mã QR vào cửa (`qrcode`). |
+| **Máy chủ xử lý (Backend API)** | **FastAPI, Python, Pydantic v2, Uvicorn** | Python 3.11+, FastAPI 0.115+, Pydantic 2.10+ | Hiệu năng I/O bất đồng bộ cao, cấu trúc Router module hóa (`auth`, `chat`, `properties`, `deals`, `bookings`, `owner`, `operator`, `escalations`, `media`, `notifications`), tự động sinh tài liệu chuẩn hóa OpenAPI/Swagger UI. |
+| **Trí tuệ Nhân tạo (LLM)** | **Anthropic Claude, Google Gemini & OpenAI GPT** | Cloud Run: `claude-sonnet-5-5` (dự phòng OpenRouter `google/gemini-3.8-flash`); Render: `gemini-flash-lite-latest` (dự phòng `gemini-flash-latest`); `gpt-4o-mini` | Chọn provider bằng `LLM_PROVIDER`; model dự phòng có thể ở provider khác (`LLM_FALLBACK_PROVIDER`) khi model chính lỗi. Một model nhỏ làm "giám khảo" kiểm tra các câu trả lời có dấu hiệu rủi ro. |
+| **Khung điều phối Agent** | **LangGraph & LangChain** | LangGraph 0.2+, LangChain 0.3+ | Quản lý phiên hội thoại nhiều lượt có nhớ trạng thái (StateGraph), bóc tách thực thể ngôn ngữ tự nhiên, phân nhánh kịch bản linh hoạt và kiểm soát gọi công cụ an toàn (Safe Tools Layer). |
+| **Bộ nhớ hội thoại bền vững** | **PostgreSQL Checkpointer & Buyer Memory** | `langgraph-checkpoint-postgres`, `psycopg-pool` 3.2+ | Lưu toàn bộ trạng thái và ngữ cảnh hội thoại AI trực tiếp vào PostgreSQL; đồng thời tự động ghi nhớ sở thích người mua (`buyer_profiles`) để cá nhân hóa các phiên chat tiếp theo mà không bắt khách khai báo lại. |
+| **Cơ sở dữ liệu (Database)** | **PostgreSQL 15+ (Neon Serverless Postgres)** | PostgreSQL 15+, SQLAlchemy 2.0, Alembic 1.14+ | Quản trị giao dịch toàn vẹn ACID, lưu trữ dữ liệu căn hộ, người dùng, giao dịch, lịch hẹn; sử dụng ràng buộc khóa loại trừ (`EXCLUDE USING gist`) triệt tiêu hoàn toàn rủi ro trùng lịch xem nhà. |
+| **Tìm kiếm văn bản (Search)** | **PostgreSQL Full-text Search (`pg_trgm`)** | PostgreSQL Trigram Indexing | Tìm kiếm văn bản tiếng Việt cực nhanh trên các trường dự án, phân khu, tòa nhà, mã căn và tiện ích nội khu mà không cần dựng cụm máy chủ tìm kiếm ngoài phức tạp. |
+| **Lưu trữ hình ảnh/Media** | **PostgreSQL `media_files` (Bản hiện tại) & S3-compatible (Mở rộng)** | `boto3` 1.35+, xử lý multipart/form-data | Phiên bản hiện tại lưu ảnh tải lên trực tiếp trong database (nén tự động cạnh dài 1600px, dung lượng tối đa 5MB) giúp không bị thất lạc file khi máy chủ khởi động lại; hỗ trợ kết nối Amazon S3 / Supabase Storage / Cloudflare R2 khi mở rộng quy mô. Giấy tờ xác thực được bảo mật riêng tư tuyệt đối. |
+| **Xác thực & Bảo mật** | **Mã OTP điện thoại & Token JWT (Argon2id / bcrypt)** | PyJWT 2.10+, Argon2-cffi 23.1+ | Người mua và Chủ nhà đăng nhập tiện lợi qua SĐT + mã OTP (không cần mật khẩu); Ban quản trị/Operator sử dụng Email + Mật khẩu mã hóa Argon2id; phân quyền chặt chẽ theo vai trò (RBAC). |
+| **Tác vụ chạy ngầm (Background Jobs)** | **Asyncio Background Tasks trong Lifespan** | Module `src/jobs.py` tích hợp FastAPI | Tự động xử lý các tác vụ định kỳ: hết hạn yêu cầu xem nhà quá hạn 24h, giải phóng tạm giữ căn khi quá giờ, gửi thông báo nhắc lịch hẹn, và kích hoạt tác vụ chăm sóc khách hàng chủ động (`agent_followup`). |
+| **Đóng gói & Triển khai (DevOps)** | **Docker, Render, Vercel, Neon, GitHub Actions** | Containerfile, `render.yaml`, `vercel.json` | Đóng gói Backend chạy Docker trên Google Cloud Run (và Render); Frontend SPA triển khai trên Vercel Edge Network; Database chạy trên Neon Serverless Postgres. |
 
-## 9.2. Sơ đồ kiến trúc tổng thể
-
-```text
-              NGƯỜI MUA (BUYER)          CHỦ NHÀ (OWNER)
-                      │                         │
-                      └────────────┬────────────┘
-                                   │
-                                   ▼
-                   ┌───────────────────────────────┐
-                   │    GIAO DIỆN WEB (FRONTEND)   │
-                   │   React 19 + TypeScript + Vite│
-                   └───────────────┬───────────────┘
-                                   │
-                                   ▼
-                   ┌───────────────────────────────┐
-                   │    MÁY CHỦ XỬ LÝ (BACKEND)    │
-                   │       FastAPI + Python        │
-                   └───────────────┬───────────────┘
-                                   │
-                                   ▼
-                   ┌───────────────────────────────┐
-                   │    BỘ NÃO AI (AGENT ENGINE)   │
-                   │ LangGraph + GPT/Gemini/Claude │
-                   │                               │
-                   │ • Thấu hiểu câu nói tự nhiên  │
-                   │ • Chấm điểm & Gợi ý căn hộ    │
-                   │ • Tính toán khớp lịch rảnh    │
-                   │ • Điều phối luồng hành động   │
-                   └───────────────┬───────────────┘
-                                   │
-                                   ▼
-                   ┌───────────────────────────────┐
-                   │    LỚP CÔNG CỤ AN TOÀN        │
-                   │      (SAFE TOOL LAYER)        │
-                   │  (Kiểm tra quyền hạn & quy tắc)│
-                   └───────────────┬───────────────┘
-                                   │
-        ┌──────────────────────────┼──────────────────────────┐
-        ▼                          ▼                          ▼
-┌───────────────┐          ┌───────────────┐          ┌───────────────┐
-│ KHO DỮ LIỆU   │          │ BỘ MÁY XỬ LÝ  │          │ BỘ QUẢN LÝ    │
-│ CĂN HỘ & USER │          │ LỊCH HẸN      │          │ HỒ SƠ GIAO    │
-│ (PostgreSQL)  │          │ (Scheduling)  │          │ DỊCH (Deal)   │
-└───────┬───────┘          └───────┬───────┘          └───────┬───────┘
-        │                          │                          │
-        └──────────────────────────┼──────────────────────────┘
-                                   ▼
-                   ┌───────────────────────────────┐
-                   │ BAN QUẢN TRỊ / NHÂN VIÊN      │
-                   │ HỖ TRỢ CỦA CHỦ ĐẦU TƯ         │
-                   │      (Human-in-the-loop)      │
-                   └───────────────────────────────┘
-```
-
-## 9.3. Ranh giới Bảo mật Nhiều lớp (Security Boundary)
+## 9.2. Sơ đồ kiến trúc tổng thể (System Overview Diagram)
 
 ```text
-Trí tuệ Nhân tạo (LLM / Agent)
-            ↓
-Lớp công cụ kiểm duyệt an toàn (Tool Layer)
-            ↓
-Xác thực danh tính & Kiểm tra quyền hạn (Authorization)
-            ↓
-Kiểm tra tính hợp lệ của quy tắc nghiệp vụ (Business Rules)
-            ↓
-Lớp dịch vụ xử lý dữ liệu (Service Layer)
-            ↓
-Cơ sở dữ liệu PostgreSQL (Database)
+       NGƯỜI MUA (BUYER)        CHỦ NHÀ (OWNER)       CHỦ ĐẦU TƯ (OPERATOR)
+             │                         │                        │
+             └─────────────────────────┼────────────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │       GIAO DIỆN WEB (FRONTEND)        │
+                   │ React 19 · TypeScript · Tailwind CSS  │
+                   │ (3 Cổng: Buyer · Owner · Operator)    │
+                   └───────────────────┬───────────────────┘
+                                       │ (REST API / SSE Stream)
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │        MÁY CHỦ XỬ LÝ (BACKEND)        │
+                   │            FastAPI · Python           │
+                   │ (Xác thực OTP/JWT · Xử lý nghiệp vụ)  │
+                   └───────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │        BỘ NÃO AI (AGENT ENGINE)       │
+                   │   LangGraph · Claude / Gemini / GPT   │
+                   │ • Hiểu nhu cầu ngôn ngữ tự nhiên      │
+                   │ • Gợi ý căn hộ & Khớp lịch rảnh       │
+                   │ • Trí nhớ ngữ cảnh (Buyer Memory)     │
+                   └───────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │          LỚP CÔNG CỤ AN TOÀN          │
+                   │           (SAFE TOOL LAYER)           │
+                   │ (Tìm căn · Khớp lịch · Đặt hẹn · Báo) │
+                   └───────────────────┬───────────────────┘
+                                       │
+                     ┌─────────────────┴─────────────────┐
+                     ▼                                   ▼
+       ┌───────────────────────────┐       ┌───────────────────────────┐
+       │   CƠ SỞ DỮ LIỆU POSTGRES  │       │       DỊCH VỤ ĐÁM MÂY     │
+       │   (Neon Serverless DB)    │       │     (Cloud Services)      │
+       │ • Dữ liệu Căn, Sổ đỏ gốc  │       │ • Claude / Gemini / GPT   │
+       │ • Khóa chống trùng lịch   │       │ • Kho ảnh căn hộ (Media)  │
+       │ • Bộ nhớ hội thoại Agent  │       │ • SMS OTP Gateway         │
+       └───────────────────────────┘       └───────────────────────────┘
 ```
 
-> **Nguyên tắc bất biến: Tuyệt đối không bao giờ cho phép mô hình AI truy cập hoặc chỉnh sửa trực tiếp cơ sở dữ liệu.**
+## 9.3. Phân tầng Kiến trúc & Trách nhiệm các Thành phần
+
+### 9.3.1. Tầng Giao diện Người dùng (Frontend Layer)
+Được xây dựng trên nền tảng **React 19, TypeScript, Vite và Tailwind CSS v4**, giao diện được thiết kế tương thích hoàn hảo trên mọi thiết bị (Responsive Web) và chia tách thành 3 cổng nghiệp vụ độc lập:
+1. **Cổng Người mua (`/buyer/*`):**
+   - **Hội thoại tự nhiên không rào cản (Guest Chat):** Người mua có thể trò chuyện với Trợ lý AI ngay lập tức để tìm nhà mà chưa cần đăng nhập hay tạo tài khoản trước.
+   - **Phản hồi thời gian thực (Streaming SSE):** Tin nhắn phản hồi của AI hiển thị mượt mà từng từ (Server-Sent Events) kèm thẻ căn hộ trực quan, điểm tương đồng và lý do đề xuất.
+   - **Trang Quản lý Hoạt động (`/buyer/activity`):** Lưu trữ toàn bộ lịch sử lịch hẹn, trạng thái duyệt của chủ nhà (`REQUESTED`, `CONFIRMED`, `CANCELLED`, `COMPLETED`), không bị mất khi làm mới hoặc bắt đầu phiên chat mới.
+   - **Thẻ vào cửa điện tử (QR Entry Pass):** Khi lịch xem nhà được chủ nhà phê duyệt, hệ thống tự động sinh mã QR vào cửa dành cho lễ tân hoặc bảo vệ phân khu đối soát khi khách đến xem.
+   - **Đăng nhập không mật khẩu:** Chỉ sử dụng Số điện thoại + Xác nhận mã OTP khi phát sinh giao dịch đặt lịch.
+2. **Cổng Chủ căn hộ (`/owner/*`):**
+   - **Xác thực Quyền sở hữu Sổ đỏ (`/owner/verify`):** Chủ nhà nhập Họ tên + Mã số Sổ đỏ khớp với cơ sở dữ liệu đối soát của Chủ đầu tư (`property_ownership_verifications`) và xác thực bằng mã OTP gửi về số điện thoại đăng ký trên sổ.
+   - **Đăng tin bán nhà thông minh:** Sau khi sổ đỏ được xác thực, hệ thống tự động điền các thông số kỹ thuật gốc của căn hộ (Dự án, Tòa, Mã căn, Diện tích, Số phòng ngủ, Tầng, Hướng ban công) và khóa cố định các trường này; chủ nhà chỉ cần tải ảnh thực tế, mô tả và nhập giá bán mong muốn.
+   - **Quản lý Khung giờ rảnh (Availability Slots):** Thiết lập các khung giờ rảnh trong tuần để AI tự động đối soát và khớp lịch với người mua.
+   - **Phê duyệt lịch hẹn (Human-in-the-loop):** Chủ nhà trực tiếp bấm "Đồng ý", "Từ chối" hoặc chủ động đề xuất khung giờ khác khi nhận được yêu cầu đặt lịch.
+   - **Kênh Yêu cầu Hỗ trợ Pháp lý:** Trong trường hợp không thể tự xác thực (chưa nhận được OTP, sổ bị khóa, thừa kế, bán ủy quyền), chủ nhà gửi yêu cầu kèm giấy tờ riêng tư cho Chủ đầu tư xử lý.
+3. **Bảng điều khiển Vận hành của Chủ đầu tư (`/operator/*`):**
+   - **Đăng nhập quản trị riêng biệt:** Sử dụng Email quản trị + Mật khẩu mã hóa Argon2id/bcrypt.
+   - **Kiểm duyệt tin đăng (Listing Moderation):** Duyệt hoặc từ chối các tin đăng bán kèm lý do chi tiết để chủ nhà chỉnh sửa.
+   - **Hàng đợi Xử lý Ngoại lệ (Escalation Queue):** Tiếp nhận và xử lý các trường hợp chủ nhà quá hạn phản hồi 24 giờ, các yêu cầu mở khóa sổ đỏ, xác thực thủ công sau khi đối soát giấy tờ hoặc giải quyết khiếu nại.
+   - **Giám sát Lịch xem nhà (Bookings Monitor):** Theo dõi toàn diện các lịch hẹn đang diễn ra, trạng thái tạm khóa căn và hiệu quả kết nối trên toàn hệ thống.
+
+### 9.3.2. Tầng Máy chủ Xử lý Trung tâm (FastAPI Backend)
+Máy chủ trung tâm được xây dựng bằng **Python 3.11+ và FastAPI**, phụ trách toàn bộ logic nghiệp vụ cốt lõi:
+- **Kiến trúc Router Module hóa:** Tách biệt rõ ràng các miền nghiệp vụ (`auth`, `chat`, `properties`, `bookings`, `deals`, `owner`, `operator`, `notifications`, `escalations`, `media`).
+- **Xác thực & Bảo mật (Security & RBAC):** Kiểm soát phân quyền nghiêm ngặt dựa trên vai trò (Buyer, Owner, Operator); kiểm tra quyền sở hữu đối với từng tài nguyên (chủ nhà chỉ xem được căn hộ của mình, người mua chỉ xem được lịch hẹn của mình).
+- **Bộ điều phối Tạm khóa căn nguyên tử (Atomic Viewing Hold Engine):** Phối hợp với cơ sở dữ liệu để kích hoạt trạng thái giữ căn ngay khi chủ nhà bấm duyệt, bảo đảm tính duy nhất của lịch hẹn.
+- **Tiến trình Chạy ngầm (Background Worker Jobs):** Chạy liên tục trong vòng đời ứng dụng (FastAPI Lifespan) để tự động hóa các quy trình:
+  - Tự động hủy các yêu cầu đặt lịch quá hạn phản hồi (`auto_expire_requests`).
+  - Tự động giải phóng các khung giờ tạm giữ căn khi buổi xem kết thúc hoặc bị hủy.
+  - Tự động gửi thông báo nhắc lịch cho cả hai bên trước giờ hẹn.
+  - Tác vụ chăm sóc khách hàng chủ động (`agent_followup`): Tự động phát hiện khi chủ nhà từ chối hoặc bận lịch để AI chủ động gửi gợi ý khung giờ khác hoặc căn hộ thay thế phù hợp.
+
+### 9.3.3. Khối Trí tuệ Nhân tạo & Điều phối Agent (AI Agent Engine)
+- **Kiến trúc Đồ thị Trạng thái (LangGraph StateGraph):** Quản lý luồng xử lý hội thoại nhiều lượt, tự động trích xuất các tiêu chí bất động sản từ ngôn ngữ tự nhiên của khách hàng (Ngân sách, Số phòng ngủ, Dự án/Phân khu, Khoảng tầng, Hướng ban công, Tiện ích lân cận).
+- **Cơ chế Đa mô hình Linh hoạt (Multi LLM Provider):** Hỗ trợ chuyển đổi liền mạch giữa **Anthropic Claude** (`claude-sonnet-5-5` trên Cloud Run), **Google Gemini** (`gemini-flash-latest` / `gemini-flash-lite-latest`) và **OpenAI** (`gpt-4o-mini`); model dự phòng có thể ở provider khác.
+- **Bộ nhớ Hội thoại Bền vững (Persistent Memory):**
+  - **Phiên chat đang chạy:** Lưu giữ toàn bộ đồ thị trạng thái trong PostgreSQL qua `PostgreSQL Checkpointer` (`langgraph-checkpoint-postgres`), bảo toàn phiên hội thoại kể cả khi máy chủ khởi động lại.
+  - **Hồ sơ sở thích khách hàng (`buyer_profiles`):** Tự động bóc tách và lưu các tiêu chí ưa thích của người mua vào cơ sở dữ liệu để tái sử dụng xuyên suốt các phiên trò chuyện kế tiếp.
+- **Lớp Công cụ An toàn (Safe Tools Layer):** AI bắt buộc phải tương tác với hệ thống thông qua các hàm công cụ được định nghĩa chặt chẽ:
+  - `search_properties`: Tìm kiếm căn hộ theo cơ chế lọc lai (Hybrid SQL Filter + Soft Scoring).
+  - `get_property_detail`: Xem thông số chi tiết, tình trạng pháp lý và danh sách ảnh chụp thực tế.
+  - `check_availability`: Kiểm tra các khung giờ trống giao nhau giữa người mua và chủ nhà.
+  - `create_booking_request`: Khởi tạo hồ sơ giao dịch (Deal) và gửi yêu cầu đặt lịch hẹn.
+  - `reschedule_booking` / `cancel_booking`: Dời hoặc hủy lịch hẹn theo yêu cầu của khách.
+  - `create_human_escalation`: Chuyển vụ việc phát sinh cho nhân viên hỗ trợ khi gặp ngoại lệ.
+- **Hệ thống Lưu vết Nhật ký AI (AI Turn Tracing):** Tự động ghi lại toàn bộ nhật ký các lượt tương tác vào bảng `ai_turns` (mã trace `trace_id`, câu hỏi, thời gian phản hồi p50/p95, số lượng token, các bước gọi công cụ và lỗi phát sinh) phục vụ việc theo dõi và cải tiến kỹ thuật.
+
+### 9.3.4. Tầng Dữ liệu & Lưu trữ (Data Tier & Storage)
+- **Cơ sở dữ liệu Quan hệ PostgreSQL 15+ (Neon Serverless Postgres):**
+  - Đảm bảo tính toàn vẹn dữ liệu giao dịch ở mức cao nhất (ACID).
+  - **Ràng buộc loại trừ độc quyền (Exclusion Constraints):** Ứng dụng `EXCLUDE USING gist` trên khoảng thời gian (`tstzrange`) kết hợp với ID chủ nhà, đảm bảo ở mức cơ sở dữ liệu rằng **một chủ căn hộ không bao giờ có thể có 2 lịch hẹn đã xác nhận (`CONFIRMED`) bị trùng giờ nhau**, kể cả ở hai căn hộ khác nhau.
+- **Bộ máy Tìm kiếm Văn bản (Full-text Search):** Sử dụng chỉ mục mở rộng `pg_trgm` của PostgreSQL để tìm kiếm gần đúng tiếng Việt trên tên dự án, tòa nhà, phân khu và tiện ích nội khu với tốc độ cao và chi phí hạ tầng tối thiểu.
+- **Lưu trữ Hình ảnh & Media:**
+  - Bản thử nghiệm hiện tại lưu trữ ảnh tải lên trực tiếp trong database (bảng `media_files`, phục vụ qua `/api/v1/media/{id}`) kèm thuật toán tự động thu nhỏ (cạnh dài tối đa 1600px, dung lượng tối đa 5MB) ngay tại trình duyệt trước khi tải lên, giúp giao diện hiển thị nhanh và không phụ thuộc vào hệ thống file cục bộ.
+  - Kiến trúc sẵn sàng chuyển đổi sang các kho lưu trữ đám mây chuẩn S3 (Amazon S3, Supabase Storage, Cloudflare R2) chỉ thông qua việc cấu hình lại biến môi trường của `media_service`.
+
+## 9.4. Ranh giới Bảo mật Nhiều lớp (Security Boundary Pipeline)
+
+Hệ thống thiết lập hàng rào bảo mật nghiêm ngặt theo mô hình đường ống (Pipeline):
+
+```text
+Khách hàng / Người dùng gửi yêu cầu
+                ↓
+Giao thức Bảo vệ & Giới hạn Tần suất (Rate Limiting, CORS, HTTPS)
+                ↓
+Khối AI Agent (Chỉ xử lý ngôn ngữ & Trích xuất thông tin, KHÔNG có quyền truy cập DB)
+                ↓
+Lớp Công cụ Kiểm soát An toàn (Safe Tool Layer)
+                ↓
+Xác thực Danh tính & Kiểm tra Quyền hạn (JWT Auth, Role-Based Access Control)
+                ↓
+Bộ Quy tắc Nghiệp vụ Chặt chẽ (Business Rules Validation)
+                ↓
+Khóa Loại trừ & Giao dịch Toàn vẹn (Database Exclusion Constraints & ACID Transactions)
+                ↓
+Cơ sở dữ liệu PostgreSQL (Single Source of Truth)
+```
+
+> **Nguyên tắc bất biến:** Tuyệt đối không bao giờ cho phép mô hình AI (LLM) truy cập hoặc chỉnh sửa trực tiếp cơ sở dữ liệu. Mọi thay đổi trạng thái đều phải đi qua các hàm nghiệp vụ được kiểm duyệt và phân quyền nghiêm ngặt.
 
 ### Lớp kiểm tra quanh khung chat (Guardrails) — *Triển khai*
 - **Đầu vào:** che số điện thoại / email / CCCD / số thẻ khách gõ trước khi gửi cho model; phát hiện prompt injection / jailbreak (cả viết không dấu) → trả lời cố định, không gọi model.
@@ -920,16 +973,18 @@ Cơ sở dữ liệu PostgreSQL (Database)
 - **Công tắc khẩn cấp (kill switch):** quyền của **dev** (trang `/dev` hoặc script, khóa bằng `ADMIN_API_TOKEN`), không phải của Operator. Khi tắt, khung chat báo "Hệ thống AI đang bảo trì…" kèm tổng đài hỗ trợ; đặt lịch / xác nhận lịch trên web vẫn chạy.
 - Mọi lần can thiệp được ghi nhật ký kiểm toán; chat bị giới hạn tần suất theo tài khoản / IP khách và trần tổng mỗi ngày cho khách vãng lai.
 
-## 9.4. Quy trình Gợi ý Căn hộ Thông minh (5 bước)
+## 9.5. Quy trình Gợi ý Căn hộ Thông minh (Hybrid Search: 5 bước)
+
+Hệ thống kết hợp giữa tính chính xác tuyệt đối của câu lệnh truy vấn dữ liệu (SQL) và khả năng thấu hiểu ngữ cảnh mềm dẻo của AI:
 
 ```text
-1. Khách nhắn nhu cầu bằng tiếng Việt tự nhiên
+1. Khách nhắn nhu cầu bằng ngôn ngữ tự nhiên
    ("Tìm cho anh căn 2 ngủ Ocean Park, tài chính dưới 4 tỷ rưỡi, ban công Đông Nam mát mẻ")
                            ↓
 2. AI chắt lọc các tiêu chí cốt lõi
    (Dự án: Ocean Park | Số phòng ngủ: 2 | Ngân sách trần: 4.5 tỷ | Ưu tiên: Ban công Đông Nam)
                            ↓
-3. Lọc cứng trong cơ sở dữ liệu (Hard Filtering)
+3. Lọc cứng trong cơ sở dữ liệu (Hard Filtering via SQL)
    (Chỉ lấy các căn ĐANG MỞ BÁN (AVAILABLE) của chủ nhà ĐÃ XÁC THỰC, đúng dự án, đúng 2 phòng ngủ,
     giá bán <= 4.5 tỷ; loại ngay các căn không đạt)
                            ↓
@@ -947,62 +1002,50 @@ Cơ sở dữ liệu PostgreSQL (Database)
    ("Em gợi ý căn này vì nằm đúng tầm giá 4.2 tỷ của anh, ban công hướng Đông Nam đón gió rất mát và có view hồ")
 ```
 
-## 9.5. Cơ chế Tự động Khớp Lịch Xem Nhà
+## 9.6. Cơ chế Tự động Khớp Lịch & Tạm Khóa Căn (Atomic Viewing Hold Engine)
+
+Quy trình đặt lịch xem nhà đảm bảo quyền quyết định tối cao của con người (Human-in-the-loop) kết hợp với thuật toán khóa đồng thời:
 
 ```text
 Thời gian rảnh của Người mua
             │
             ▼
-Thời gian rảnh của Chủ nhà
+Thời gian rảnh của Chủ nhà (Availability Slots)
             │
             ▼
-Tính toán khoảng thời gian giao nhau (Intersection)
+Tính toán khoảng thời gian giao nhau (Intersection Algorithm)
             │
             ▼
-Tạo danh sách các mốc giờ hẹn gợi ý (mỗi mốc 30 phút)
+AI đề xuất danh sách các khung giờ hẹn khả thi (mỗi mốc 30-60 phút)
             │
             ▼
-Người mua chọn khung giờ thuận tiện nhất
+Người mua chọn khung giờ thuận tiện nhất (Trạng thái: REQUESTED)
             │
             ▼
-Chủ nhà nhận thông báo và bấm "Đồng ý"
+Chủ nhà nhận thông báo và bấm "Đồng ý" (Trạng thái: CONFIRMED)
             │
             ▼
-Hệ thống Tạm khóa căn trong đúng khung giờ đó (Viewing Hold)
+Kích hoạt Tạm khóa căn nguyên tử (Atomic Viewing Hold)
+(PostgreSQL Exclusion Constraint khóa chặt khung giờ của Chủ nhà;
+ các yêu cầu trùng giờ khác tự động bị hủy và AI thông báo tìm giờ khác)
+            │
+            ▼
+Hệ thống tự động cấp Mã QR vào cửa (QR Entry Pass) cho Người mua
 ```
 
----
+## 9.7. Mô hình Đóng gói & Triển khai Đám mây (DevOps & Deployment)
 
-# §10. Danh mục Các Câu hỏi Mở Cần Hoàn thiện Tiếp
-
-1. Chủ đầu tư sẽ thu hút nguồn căn hộ thứ cấp từ những kênh truyền thông nội bộ nào?
-2. Chủ nhà đăng tin bán căn hộ có được miễn phí hoàn toàn trong giai đoạn đầu hay không?
-3. Mức phí dịch vụ hỗ trợ thủ tục giao dịch của Chủ đầu tư dự kiến là bao nhiêu?
-4. Bên nào sẽ chịu trách nhiệm chi trả khoản phí dịch vụ này (Người mua, Chủ nhà hay chia đôi)?
-5. Phí dịch vụ sẽ được tính theo từng giao dịch thành công hay theo gói dịch vụ định kỳ?
-6. Nếu Người mua và Chủ nhà tự ý giao dịch riêng ngoài hệ thống thì cơ chế đối soát nguồn gốc được thực hiện như thế nào?
-7. Khoảng thời gian ghi nhận nguồn gốc giao dịch phát sinh từ nền tảng là bao lâu (ví dụ: 60 ngày hay 90 ngày)?
-8. Nếu Chủ nhà không bấm duyệt yêu cầu xem nhà trong bao lâu thì hệ thống tự động chuyển cho nhân viên hỗ trợ gọi điện can thiệp? *(MVP: sớm hơn giữa 24 giờ sau khi gửi và 60 phút trước giờ xem; cấu hình được.)*
-9. Thông tin cá nhân giữa Người mua và Chủ nhà được mở ở cấp độ chi tiết nào sau khi buổi xem nhà kết thúc?
-10. Khi nào thì hệ thống cho phép kích hoạt phòng chat trực tiếp giữa hai bên?
-11. Khi nào thì Chủ nhà được phép nhìn thấy số điện thoại của Người mua?
-12. Thời lượng tiêu chuẩn cho một buổi xem nhà là bao lâu (ví dụ: 30 phút hay 45 phút)? *(MVP: 30 phút, các mốc giờ cách nhau 30 phút; cấu hình được.)*
-13. Có cần khoảng thời gian đệm cách nhau giữa hai lượt xem nhà liên tiếp hay không (ví dụ: nghỉ 15 phút)?
-14. Nếu một căn hộ nhận được yêu cầu xem từ nhiều người mua cùng lúc thì quy tắc ưu tiên xếp lịch sẽ ra sao? *(MVP: các yêu cầu chưa xác nhận được phép trùng giờ, chủ nhà chọn tiếp ai; các yêu cầu trùng còn lại tự đóng và người mua được gợi ý giờ khác.)*
-15. Chính sách xử lý đối với các trường hợp người mua hoặc chủ nhà vắng mặt không đến xem (No-show) là gì? *(MVP: ghi nhận NO_SHOW / OWNER_ABSENT, tranh chấp do nhân viên hỗ trợ phân xử; không phạt tự động, số lần vắng mặt chỉ để tham khảo. Chính sách chế tài: còn mở.)*
-16. Nhân viên hỗ trợ xử lý ngoại lệ sẽ trực thuộc ban quản lý tòa nhà hay phòng chăm sóc khách hàng của Chủ đầu tư?
-17. Chuyên viên thủ tục giao dịch sẽ tham gia tiếp nhận hồ sơ từ thời điểm nào?
-18. Lựa chọn đơn vị cung cấp dịch vụ gửi tin nhắn SMS hoặc tin nhắn Zalo ZNS nào tại Việt Nam?
-19. Chính sách lưu trữ và thời hạn xóa dữ liệu tin nhắn hội thoại cá nhân là bao lâu để bảo đảm tuân thủ Nghị định 13/2023/NĐ-CP?
-20. Mức số liệu cơ sở hiện tại về số cuộc gọi làm phiền mà một người mua nhà phải nhận là bao nhiêu?
-21. Thời gian trung bình hiện nay từ lúc khách phát sinh nhu cầu đến lúc được đi xem nhà thực tế là bao nhiêu ngày?
-22. Những chính sách ưu đãi thiết thực nào sẽ giữ chân Người mua và Chủ nhà tiếp tục hoàn tất giao dịch trong hệ thống thay vì giao dịch ngoài?
+Hệ thống được thiết kế theo mô hình đám mây phân tán hiện đại, tối ưu hóa chi phí vận hành:
+- **Backend API & AI Engine:** Đóng gói bằng **Docker**, triển khai trên **Google Cloud Run** qua luồng CI/CD tự động (GitHub Actions; migration + dữ liệu mẫu chạy một lần mỗi DB bằng Cloud Run Job `bookingbot-setup`), bản phụ trên **Render Web Service** (khởi động qua `start.sh`).
+- **Frontend SPA:** Triển khai trên mạng lưới biên **Vercel Edge Network**, hỗ trợ điều hướng trang đơn (SPA Rewrite) và kết nối an toàn với máy chủ API qua biến môi trường `VITE_API_URL`.
+- **Cơ sở dữ liệu:** Lưu trữ tập trung trên **Neon Serverless PostgreSQL**, hỗ trợ kết nối bảo mật qua SSL và tự động co giãn theo lưu lượng truy vấn thực tế.
+- **Hệ thống Kiểm thử Tự động:** Tích hợp bộ kiểm thử toàn diện với hơn 230 bài test tự động (Pytest), kiểm thử tải đồng thời chống trùng lịch (`test_concurrency.py`), kiểm thử toàn trình kịch bản cốt lõi (`test_core_demo_flow.py`) và bộ đánh giá chất lượng AI Golden Set (`eval/run_golden.py`).
 
 ---
 
-# §11. Ranh giới Chốt chặn của Phiên bản Thử nghiệm (MVP Boundary)
+# §10. Phạm vi hoạt động của phiên bản thử nghiệm (MVP Boundary)
 
-## Các tính năng BẮT BUỘC PHẢI CÓ (Must Have):
+## Các tính năng làm (Must Have):
 - Xác thực đăng nhập cho Người mua bằng số điện thoại và mã OTP.
 - Xác thực đăng nhập cho Chủ nhà và đối soát Sổ đỏ chính chủ (tự động, SĐT đăng nhập phải trùng SĐT trên sổ).
 - Trải nghiệm trò chuyện tự nhiên với Trợ lý AI (hỗ trợ khách vãng lai).
@@ -1024,7 +1067,7 @@ Hệ thống Tạm khóa căn trong đúng khung giờ đó (Viewing Hold)
 - Tự động chuyển giao các trường hợp ngoại lệ cho Nhân viên hỗ trợ.
 - Nhật ký kiểm toán ghi lại mọi thay đổi dữ liệu quan trọng.
 
-## Các tính năng TUYỆT ĐỐI KHÔNG LÀM trong giai đoạn này (Must Not Have):
+## Các tính năng không làm trong giai đoạn này:
 - Tuyệt đối không tích hợp cổng thanh toán trực tuyến hoặc chuyển khoản ngân hàng.
 - Tuyệt đối không nhận tiền đặt cọc giữ chỗ mua bán căn hộ.
 - Tuyệt đối không ký hợp đồng mua bán điện tử trên hệ thống.
@@ -1039,12 +1082,12 @@ Hệ thống Tạm khóa căn trong đúng khung giờ đó (Viewing Hold)
 
 ---
 
-# §12. Định nghĩa Sản phẩm Cốt lõi & Luồng Trình diễn Tiêu biểu
+# §11. Định nghĩa Sản phẩm cốt lõi
 
 ## Định nghĩa sản phẩm trong một câu duy nhất:
 > **BookingBot AI Agent là trợ lý thông minh giúp khách hàng tìm đúng căn hộ Vinhomes ưng ý, kết nối trực tiếp với chủ sở hữu chính chủ và tự động sắp xếp lịch hẹn xem nhà mượt mà, chấm dứt hoàn toàn sự phụ thuộc vào môi giới rác và các cuộc gọi làm phiền; đồng thời giúp Chủ đầu tư làm sạch nguồn cung, bảo chứng pháp lý, loại trừ trùng lịch và kiểm soát an toàn toàn bộ hành trình giao dịch.**
 
-## Luồng Trình diễn Tiêu biểu (Core Demo Flow)
+## Luồng Trình Hoạt Động (Core Demo Flow)
 
 ```text
 NGƯỜI MUA
