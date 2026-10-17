@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, trim_messages
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -86,16 +86,22 @@ def _with_turn_context(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
     return shown
 
 
+def _plain_system(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """The system prompt as plain text, without Claude's cache marker, for a fallback model on another provider."""
+    return [SystemMessage(m.text) if isinstance(m, SystemMessage) else m for m in messages]
+
+
 def build_graph(
     llm: BaseChatModel,
     checkpointer: BaseCheckpointSaver | None = None,
     fallback_llm: BaseChatModel | None = None,
     history_window: int | None = _HISTORY_WINDOW,
+    cache_system_prompt: bool = False,
 ) -> CompiledStateGraph:
     model = llm.bind_tools(TOOLS)
     if fallback_llm is not None:
         # The main model overloaded or failing (e.g. Gemini 503) -> the lighter model answers this step
-        model = model.with_fallbacks([fallback_llm.bind_tools(TOOLS)])
+        model = model.with_fallbacks([RunnableLambda(_plain_system) | fallback_llm.bind_tools(TOOLS)])
 
     async def call_model(state: AgentState, config: RunnableConfig) -> dict:
         messages = state["messages"]
@@ -119,7 +125,13 @@ def build_graph(
             history = trim_messages(
                 history, strategy="last", token_counter=len, max_tokens=history_window, start_on="human"
             )
-        response = await model.ainvoke([SystemMessage(prompt), *history], config)
+        system = SystemMessage(prompt)
+        if cache_system_prompt:
+            # A cache breakpoint after the tools and system prompt, besides the automatic one at the end of the
+            # conversation: a new conversation with the same prompt (every guest's is the same) reads them from
+            # cache instead of writing ~11k tokens again (~0.5 s off its first reply)
+            system = SystemMessage([{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}])
+        response = await model.ainvoke([system, *history], config)
         update["messages"].append(response)
         return update
 
@@ -153,7 +165,8 @@ def get_agent() -> CompiledStateGraph:
     # The main model keeps its retries: a short rate-limit blip is better retried than handed to the
     # fallback, whose free quota (Flash: 20 requests/day) is easily used up
     # Claude gets the whole history (see _HISTORY_WINDOW); its context window holds far more than a chat
-    window = None if settings.llm_provider == "anthropic" else _HISTORY_WINDOW
+    claude = settings.llm_provider == "anthropic"
+    window = None if claude else _HISTORY_WINDOW
     # Only the agent caches its prompt (src/services/llm.py)
     llm, fallback = get_llm(prompt_cache=True), get_fallback_llm(prompt_cache=True)
-    return build_graph(llm, _checkpointer or InMemorySaver(), fallback, window)
+    return build_graph(llm, _checkpointer or InMemorySaver(), fallback, window, cache_system_prompt=claude)
