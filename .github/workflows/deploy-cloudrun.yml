@@ -1,6 +1,7 @@
 name: Deploy to Cloud Run
 
 # Runs the API on Google Cloud Run next to Render (render.yaml); both use the same Dockerfile and Neon database.
+# Deploys from AI20K-Build-Phase-Cohort-4/P-001 (the GCP Workload Identity provider only trusts that repository).
 # Does nothing until the GCP_* repository variables exist — create them with scripts/gcp-setup.sh.
 on:
   push:

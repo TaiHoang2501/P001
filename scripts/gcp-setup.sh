@@ -2,7 +2,7 @@
 # One-time Google Cloud setup for deploying the API to Cloud Run from GitHub Actions
 # (.github/workflows/deploy-cloudrun.yml). Safe to re-run: existing resources are kept.
 #
-#   PROJECT_ID=my-gcp-project GITHUB_REPO=nngocnd/bookingbot-mvp sh scripts/gcp-setup.sh
+#   PROJECT_ID=my-gcp-project GITHUB_REPO=AI20K-Build-Phase-Cohort-4/P-001 sh scripts/gcp-setup.sh
 #
 # Needs: gcloud CLI logged in (`gcloud auth login`) as a project Owner, and billing enabled on the project.
 # Afterwards it prints the GitHub repository variables to add (Settings -> Secrets and variables -> Actions).
