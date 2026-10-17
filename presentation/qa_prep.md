@@ -19,4 +19,4 @@
 | Dữ liệu cá nhân xử lý thế nào? | Chủ căn chỉ thấy họ tên + nhu cầu người mua, không thấy SĐT/email. SĐT, email, CCCD khách gõ vào chat bị che trước khi tới model và trước khi lưu trace. Giấy tờ xác thực chỉ người gửi và Chủ đầu tư xem. Chi tiết ở trang `/privacy`. | [__] |
 | Mô hình kinh doanh? | [__ — phí theo giao dịch cho Chủ đầu tư / phí dịch vụ… đội tự quyết; spec để TBD] | [__] |
 | Roadmap? | Sau buổi xem: chat trực tiếp người mua ↔ chủ căn, bàn giao sang thủ tục của Chủ đầu tư, thông báo SMS/Zalo. | [__] |
-| Khác gì Batdongsan / Chợ Tốt? | Họ là bảng tin; BookingBot xác thực chủ sở hữu, điều phối lịch có bảo đảm và không lộ số điện thoại. [__ bảng so sánh 3 đối thủ] | [__] |
+| Khác gì Batdongsan / Chợ Tốt? | Không nhận xét sản phẩm của bên khác khi chưa có số liệu. Nói phạm vi của mình: chỉ Vinhomes; người bán xác thực bằng dữ liệu sổ của Chủ đầu tư; AI tìm căn và đặt lịch trong một cuộc trò chuyện; lịch do chủ căn xác nhận và được giữ giờ; SĐT hai bên ẩn. [__ nếu cần bảng so sánh: chỉ ghi tính năng đội đã tự kiểm tra trên trang của họ] | [__] |

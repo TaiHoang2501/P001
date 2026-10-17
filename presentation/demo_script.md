@@ -26,7 +26,7 @@
 | Màn hình | Nói |
 |---|---|
 | Slide "Vấn đề" | "Chúng tôi hỏi [__] người đang tìm mua căn hộ Vinhomes: [__]% từng gặp tin ảo hoặc căn đã bán, trung bình [__] cuộc gọi cho một buổi xem. Phía chủ căn thì số điện thoại bị lan khắp các nhóm môi giới." |
-| | "Sàn tin đăng chỉ là bảng tin: không ai kiểm tra người đăng có phải chủ thật, không ai giữ giờ xem cho bạn." |
+| | "Tìm căn, kiểm tra người bán, hẹn giờ xem — hiện mỗi việc một kênh, người mua tự lo hết." |
 
 ## D — Desire (2 phút) — click từng bước
 

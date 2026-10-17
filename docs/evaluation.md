@@ -115,6 +115,7 @@ dữ liệu thô từng lần chạy (câu trả lời, tool, điểm giám kh�
 | **all** | **51** | **153/153 (100%)** | **51/51 (100%)** | **51/51 (100%)** | 4.56 | 4.82 | 5.00 | 5.00 | 89% |
 
 Latency mỗi lượt chat (177 lượt): **p50 4,4s, p95 6,8s** — mục tiêu ≤ 5s của spec §2.2: p50 đạt, p95 chưa.
+Theo loại lượt (lượt cuối mỗi lần chạy, tính từ `golden_runs.json`): lượt có gọi `search_properties` p50 **5,1s** / p95 7,9s (49 lượt); lượt có gọi `create_viewing_request` p50 **4,5s** / p95 4,9s (12 lượt, mẫu nhỏ); lượt còn lại p50 3,5s / p95 5,6s (92 lượt).
 Bảng theo 14 nhóm và theo từng kịch bản: `eval/results/golden_report.md`.
 
 **Vòng đo → sửa → đo lại (cùng 51 kịch bản × 3 lần, cùng giám khảo):**
