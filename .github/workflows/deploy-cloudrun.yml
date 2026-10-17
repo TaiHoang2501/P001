@@ -79,6 +79,8 @@ jobs:
           image: ${{ env.IMAGE }}
           # DATABASE_URL, JWT_SECRET, the Anthropic and OpenRouter keys, the Langfuse keys and ADMIN_API_TOKEN come
           # from Secret Manager
+          # (ADMIN_API_TOKEN: developer API /api/v1/admin, the AI kill switch and the /dev dashboard). No comments inside
+          # the `secrets` block below: the action reads every line of it as a secret mapping.
           env_vars: |-
             APP_ENV=production
             CORS_ORIGINS=${{ vars.CLOUD_RUN_CORS_ORIGINS }}
@@ -111,7 +113,6 @@ jobs:
             LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest
             LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest
             LANGSMITH_API_KEY=LANGSMITH_API_KEY:latest
-            # Developer API (/api/v1/admin: AI kill switch, /dev dashboard), header X-Admin-Token
             ADMIN_API_TOKEN=ADMIN_API_TOKEN:latest
           # max-instances=1: hold expiry, reminders and follow-ups run in-process (src/jobs.py) and must not
           # run twice. min-instances=1 keeps one instance up so users never wait for a cold start (idle billing,

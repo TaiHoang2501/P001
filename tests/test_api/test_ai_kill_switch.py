@@ -112,6 +112,7 @@ async def test_developer_metrics(client, db, admin_token):
                 status="OK",
                 latency_ms=1200,
                 prompt_tokens=100,
+                cache_read_tokens=80,
                 completion_tokens=20,
                 llm_calls=1,
                 tool_calls=2,
@@ -139,6 +140,7 @@ async def test_developer_metrics(client, db, admin_token):
     ai = m["ai"]
     assert (ai["turns"], ai["guest_turns"], ai["errors"]) == (3, 1, 1)
     assert ai["prompt_tokens"] == 100 and ai["latency_p50_ms"] == 1000
+    assert ai["cache_read_tokens"] == 80
     assert len(ai["daily"]) == 7 and sum(d["turns"] for d in ai["daily"]) == 3
     assert {t["name"]: (t["calls"], t["failed"]) for t in ai["tools"]} == {
         "search_properties": (1, 0),

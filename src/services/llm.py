@@ -3,7 +3,7 @@ from langchain_core.language_models import BaseChatModel
 from src.config import get_settings
 
 
-def get_fallback_llm() -> BaseChatModel | None:
+def get_fallback_llm(prompt_cache: bool = False) -> BaseChatModel | None:
     """The model that answers when the main one fails (None when not configured).
 
     Same provider by default (a lighter model); LLM_FALLBACK_PROVIDER puts it on another one, e.g. Claude
@@ -11,13 +11,15 @@ def get_fallback_llm() -> BaseChatModel | None:
     """
     settings = get_settings()
     name = settings.llm_fallback_model
-    return get_llm(name, settings.llm_fallback_provider_name) if name else None
+    return get_llm(name, settings.llm_fallback_provider_name, prompt_cache=prompt_cache) if name else None
 
 
-def get_llm(model: str | None = None, provider: str | None = None) -> BaseChatModel:
+def get_llm(model: str | None = None, provider: str | None = None, prompt_cache: bool = False) -> BaseChatModel:
     """Chat model for the agent, from LLM_PROVIDER (openai | google | openrouter | groq | anthropic).
 
-    `model` overrides MODEL_NAME and `provider` overrides LLM_PROVIDER.
+    `model` overrides MODEL_NAME and `provider` overrides LLM_PROVIDER. `prompt_cache` (Claude only): reuse the
+    prompt already sent in this conversation instead of reading it again; for the agent, whose calls resend a
+    growing conversation, not for one-off prompts (judge, follow-up writer) that would only pay the cache write.
     """
     settings = get_settings()
     provider = provider or settings.llm_provider
@@ -39,6 +41,10 @@ def get_llm(model: str | None = None, provider: str | None = None) -> BaseChatMo
             # whole turn failing with a 400
             thinking={"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
             betas=["thinking-binding-controls-2026-08-01"],
+            # Automatic prompt caching (5 minutes, refreshed by each read): the second call of a turn and the next
+            # turn read the tools, system prompt and earlier messages from cache. Works because the agent's
+            # prompt is append-only (frozen system prompt, fixed tools, messages stamped once - agents/graph.py)
+            model_kwargs={"cache_control": {"type": "ephemeral"}} if prompt_cache else {},
             default_request_timeout=settings.llm_timeout_seconds,
             max_retries=settings.llm_max_retries,
         )

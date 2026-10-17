@@ -12,7 +12,7 @@ import { BOOKING_STATUS, DEAL_STATUS, PROPERTY_STATUS, ROLE, formatDateTime } fr
  */
 
 const TOKEN_KEY = "bookingbot.devToken";
-const PERIODS = [1, 7, 30, 90];
+const PERIODS = [1, 3, 30, 90];
 
 function readToken(): string {
   try {
@@ -99,7 +99,7 @@ function tokenError(err: unknown): string {
 }
 
 function Dashboard({ token, onLock }: { token: string; onLock: () => void }) {
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(3);
   const metrics = useQuery({
     queryKey: ["dev-metrics", token, days],
     queryFn: () => adminCall<DevMetrics>(token, `/metrics?days=${days}`),
@@ -270,7 +270,7 @@ function AiSection({ m }: { m: DevMetrics }) {
       <h2 id="ai-metrics" className="text-lg font-semibold">
         Trợ lý AI · {m.days === 1 ? "24 giờ qua" : `${m.days} ngày qua`}
       </h2>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Lượt chat" value={fmt(ai.turns)} hint={`${fmt(ai.guest_turns)} từ khách chưa đăng nhập · ${fmt(ai.conversations)} hội thoại`} />
         <Stat
           label="Lỗi"
@@ -283,6 +283,12 @@ function AiSection({ m }: { m: DevMetrics }) {
           label="Token vào / ra"
           value={`${fmt(ai.prompt_tokens)} / ${fmt(ai.completion_tokens)}`}
           hint={`${fmt(ai.llm_calls)} lần gọi model · ${fmt(ai.tool_calls)} lần gọi công cụ`}
+        />
+        {/* Token vào counts the whole prompt; this is the part Claude read from its cache (billed far cheaper) */}
+        <Stat
+          label="Token từ cache"
+          value={ai.prompt_tokens ? `${((ai.cache_read_tokens / ai.prompt_tokens) * 100).toFixed(0)}%` : "–"}
+          hint={`${fmt(ai.cache_read_tokens)} / ${fmt(ai.prompt_tokens)} token vào đọc từ cache`}
         />
       </div>
 

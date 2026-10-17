@@ -252,6 +252,25 @@ def test_fallback_on_another_provider(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_only_the_agent_caches_its_claude_prompt(monkeypatch):
+    """The agent resends a growing conversation, so its Claude requests ask for prompt caching; a one-off prompt
+    (follow-up writer) must not, or it pays the cache write for nothing."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from src.services.llm import get_llm
+
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    get_settings.cache_clear()
+    try:
+        messages = [SystemMessage("sys"), HumanMessage("hi")]
+        cached = get_llm(prompt_cache=True)._get_request_payload(messages)
+        assert cached["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in get_llm()._get_request_payload(messages)
+    finally:
+        get_settings.cache_clear()
+
+
 def test_tool_results_show_the_model_vietnam_time():
     from src.agents.tools import _result
 

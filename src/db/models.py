@@ -795,6 +795,8 @@ class AiTurn(Base):
     tool_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer)
     completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    # The part of prompt_tokens read from the model's prompt cache (billed at a fraction of the input price)
+    cache_read_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # [{"kind": "llm"|"tool", "name", "at_ms", "ms", "ok", "error"?, "prompt_tokens"?, ...}] in start order
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)

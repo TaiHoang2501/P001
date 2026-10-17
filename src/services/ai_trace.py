@@ -71,6 +71,8 @@ class TurnTracer(BaseCallbackHandler):
             ok=True,
             prompt_tokens=usage.get("input_tokens"),
             completion_tokens=usage.get("output_tokens"),
+            # Part of prompt_tokens Claude read from its prompt cache (llm.get_llm(prompt_cache=True))
+            cache_read_tokens=(usage.get("input_token_details") or {}).get("cache_read"),
             tool_calls=[c["name"] for c in (getattr(message, "tool_calls", None) or [])],
         )
         if step is not None and meta.get("model_name"):
@@ -133,6 +135,7 @@ def save(
         tool_calls=len(tools),
         prompt_tokens=total("prompt_tokens"),
         completion_tokens=total("completion_tokens"),
+        cache_read_tokens=total("cache_read_tokens"),
         latency_ms=tracer.elapsed_ms(),
         steps=tracer.steps,
     )

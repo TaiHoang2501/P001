@@ -28,6 +28,8 @@ export interface DevMetrics {
     latency_p95_ms: number | null;
     prompt_tokens: number;
     completion_tokens: number;
+    /** Part of prompt_tokens read from the prompt cache */
+    cache_read_tokens: number;
     llm_calls: number;
     tool_calls: number;
     daily: { date: string; turns: number; errors: number }[];
