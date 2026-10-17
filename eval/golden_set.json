@@ -422,7 +422,7 @@
       "turns": ["Tìm nhà phố ở Phú Mỹ Hưng quận 7 cho tôi, tầm 15 tỷ"],
       "expect": {
         "recommendations": "empty",
-        "reply_not_matches": "Phú Mỹ Hưng[^.]{0,40}(còn|có) (căn|trống)|[A-Z]{1,3}\\d{1,2}(\\.\\d{1,2})?-\\d{3,4}"
+        "reply_not_matches": "Phú Mỹ Hưng[^.]{0,40}(?<!không )(?<!chưa )(còn|có) (căn|trống)|[A-Z]{1,3}\\d{1,2}(\\.\\d{1,2})?-\\d{3,4}"
       }
     }
   ]

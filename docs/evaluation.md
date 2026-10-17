@@ -95,15 +95,26 @@ Phân bố theo nhóm (spec §7.2):
 
 ## 3. Kết quả golden set
 
-### 3.1. Lần chạy mới — 2026-10-17 16:37, 51 kịch bản × 3 lần, có giám khảo
+### 3.1. Lần chạy mới — 2026-10-17, 51 kịch bản × 3 lần, có giám khảo
 
 Model sinh câu trả lời `anthropic/claude-sonnet-5-5`; giám khảo `openrouter/openai/gpt-4o-mini` (khác model). DB riêng
-`bookingbot_eval`, nạp lại dữ liệu trước mỗi lần chạy của mỗi kịch bản. Nguồn: [golden_report.md](../eval/results/golden_report.md),
+`bookingbot_eval`, nạp lại dữ liệu trước mỗi lần chạy của mỗi kịch bản. Chạy hai lần trong ngày: lần A (16:37) phát hiện
+lỗi SRCH-01; sửa prompt; lần B (17:16) chạy lại toàn bộ. Nguồn lần B: [golden_report.md](../eval/results/golden_report.md),
 dữ liệu thô từng lần chạy (câu trả lời, tool, điểm giám khảo): [golden_runs.json](../eval/results/golden_runs.json).
 
 ```bash
-.venv\Scripts\python.exe eval\run_golden.py --runs 3 --judge
+.venv\Scripts\python.exe evalun_golden.py --runs 3 --judge
 ```
+
+**Lần B — sau khi sửa prompt (kết quả chính):**
+
+| Scope | Kịch bản | Runs passed | pass@3 | pass^3 | Grounded | Answers | Tone | Safe | Judge OK |
+|---|---|---|---|---|---|---|---|---|---|
+| on_topic | 32 | 93/96 (97%) | 32/32 (100%) | 30/32 (94%) | 4.52 | 4.71 | 5.00 | 5.00 | 88% |
+| off_topic | 19 | 56/57 (98%) | 19/19 (100%) | 18/19 (95%) | 4.79 | 4.88 | 5.00 | 5.00 | 95% |
+| **all** | **51** | **149/153 (97%)** | **51/51 (100%)** | **48/51 (94%)** | 4.62 | 4.77 | 5.00 | 5.00 | 90% |
+
+**Lần A — trước khi sửa:**
 
 | Scope | Kịch bản | Runs passed | pass@3 | pass^3 | Grounded | Answers | Tone | Safe | Judge OK |
 |---|---|---|---|---|---|---|---|---|---|
@@ -111,23 +122,31 @@ dữ liệu thô từng lần chạy (câu trả lời, tool, điểm giám kh�
 | off_topic | 19 | 57/57 (100%) | 19/19 (100%) | 19/19 (100%) | 4.93 | 5.00 | 5.00 | 5.00 | 98% |
 | **all** | **51** | **148/153 (97%)** | **50/51 (98%)** | **48/51 (94%)** | 4.76 | 4.89 | 5.00 | 5.00 | 94% |
 
-Bảng theo 14 nhóm và theo từng kịch bản: `eval/results/golden_report.md`.
+Bảng theo 14 nhóm và theo từng kịch bản (lần B): `eval/results/golden_report.md`.
 
 | Latency (mỗi lượt chat, 177 lượt) | p50 | p95 | Mục tiêu spec §2.2 |
 |---|---|---|---|
-| 51 × 3 | **4,1s** | **7,5s** | ≤ 5s (p50 đạt, p95 chưa đạt) |
+| Lần A | 4,1s | 7,5s | ≤ 5s |
+| Lần B | **4,3s** | **7,1s** | ≤ 5s (p50 đạt, p95 chưa đạt) |
 
-**Các kịch bản không đạt đủ 3/3 (phát hiện thật, chưa sửa):**
+**Đã sửa giữa hai lần — SRCH-01 0/3 → 3/3.** Khách hỏi "Có căn nào ở Vinhomes Grand Park không em?": lần A, AI trả
+lời "Dạ có ạ" rồi hỏi thêm nhu cầu mà **không gọi `search_properties`** — khẳng định chưa có căn cứ. Sửa
+`src/agents/prompts.py`: khách hỏi có căn hay không / mới nói dự án thì tìm ngay rồi mới hỏi thêm; chỉ được nói
+"có / còn / không có căn" sau khi đã tìm. Lần B, cả 3 lần AI gọi `search_properties` và trả lời "Dạ có, hiện Vinhomes
+Grand Park còn 4 căn…" kèm căn thật. Kịch bản EXT-03 ("Tôi muốn mua nhà" — phải hỏi lại, không tìm bừa) vẫn 3/3.
 
-| Kịch bản | Kết quả | Chuyện gì xảy ra |
-|---|---|---|
-| SRCH-01 *(mới)* | 0/3 | Khách hỏi "Có căn nào ở Vinhomes Grand Park không em?" → AI trả lời "Dạ có ạ" rồi hỏi thêm nhu cầu, **không gọi `search_properties`**. Hỏi lại khi thiếu thông tin là được phép, nhưng nói "có" khi chưa tra DB là khẳng định chưa có căn cứ — cần sửa prompt (tra trước rồi mới hỏi thêm). |
-| HARD-01 | 2/3 | Lần 3: kết quả tìm kiếm có căn 0–1 phòng ngủ dù khách yêu cầu số phòng tối thiểu → điều kiện cứng không ổn định giữa các lần chạy. |
-| CANCEL-01 *(mới)* | 2/3 | Lần 1: ở lượt "Thôi tôi hủy lịch xem đó nhé", agent không gọi `cancel_viewing` (dừng ở `create_viewing_request`). |
+**Còn chưa đạt đủ 3/3 ở lần B:**
+
+| Kịch bản | Lần A | Lần B | Chuyện gì xảy ra |
+|---|---|---|---|
+| HARD-01 | 2/3 | 1/3 | Khách: "2PN Ocean Park, giá không quá 3 tỷ". Không có căn ≤ 3 tỷ; AI nói rõ là không có, nhưng ở 2 lần chạy **tự tìm lại với ngân sách cao hơn** (bỏ `budget_max` hoặc nâng lên 4 tỷ) và giới thiệu căn 3,28–3,72 tỷ. Vi phạm điều kiện cứng về giá; prompt nên yêu cầu hỏi khách trước khi nới ngân sách. **Chưa sửa.** |
+| CANCEL-01 *(mới)* | 2/3 | 2/3 | 1 lần: ở lượt "Thôi tôi hủy lịch xem đó nhé", agent không gọi `cancel_viewing`. **Chưa sửa.** |
+| OFF-06 *(mới)* | 3/3 | 2/3 | **Lỗi của bộ chấm, không phải agent:** câu trả lời đúng ("…ở Phú Mỹ Hưng nhưng không có căn nào") bị regex bắt nhầm cụm "có căn" trong "không có căn". Đã sửa regex (bỏ qua "không / chưa có căn") sau lần B; chưa chạy lại. |
 
 Giám khảo còn đánh dấu ARGS-01 (cho rằng giờ đề xuất không khớp kết quả tool) dù bộ chấm theo luật PASS 3/3 — cần
-người kiểm tra lại `golden_runs.json` xem giám khảo đúng hay sai. pass^3 thấp hơn pass@3 cho thấy agent **chưa ổn định
-tuyệt đối** giữa các lần chạy cùng một câu hỏi.
+người kiểm tra lại `golden_runs.json` xem giám khảo đúng hay sai. Điểm "Judge OK" dao động giữa hai lần (94% → 90%,
+chủ yếu ở nhóm privacy / scheduling khi AI từ chối hoặc hỏi lại) dù kết quả theo luật không giảm — giám khảo model nhỏ
+cũng có độ nhiễu. pass^3 thấp hơn pass@3 cho thấy agent **chưa ổn định tuyệt đối** giữa các lần chạy cùng một câu hỏi.
 
 ### 3.2. Lần chạy trước (38 kịch bản × 1 lần, chưa có giám khảo)
 
@@ -151,7 +170,8 @@ Số liệu dưới đây lấy nguyên từ các phiên bản đã commit của
 | 2026-10-16 | `7fd17e5` | anthropic/claude-sonnet-5-5 | 31 | 31/31 (100%) | 7,1s | — (thêm guardrail GUARD-01..07) |
 | 2026-10-16 | `7763fc6` | anthropic/claude-sonnet-5-5 | 38 | 38/38 (100%) | 10,3s | — (thêm guardrail judge, GUARD-08..14) |
 | 2026-10-17 | `cf17246` | anthropic/claude-sonnet-5-5 | 38 | 38/38 (100%) | 9,9s | — |
-| 2026-10-17 | (commit này) | anthropic/claude-sonnet-5-5 | 51 × 3 | 148/153 (97%); pass^3 48/51 | 7,5s (p50 4,1s) | SRCH-01 0/3, HARD-01 2/3, CANCEL-01 2/3 |
+| 2026-10-17 16:37 | `6d67377` | anthropic/claude-sonnet-5-5 | 51 × 3 | 148/153; pass@3 50/51, pass^3 48/51 | 7,5s (p50 4,1s) | SRCH-01 0/3, HARD-01 2/3, CANCEL-01 2/3 |
+| 2026-10-17 17:16 | (sau sửa prompt SRCH-01) | anthropic/claude-sonnet-5-5 | 51 × 3 | 149/153; pass@3 **51/51**, pass^3 48/51 | 7,1s (p50 4,3s) | HARD-01 1/3, CANCEL-01 2/3, OFF-06 2/3 (lỗi bộ chấm) |
 
 Những gì đã thay đổi giữa các mốc (theo commit):
 - `7510cfa` *perf(agent): cut a search turn from 4 LLM calls to 2* → p95 22,3s → 10,3s với cùng model.
@@ -287,8 +307,8 @@ Mục tiêu (report.md §1): hài lòng > 4/5. Lỗi người dùng gặp → th
 
 ## 10. Hạn chế đã biết
 
-- Latency p95 7,5s (p50 4,1s, lần chạy 51 × 3) chưa đạt mục tiêu ≤ 5s của spec §2.2.
-- 3 kịch bản chưa ổn định 3/3 (SRCH-01, HARD-01, CANCEL-01) — xem §3.1.
+- Latency p95 7,1s (p50 4,3s, lần chạy 51 × 3) chưa đạt mục tiêu ≤ 5s của spec §2.2.
+- Còn 2 kịch bản agent chưa ổn định 3/3 (HARD-01: tự nới ngân sách khi không có căn; CANCEL-01) — xem §3.1.
 - Golden set do nhóm tự viết, chưa có câu hỏi từ người dùng thật; 13 kịch bản mới chưa chạy với model.
 - Chấm bằng luật/regex có thể bỏ sót câu sai diễn đạt khác; giám khảo LLM bổ sung nhưng cũng có sai số — nên đọc lại
   các dòng có `judge:` trong cột Notes của báo cáo.

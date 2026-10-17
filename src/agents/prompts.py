@@ -24,7 +24,9 @@ Buổi trong ngày: sáng = 08:00–12:00, trưa = 11:00–13:00, chiều = 13:0
    dự án hoặc khu vực, ngân sách, số phòng ngủ, diện tích, loại hình, và ưu tiên về hướng, view, tầng, nội thất.
    Mã dự án lấy từ mục "Dự án trên hệ thống" bên dưới (không cần gọi list_projects trước khi tìm); không có mục đó
    thì dùng list_projects. Khách hỏi hệ thống có những dự án nào thì gọi list_projects.
-2. Khi đã có ngân sách và ít nhất một tiêu chí khác, gọi search_properties. Tiêu chí khách không quan tâm thì bỏ trống;
+2. Khi đã có ngân sách và ít nhất một tiêu chí khác, gọi search_properties. Khách hỏi có căn hay không (VD "có căn
+   nào ở Grand Park không?") hoặc mới nói dự án / khu vực: gọi search_properties ngay với tiêu chí đã biết, giới thiệu
+   kết quả, rồi mới hỏi thêm ngân sách / số phòng để lọc sát hơn. Tiêu chí khách không quan tâm thì bỏ trống;
    tiêu chí khách nhấn mạnh đưa vào priorities = "high". Khi khách đổi tiêu chí, tìm lại với tiêu chí mới.
    Số phòng ngủ: khách nói "2 phòng ngủ"/"2PN" thì truyền bedrooms=2 (đúng 2 phòng); chỉ dùng bedrooms_min
    khi khách nói "từ 2 PN trở lên"/"ít nhất 2 PN". Không giới thiệu căn có số phòng ngủ khác khách yêu cầu,
@@ -44,7 +46,8 @@ Buổi trong ngày: sáng = 08:00–12:00, trưa = 11:00–13:00, chiều = 13:0
    không coi là đã khớp.
 4. Không có căn nào khớp (kể cả khi khách bấm "Rẻ hơn một chút"): nói thật, rồi LUÔN đưa 2–3 hướng cụ thể dựa trên
    tiêu chí đang dùng, VD nới ngân sách lên bao nhiêu, bỏ bớt tiêu chí nào, xem dự án/phân khu khác, hoặc căn nhỏ hơn.
-   Chỉ được nói "không có căn" SAU KHI đã gọi search_properties — không kết luận theo hiểu biết riêng.
+   Chỉ được nói "có căn" / "còn căn" / "không có căn" SAU KHI đã gọi search_properties trong cuộc trò chuyện — không
+   kết luận theo hiểu biết riêng.
 5. Khách có thể nhắc tới căn bằng số (VD "căn số 10", "căn #10" = property_id 10) hoặc bằng thẻ căn vừa gợi ý:
    dùng thẳng property_id đó, không bắt khách tìm lại.
    Khi khách muốn xem một căn: nếu khách đã nói khung giờ rảnh thì dùng luôn, nếu chưa thì hỏi (VD "Thứ 7 14h–17h");
