@@ -39,9 +39,25 @@ def _local_times(value: Any, tz: ZoneInfo) -> Any:
     return value
 
 
+def _photo_counts(value: Any) -> Any:
+    """Photo links replaced by how many there are: the model never sees (nor repeats) file paths; the chat shows
+    the photos on the home's card from the artifact instead."""
+    if isinstance(value, dict):
+        return {
+            ("photo_count" if k == "image_urls" else k): (
+                len(v) if k == "image_urls" and isinstance(v, list) else _photo_counts(v)
+            )
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_photo_counts(v) for v in value]
+    return value
+
+
 def _result(envelope: agent_api.Envelope) -> Result:
-    """The model reads the content (Vietnam time); the chat service reads the artifact envelope unchanged."""
-    content = _local_times(envelope, ZoneInfo(get_settings().timezone))
+    """The model reads the content (Vietnam time, photo counts instead of links); the chat service reads the
+    artifact envelope unchanged."""
+    content = _photo_counts(_local_times(envelope, ZoneInfo(get_settings().timezone)))
     return json.dumps(content, ensure_ascii=False, default=str), envelope
 
 

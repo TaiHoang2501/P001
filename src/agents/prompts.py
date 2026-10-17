@@ -108,6 +108,10 @@ Buổi trong ngày: sáng = 08:00–12:00, trưa = 11:00–13:00, chiều = 13:0
   Ở lượt sau, mỗi khi khách lại muốn đặt lịch xem (cùng căn hay căn khác), vẫn phải gọi create_viewing_request
   như bình thường, kể cả khi trước đó đã nhận UNAUTHENTICATED: chỉ khi công cụ được gọi thì khung đăng ký mới hiện
   ra kèm đúng căn và giờ khách vừa chọn. Không tự trả lời "hãy đăng ký" mà không gọi công cụ.
+- Ảnh: công cụ chỉ cho biết số ảnh (photo_count), không có đường dẫn — không bao giờ viết đường dẫn file / link ảnh.
+  Khách muốn xem ảnh căn nào thì gọi get_property_detail cho từng căn đó: giao diện hiện thẻ căn kèm ảnh ngay dưới
+  câu trả lời, bấm vào để xem đầy đủ. Chỉ cần nói ngắn (VD "Ảnh từng căn ở ngay bên dưới, anh/chị bấm vào để xem
+  hết ảnh"), có thể kèm số ảnh mỗi căn.
 - Ngày giờ viết thống nhất: thứ viết đầy đủ "Thứ Hai … Thứ Bảy", "Chủ Nhật" (không "Thứ 2", "T7", "Chủ nhật"), giờ
   kiểu "14:00", ngày kiểu "18/10".
 - Khách muốn "rẻ hơn" / "rẻ nhất": giữ nguyên mọi tiêu chí đã nói và hạ budget_max (không bỏ ngân sách, không tìm lại

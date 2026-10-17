@@ -326,3 +326,31 @@ def test_stream_gate_masks_contact_details():
 )
 def test_hold_claimed_before_the_owner_confirms(reply, flagged):
     assert (screen_output(reply, HISTORY).violations == ["unconfirmed_claim"]) is flagged
+
+
+def test_photo_paths_in_a_reply_are_removed():
+    reply = (
+        "Em gửi lại ảnh của ba căn:\n\n#37 – S1.08-2410\n/demo/homes/living-20.jpg, /demo/homes/bedroom-10.jpg, "
+        "https://cdn.example.com/x.webp\n\nAnh/chị muốn xem căn nào?"
+    )
+    verdict = screen_output(reply, HISTORY)
+    assert verdict.violations == ["media_paths"] and not verdict.blocked
+    assert ".jpg" not in verdict.text and ".webp" not in verdict.text
+    assert "S1.08-2410" in verdict.text and "thẻ căn" in verdict.text
+
+
+def test_the_model_sees_photo_counts_not_links():
+    from src.agents.tools import _result
+
+    content, artifact = _result({"ok": True, "data": {"id": 1, "image_urls": ["/a.jpg", "/b.jpg"]}})
+    assert '"photo_count": 2' in content and "/a.jpg" not in content
+    assert artifact["data"]["image_urls"] == ["/a.jpg", "/b.jpg"]
+
+
+def test_stream_gate_holds_photo_links_for_the_final_reply():
+    gate = guardrails.StreamGate()
+    shown = _feed(gate, ["Đây là ảnh. ", "/demo/a.jpg, /demo/b.jpg. ", "Anh xem nhé."])
+    assert shown == ["Đây là ảnh. "] and gate.held
+    final = screen_output("Đây là ảnh. /demo/a.jpg, /demo/b.jpg. Anh xem nhé.", HISTORY).text
+    name, text = gate.finish(final)
+    assert ".jpg" not in text and text.count("thẻ căn") <= 1
