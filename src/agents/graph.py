@@ -154,4 +154,6 @@ def get_agent() -> CompiledStateGraph:
     # fallback, whose free quota (Flash: 20 requests/day) is easily used up
     # Claude gets the whole history (see _HISTORY_WINDOW); its context window holds far more than a chat
     window = None if settings.llm_provider == "anthropic" else _HISTORY_WINDOW
-    return build_graph(get_llm(), _checkpointer or InMemorySaver(), get_fallback_llm(), window)
+    # Only the agent caches its prompt (src/services/llm.py)
+    llm, fallback = get_llm(prompt_cache=True), get_fallback_llm(prompt_cache=True)
+    return build_graph(llm, _checkpointer or InMemorySaver(), fallback, window)
