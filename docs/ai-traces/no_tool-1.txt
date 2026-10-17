@@ -1,0 +1,13 @@
+trace     03f29e29658d4e98a5654f31c79a780e   2026-10-17 09:39:08 UTC
+who       user 1   conversation 2   plain
+status    OK
+model     claude-sonnet-5-5   llm calls 1   tool calls 0
+tokens    in 10874   out 574   latency 4564 ms
+message   BookingBot giúp được tôi những việc gì?
+
+steps
+  +     7 ms  llm  ok    4537 ms  claude-sonnet-5-5  tokens 10874/574
+
+messages
+  USER      BookingBot giúp được tôi những việc gì?
+  ASSISTANT Chào anh An, em là BookingBot. Em giúp anh những việc sau: - **Tìm căn phù hợp:** em tìm căn Vinhomes đã được Chủ đầu tư xác thực trên hệ thống. Các dự án hiện có là Vinhomes Grand Park, Ocean Park 1, Smart City và West Point. Em lọc theo ngân sách, số phòng ngủ, diện tích, hướng, view, tầng và nội…

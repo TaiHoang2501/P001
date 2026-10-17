@@ -26,6 +26,10 @@ KNOWN_EXPECTATIONS = {
     "reply_matches",
     "reply_not_matches",
 }
+# on_topic: what BookingBot is for (find a Vinhomes home, book a viewing, check status). off_topic: requests outside
+# the product (other developers' projects, payments/deposits, price prediction, legal commitments, jailbreaks,
+# unrelated chit-chat), where the right behaviour is a polite refusal or redirect
+SCOPES = ("on_topic", "off_topic")
 
 
 @dataclass
@@ -151,7 +155,9 @@ def evaluate(expect: dict[str, Any], t: Transcript) -> list[str]:
     return failures
 
 
-def validate(golden: dict[str, Any], min_scenarios: int = 20) -> list[str]:
+def validate(
+    golden: dict[str, Any], min_scenarios: int = 20, min_on_topic: int = 0, min_off_topic: int = 0
+) -> list[str]:
     """Structural checks on the golden file itself."""
     problems: list[str] = []
     scenarios = golden["scenarios"]
@@ -170,4 +176,46 @@ def validate(golden: dict[str, Any], min_scenarios: int = 20) -> list[str]:
             problems.append(f"{s['id']}: unknown expectations {sorted(unknown)}")
         if not s["turns"]:
             problems.append(f"{s['id']}: no turns")
+        if s.get("scope") not in SCOPES:
+            problems.append(f"{s['id']}: scope must be one of {SCOPES}, got {s.get('scope')!r}")
+    for scope, minimum in (("on_topic", min_on_topic), ("off_topic", min_off_topic)):
+        if (n := sum(s.get("scope") == scope for s in scenarios)) < minimum:
+            problems.append(f"only {n} {scope} scenarios, at least {minimum} required")
     return problems
+
+
+# ---- Repeated runs (pass@k / pass^k) -----------------------------------------------------------------------------
+
+
+def percentile(values: list[float], q: float) -> float:
+    """Nearest-rank percentile (q in 0..1); 0 for no values. Same method the report has always used for p95."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(q * len(ordered)))]
+
+
+def pass_at_k(passes: int, k: int) -> bool:
+    """At least one of the k runs passed (the agent *can* do it)."""
+    return k > 0 and passes >= 1
+
+
+def pass_hat_k(passes: int, k: int) -> bool:
+    """All k runs passed (the agent does it *reliably*)."""
+    return k > 0 and passes == k
+
+
+def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate scenario rows, each {"runs": [{"ok": bool, ...}, ...]}, into pass counts.
+
+    Returns scenarios, attempts, attempts_passed, pass_at_k, pass_hat_k (counts of scenarios).
+    """
+    out = {"scenarios": len(rows), "attempts": 0, "attempts_passed": 0, "pass_at_k": 0, "pass_hat_k": 0}
+    for r in rows:
+        k = len(r["runs"])
+        passes = sum(run["ok"] for run in r["runs"])
+        out["attempts"] += k
+        out["attempts_passed"] += passes
+        out["pass_at_k"] += pass_at_k(passes, k)
+        out["pass_hat_k"] += pass_hat_k(passes, k)
+    return out

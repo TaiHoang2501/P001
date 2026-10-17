@@ -4,6 +4,42 @@
 
 Dự án phát triển dựa trên đặc tả kỹ thuật chuẩn: [`.specify/spec_final.md`](.specify/spec_final.md), quy tắc nghiệp vụ đang chạy trong [`CLAUDE.md`](CLAUDE.md), tài liệu kiến trúc [`ARCHITECTURE.md`](ARCHITECTURE.md) và các sơ đồ trong [`DIagram/`](DIagram/) (bắt đầu từ [`Data Flow Diagram.md`](DIagram/Data%20Flow%20Diagram.md)).
 
+**Live:** <https://bookingbot-mvp.vercel.app> (web) · API <https://bookingbot-api-wlvipunyga-as.a.run.app/health> · Swagger `/docs` · tài khoản demo ở [mục 5](#5-tài-khoản--dữ-liệu-demo-kiểm-thử) (mã OTP demo luôn là `123456`).
+
+| Người mua chat với AI | Chủ căn trả lời yêu cầu xem |
+|---|---|
+| ![Chat với Trợ lý AI](docs/screenshots/02-buyer-chat.png) | ![Yêu cầu xem của chủ căn](docs/screenshots/04-owner-requests.png) |
+| **Trang Hoạt động của người mua** | **Hàng đợi ngoại lệ của Chủ đầu tư** |
+| ![Hoạt động](docs/screenshots/03-buyer-activity.png) | ![Ngoại lệ](docs/screenshots/07-operator-cases.png) |
+
+Ảnh khác (điện thoại, tin đăng, duyệt tin): [`docs/screenshots/`](docs/screenshots/).
+
+### Deliverables Demo Day
+
+| # | Deliverable | Ở đâu |
+|---|---|---|
+| 1 | Source code | Repo này (`src/`, `frontend/`, `tests/`) |
+| 2 | README | File này |
+| 3 | Architecture diagram | [`docs/architecture.md`](docs/architecture.md) (PNG/SVG trong `docs/diagrams/`, nguồn Mermaid trong `DIagram/`) |
+| 4 | AI logs | [`docs/ai-logs.md`](docs/ai-logs.md) — trace `ai_turns`, Langfuse / LangSmith |
+| 5 | Live URL | <https://bookingbot-mvp.vercel.app> |
+| 6 | Video demo | [`docs/video-demo.md`](docs/video-demo.md) |
+| 7 | Pitch deck | `docs/pitch-deck.pdf`, kèm [`presentation/`](presentation/) (demo script, Q&A) |
+| 8 | Development journal | [`JOURNAL.md`](JOURNAL.md) |
+| 9 | Worklog | [`WORKLOG.md`](WORKLOG.md), [`docs/worklog.md`](docs/worklog.md) (xuất từ git) |
+| 10 | Evaluation evidence | [`docs/evaluation.md`](docs/evaluation.md), [`eval/results/`](eval/results/) |
+
+### Team
+
+Phân công theo [`backlog.md`](backlog.md):
+
+| Thành viên | Vai trò |
+|---|---|
+| Hoàng Anh Tài | Leader · Product / nghiệp vụ, spec |
+| Ngô Doãn Ngọc | AI agent · Backend · Frontend · DevOps |
+| Nguyễn Văn Bảo | Dữ liệu & hệ thống |
+| Trần Thị Thu Trang | QA / kiểm thử |
+
 ---
 
 ## 1. Vấn đề & Giải pháp (Problem & Solution)
@@ -37,7 +73,7 @@ Dự án phát triển dựa trên đặc tả kỹ thuật chuẩn: [`.specify/
 | **Database** | PostgreSQL 15+, SQLAlchemy, Alembic | Neon Serverless Postgres, 24 bảng (3 bảng post-MVP `purchase_requests` / `chats` / `messages` của spec chưa tạo), giao dịch ACID, exclusion constraint chống trùng lịch (theo căn và theo chủ căn), bảng `checkpoint*` lưu bộ nhớ hội thoại LangGraph; ảnh tải lên lưu trong `media_files` (chưa dùng S3). |
 | **Frontend** | React 19, TypeScript, Vite 6, Tailwind CSS v4 | Web Responsive: Buyer (`/buyer/*`), Owner Portal (`/owner/*`), Operator Console (`/operator/*`), trang dev (`/dev`), trang quét mã QR (`/pass/:token`). React Router 7, TanStack Query, `openapi-fetch` với kiểu sinh từ OpenAPI (`npm run gen:api`). |
 | **DevOps & Deploy** | Docker, GitHub Actions, Render / Cloud Run, Vercel, Neon | Backend chạy Docker trên Render (`render.yaml`) hoặc Google Cloud Run (`.github/workflows/deploy-cloudrun.yml`); Frontend SPA trên Vercel; Database trên Neon Postgres. CI chạy ruff + pytest. |
-| **Testing & Eval** | Pytest, AI Golden Set | **340+ tests** unit/integration/concurrency/e2e; bộ đánh giá AI Golden Set 38 kịch bản (14 nhóm). |
+| **Testing & Eval** | Pytest, AI Golden Set | **389 test (coverage 91%)** unit/integration/concurrency/e2e, E2E trình duyệt bằng Playwright; AI Golden Set 51 kịch bản (32 đúng phạm vi + 19 ngoài phạm vi) với pass@k / pass^k và giám khảo AI khác model. |
 
 ---
 
@@ -56,6 +92,8 @@ bookingbot-mvp/
 │   ├── projects_buildings_seed.csv           # Dự án & Tòa nhà
 │   ├── property_ownership_verifications_seed.csv # Dữ liệu Sổ đỏ mẫu
 │   └── demo_uploads/       # Ảnh demo cho tin đăng
+├── docs/                   # Deliverables Demo Day: architecture, evaluation, ai-logs, video-demo, journal/worklog, screenshots, diagrams (PNG/SVG)
+├── presentation/           # demo_script.md (AIDA), qa_prep.md
 ├── DIagram/                # Sơ đồ thiết kế hệ thống
 │   ├── Data Flow Diagram.md        # Luồng dữ liệu chi tiết giữa các tầng & tác nhân (sơ đồ chính)
 │   ├── System Overview Diagram.md  # Kiến trúc tổng thể
@@ -98,7 +136,7 @@ bookingbot-mvp/
 │   ├── config.py           # Pydantic Settings & nạp biến môi trường
 │   ├── jobs.py             # Background tasks (hết hạn hold / yêu cầu, nhắc lịch, escalation, follow-up, dọn trace)
 │   └── main.py             # Khởi tạo FastAPI Application
-├── tests/                  # Bộ kiểm thử Pytest (340+ tests)
+├── tests/                  # Bộ kiểm thử Pytest (389 test, coverage 91%)
 │   ├── test_agents/        # Trí nhớ AI, năng lực agentic, guest chat, streaming, guardrails, trace
 │   ├── test_api/           # API endpoints, xác thực sổ đỏ, phân quyền, kill switch, thông báo realtime
 │   ├── test_db/            # Schema và các bước seed
@@ -164,6 +202,41 @@ npm install
 npm run dev
 ```
 Giao diện Web sẽ chạy tại: <http://localhost:5173> *(mặc định tự proxy sang API cổng 8000)*.
+
+#### Chạy bằng Docker
+```bash
+docker compose up --build   # PostgreSQL (cổng 5433 trên máy) + backend (cổng 8000), đọc biến từ .env
+```
+Lần đầu chạy thêm `docker compose exec backend python -m src.db.seed_once` để nạp dữ liệu demo.
+
+### Biến môi trường
+
+Danh sách đầy đủ kèm chú thích ở [`.env.example`](.env.example) (không bao giờ commit giá trị thật). Nhóm chính:
+
+| Nhóm | Biến |
+|---|---|
+| Bắt buộc | `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS` (production) |
+| LLM | `LLM_PROVIDER`, `MODEL_NAME`, `MODEL_FALLBACK_NAME`, `LLM_FALLBACK_PROVIDER`, `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` / `GROQ_API_KEY` |
+| OTP | `OTP_PROVIDER` (`local` / `firebase`), `FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY`, `DEMO_PHONES`, `OTP_TTL_SECONDS` |
+| Guardrails & rate limit | `GUARDRAIL_JUDGE*`, `CHAT_MESSAGES_PER_*`, `GUEST_CHAT_MESSAGES_PER_*`, `TRUSTED_PROXY_HOPS`, `CLIENT_IP_HEADER` |
+| Vận hành | `ADMIN_API_TOKEN` (trang `/dev`), `SUPPORT_HOTLINE`, `SEED_DEMO_DATA`, `JOB_INTERVAL_SECONDS`, `AGENT_FOLLOWUP_MINUTES` |
+| Trace (tùy chọn) | `LANGFUSE_*`, `LANGSMITH_*` |
+| Frontend | `VITE_API_URL` |
+
+### API
+
+Tài liệu đầy đủ (request/response) ở Swagger: <http://localhost:8000/docs>, bản live <https://bookingbot-api-wlvipunyga-as.a.run.app/docs>. Mọi endpoint có tiền tố `/api/v1`:
+
+| Nhóm | Endpoint chính |
+|---|---|
+| Auth | `POST /auth/otp/request`, `POST /auth/otp/verify`, `POST /auth/login` (Operator), `GET /auth/me` |
+| Chat | `POST /chat/stream`, `POST /chat/guest/stream` (SSE), `POST /chat/guest/{id}/claim`, `GET /chat/assistant-status` |
+| Căn & giờ xem | `GET /projects`, `POST /properties/search`, `GET /properties/{id}`, `POST /properties/{id}/viewing-times` |
+| Lịch xem | `POST /bookings`, `GET /bookings/activity`, `POST /bookings/{id}/cancel` / `reschedule` / `feedback` / `dispute`, `GET /bookings/{id}/pass` |
+| Chủ căn | `POST /owner/ownership/claim`, `POST /owner/ownership/{id}/confirm`, `POST /owner/ownership/support`, `POST /owner/properties`, `POST /owner/bookings/{id}/approve` / `reject` / `complete` / `no-show`, `POST /owner/properties/{id}/sold` |
+| Chủ đầu tư | `POST /operator/properties/{id}/approve` / `reject` / `take-down`, `POST /operator/bookings/{id}/cancel`, `GET /operator/escalations`, `POST /operator/escalations/{id}/resolve` |
+| Thông báo | `GET /notifications`, `GET /notifications/stream` (SSE) |
+| Hệ thống | `GET /health` (không có tiền tố) |
 
 ---
 
@@ -241,7 +314,7 @@ Dưới đây là các câu truy vấn / prompt mẫu đại diện cho 5 kịch
 Hệ thống được trang bị bộ kiểm thử tự động toàn diện:
 
 ```bash
-# Chạy toàn bộ 340+ unit, integration, concurrency & agentic tests (cần PostgreSQL)
+# Chạy toàn bộ 389 unit, integration, concurrency & agentic tests (cần PostgreSQL)
 pytest tests -q
 
 # Chạy riêng kiểm thử luồng Demo hoàn chỉnh (Core Demo Flow)
@@ -253,10 +326,21 @@ pytest tests/test_services/test_concurrency.py -v
 # Kiểm tra năng lực Agentic & Guest Chat của AI
 pytest tests/test_agents/test_agentic.py tests/test_agents/test_guest_chat.py -v
 
-# Chạy bộ đánh giá AI Golden Set (38 kịch bản, 14 nhóm, với model thực tế)
-python eval/run_golden.py
+# Chạy bộ đánh giá AI Golden Set (51 kịch bản: 32 đúng phạm vi + 19 ngoài phạm vi, với model thực tế)
+python eval/run_golden.py                    # 1 lần
+python eval/run_golden.py --runs 3 --judge   # pass@3 / pass^3 + giám khảo AI khác model (mặc định OpenRouter gpt-4o-mini)
+
+# Coverage
+pytest --cov=src --cov-report=term -q
+
+# E2E trên trình duyệt (Playwright): local dev server, hoặc bản live với E2E_BASE_URL
+cd frontend && npx playwright install chromium && npm run test:e2e
+E2E_BASE_URL=https://bookingbot-mvp.vercel.app npm run test:e2e
+
+# Smoke test tài khoản demo sau deploy (CI Cloud Run cũng chạy bước này)
+python scripts/smoke_demo.py https://bookingbot-api-wlvipunyga-as.a.run.app
 ```
-*Kết quả đánh giá AI sẽ được tự động ghi lại tại [`eval/results/golden_report.md`](eval/results/golden_report.md).*
+*Kết quả đánh giá AI ghi tại [`eval/results/golden_report.md`](eval/results/golden_report.md); tổng hợp phương pháp, số liệu, truy vết test → tính năng ở [`docs/evaluation.md`](docs/evaluation.md).*
 
 ### Trace AI cho dev
 

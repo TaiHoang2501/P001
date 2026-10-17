@@ -7,6 +7,7 @@ import { homePathFor, sessionExpired, useAuth } from "../auth/AuthContext";
 import { sendFirebaseCode, type PhoneChallenge } from "../auth/firebasePhone";
 import { AuthShell, RedBookHomeArt } from "../components/AuthShell";
 import { ErrorBox, Notice } from "../components/ui";
+import { PrivacyLink } from "./PrivacyPage";
 
 /** Who is signing in: buyers use the buyer area, sellers/operators use BookingBot. Decides the role of new OTP accounts. */
 export type Audience = "buyer" | "seller";
@@ -334,6 +335,9 @@ function OtpForm({
           {intent === "signup"
             ? "Dùng số điện thoại chưa đăng ký trên hệ thống."
             : "Lần đầu dùng số điện thoại, bạn sẽ được tạo tài khoản ngay sau khi nhập mã."}
+        </p>
+        <p className="text-center text-xs text-muted">
+          Số điện thoại chỉ dùng để đăng nhập, không hiển thị cho bên kia. Xem <PrivacyLink />.
         </p>
       </form>
     );

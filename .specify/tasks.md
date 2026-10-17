@@ -85,10 +85,10 @@
 
 ## Phase 6: QA, Concurrency Testing & Final Evaluation
 - [x] **Task 6.1: Golden Dataset & AI Evaluation**
-  - `eval/golden_set.json`: 38 kịch bản / 14 nhóm; `python eval/run_golden.py` → `eval/results/golden_report.md`.
+  - `eval/golden_set.json`: 51 kịch bản (32 đúng phạm vi + 19 ngoài phạm vi); `python eval/run_golden.py` → `eval/results/golden_report.md`.
 - [x] **Task 6.2: Concurrency & Double-Booking Test**
   - `tests/test_services/test_concurrency.py` (AC-08: chỉ một bên thành công, cả trường hợp chủ căn ở 2 căn).
 - [x] **Task 6.3: Guardrail & Hallucination Verification**
   - `tests/test_agents/test_guardrails.py`, `test_guardrails_chat.py`: đặt cọc, đàm phán / dự đoán giá, căn bịa, injection, PII.
 - [x] **Task 6.4: CI/CD Pipeline & Code Quality**
-  - `.github/workflows/ci.yml` (ruff check + format, pytest 340+ tests), `cd.yml` (image GHCR), `deploy-cloudrun.yml`; Render qua `render.yaml`.
+  - `.github/workflows/ci.yml` (ruff check + format, pytest 389 test, coverage 91%), `cd.yml` (image GHCR), `deploy-cloudrun.yml`; Render qua `render.yaml`.

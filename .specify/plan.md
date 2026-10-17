@@ -68,10 +68,10 @@ Chi tiết: §7 của [CLAUDE.md](../CLAUDE.md) và [`src/db/models.py`](../src/
 - [ ] KPI kinh doanh đầy đủ (tỷ lệ chuyển đổi chat → booking → purchase) — dashboard `/dev` mới có số liệu AI + nghiệp vụ cơ bản.
 
 ### Phase 6 --- Evaluation & Testing (Kiểm thử & Đánh giá)
-- [x] Golden Set AI: 38 kịch bản / 14 nhóm (`eval/golden_set.json`, `python eval/run_golden.py`).
+- [x] Golden Set AI: 51 kịch bản (32 đúng phạm vi + 19 ngoài phạm vi) (`eval/golden_set.json`, `python eval/run_golden.py`).
 - [x] Concurrency test AC-08 (`tests/test_services/test_concurrency.py`).
 - [x] Luồng ngoại lệ: chủ căn từ chối → gợi ý giờ / căn thay thế; e2e Core Demo Flow.
-- [x] Docker + `docker-compose.yml`, deploy Render / Cloud Run + Vercel, CI ruff + pytest (340+ tests).
+- [x] Docker + `docker-compose.yml`, deploy Render / Cloud Run + Vercel, CI ruff + pytest (389 test, coverage 91%).
 
 ---
 

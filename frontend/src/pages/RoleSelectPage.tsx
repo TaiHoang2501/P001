@@ -6,6 +6,7 @@ import { BRAND_GRADIENT_TEXT, BrandLogo } from "../components/Brand";
 import { AiBot } from "../buyer/AiBot";
 import { ArrowRightIcon, CheckIcon, ChevronDownIcon, SparkleIcon } from "../buyer/icons";
 import { DemoAccountsTable, OperatorGuide } from "./DemoAccounts";
+import { PrivacyLink } from "./PrivacyPage";
 
 /**
  * Entry point: the visitor says whether they want to view homes (buyer area with the AI agent)
@@ -122,6 +123,10 @@ export function RoleSelectPage() {
           <DemoAccountsTable />
           <OperatorGuide />
         </div>
+
+        <footer className="mt-10 text-center text-sm text-muted">
+          <PrivacyLink />
+        </footer>
       </main>
 
       {done && !guideSeen && (

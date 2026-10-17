@@ -1,0 +1,58 @@
+name: E2E (deployed site)
+
+# Manual run of the Playwright tests (frontend/e2e) against a deployed web app, e.g. after a release.
+# They sign in with the demo accounts only; the AI chat step calls the real LLM, so it is off unless asked for.
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Web app URL to test (e.g. https://<project>.vercel.app)"
+        required: true
+      chat:
+        description: "Also send one message to the AI assistant (calls the paid LLM)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Playwright
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright
+        run: npm run test:e2e
+        env:
+          E2E_BASE_URL: ${{ inputs.base_url }}
+          E2E_CHAT: ${{ inputs.chat && '1' || '' }}
+
+      - name: Upload Report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7

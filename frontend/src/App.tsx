@@ -15,6 +15,7 @@ import { LiveNotifications } from "./components/LiveNotifications";
 import { EmptyState } from "./components/ui";
 import { LoginPage, OperatorLoginPage } from "./pages/LoginPage";
 import { PassCheckPage } from "./pages/PassCheckPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
 import { DevPage } from "./pages/dev/DevPage";
 import { BookingsMonitorPage } from "./pages/operator/BookingsMonitorPage";
 import { EscalationsPage } from "./pages/operator/EscalationsPage";
@@ -66,6 +67,8 @@ export function App() {
       <Route index element={<RoleSelectPage />} />
       {/* Scanned at the building's gate from the buyer's QR (public) */}
       <Route path="pass/:token" element={<PassCheckPage />} />
+      {/* What personal data is kept, who sees it, for how long (public) */}
+      <Route path="privacy" element={<PrivacyPage />} />
 
       {/* Buyer area: AI agent chat + viewing requests (wireframe 1.1-1.6) */}
       <Route path="buyer" element={<BuyerLayout />}>

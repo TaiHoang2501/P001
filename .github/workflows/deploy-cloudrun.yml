@@ -133,5 +133,10 @@ jobs:
       - name: Smoke Test
         run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${{ steps.deploy.outputs.url }}/health"
 
+      # The demo buyer (0901111222, fixed code 123456, never an SMS) signs in and calls /api/v1/auth/me: catches a
+      # deploy whose database, JWT secret or demo seed is broken although /health answers. Run it by hand the same way.
+      - name: Smoke Test Demo Sign-in
+        run: python3 scripts/smoke_demo.py "${{ steps.deploy.outputs.url }}"
+
       - name: Summary
         run: echo "Deployed ${{ env.IMAGE }} to ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"

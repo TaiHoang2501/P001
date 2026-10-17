@@ -1,0 +1,18 @@
+trace     c9857b2dbea04362bc641db16c5a4dd7   2026-10-17 09:39:43 UTC
+who       user 1   conversation 8   plain
+status    OK
+model     claude-sonnet-5-5   llm calls 2   tool calls 1
+tokens    in 22271   out 300   latency 3700 ms
+message   Tôi muốn nói chuyện với nhân viên của Chủ đầu tư, chuyển giúp tôi
+
+steps
+  +     7 ms  llm  ok    1935 ms  claude-sonnet-5-5  tokens 10896/185  -> create_human_escalation
+  +  1957 ms  tool ok      15 ms  create_human_escalation  
+  +  1982 ms  llm  ok    1698 ms  claude-sonnet-5-5  tokens 11375/115
+
+messages
+  USER      Tôi muốn nói chuyện với nhân viên của Chủ đầu tư, chuyển giúp tôi
+  ASSISTANT   [calls create_human_escalation]
+  TOOL create_human_escalation ok=True args={"type": "OTHER", "summary": "Khách Nguyễn Văn An muốn được nhân viên hỗ trợ của Chủ đầu tư liên hệ trực tiếp. Tiêu chí tìm gần nhất: Vinhomes Ocean Park 1, 5 phòng ngủ, ngân sách tối đa 1 tỷ."}
+       -> {"ok": true, "data": {"id": 1, "type": "OTHER", "status": "OPEN", "context": {"thread_id": "1:trace-escalation-1792229979"}, "deal_id": null, "summary": "Khách Nguyễn Văn An muốn được nhân viên hỗ trợ của Chủ đầu tư liên hệ trực tiếp. Tiêu chí tìm gần nhất: Vinhomes Ocean Park 1, 5 phòng ngủ, ngân …
+  ASSISTANT Em đã chuyển yêu cầu của anh An tới bộ phận hỗ trợ của Chủ đầu tư. Nhân viên sẽ liên hệ với anh sớm. Trong lúc chờ, nếu anh cần tìm căn hoặc đặt lịch xem nhà thì cứ nhắn em.
