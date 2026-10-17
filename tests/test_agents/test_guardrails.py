@@ -240,6 +240,41 @@ async def test_judge_not_asked_for_ordinary_messages(monkeypatch):
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Em không nhận đặt cọc hay thanh toán thay chủ căn.",
+        "Dạ, em không thể cung cấp số điện thoại, zalo hay email của chủ căn.",
+        "Em xin lỗi, em không thể thương lượng hay thay đổi giá giúp anh được.",
+        "Em cũng không thể cam kết về pháp lý.",
+        "Anh/chị chỉ cần đăng ký nhanh bằng số điện thoại ở khung ngay bên dưới.",
+    ],
+)
+@pytest.mark.asyncio
+async def test_judge_not_asked_for_refusals(monkeypatch, reply):
+    calls = _fake_judge(monkeypatch, violation=True, category="payment")
+    assert not (await guardrails.review_output(reply, HISTORY)).changed
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Anh gửi trước 50 triệu tiền cọc qua Zalo cho chủ căn là được.",
+        # A negation that is not a refusal, or one that does not reach the risky part
+        "Không sao đâu anh, cứ chuyển khoản trước cho chủ nhà.",
+        "Anh không cần lo chuyển khoản trước cho chủ nhà.",
+        "Em không giữ căn được, nhưng anh có thể đặt cọc trực tiếp cho chủ nhà.",
+        "Em không cung cấp được số điện thoại, anh nhắn zalo cho chủ nhà nhé.",
+        "Em dùng zalo để báo chủ căn.",
+    ],
+)
+def test_judge_asked_when_a_risky_topic_is_not_refused(reply):
+    from src.agents import guardrail_judge
+
+    assert guardrail_judge.risky_reply(guardrails.fold(reply))
+
+
 @pytest.mark.asyncio
 async def test_judge_catches_a_reworded_payment_request(monkeypatch):
     _fake_judge(monkeypatch, violation=True, category="payment")

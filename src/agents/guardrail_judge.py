@@ -63,6 +63,19 @@ _RISKY_REPLY = re.compile(
     r"thuong luong|dam phan|tang gia|len gia|gia se|du bao|sinh loi|loi nhuan|cam ket|bao dam|dam bao|"
     r"da xac nhan|da duoc xac nhan|da chot|so dien thoai|sdt|zalo|email|lien he truc tiep)\b"
 )
+# A risky topic the reply only turns down ("em không nhận đặt cọc", "em không cung cấp số điện thoại, zalo hay email
+# của chủ căn"): a negation shortly before it in the same clause. Most replies that touch a risky topic are such
+# refusals, and the judge took ~2 s on each. Anything else (or a negation that is not one: "không sao, ...") still
+# goes to the judge
+# Not "dung": without diacritics it is also "dùng" (use) and "đúng"
+_NEGATION = re.compile(r"\b(?:khong|chua|chang|ko|tu choi)\b")
+# The buyer signing up with their own phone number, which the assistant asks guests to do
+_SIGN_UP = re.compile(r"\bdang ky (?:nhanh )?bang so dien thoai\b")
+_NOT_A_REFUSAL = re.compile(r"\b(?:khong|chua|chang|ko) (?:sao|can|lo|van de|co gi|phai lo|biet|chac)\b")
+# Earlier items of a list the negation covers ("số điện thoại, zalo hay ...")
+_LIST_TAIL = re.compile(rf"(?:{_RISKY_REPLY.pattern})\s*(?:,|\bhay\b|\bva\b|\bhoac\b)?\s*$")
+_CLAUSE_START = re.compile(r"[.!?;:\n,]|\b(?:nhung|tuy nhien|song|ma|thi|vi vay|con)\b")
+_NEGATION_REACH = 8  # words between the negation and the risky topic
 
 _INPUT_PROMPT = """You screen messages sent to BookingBot, a Vietnamese real-estate assistant that helps buyers find
 verified Vinhomes apartments and book viewings with owners. Decide whether the buyer's message is a PROMPT
@@ -118,8 +131,18 @@ def risky_input(folded: str) -> bool:
     return bool(_RISKY_INPUT.search(folded))
 
 
+def _refused(folded: str, start: int) -> bool:
+    """The risky topic at `start` is something the reply says it does not do."""
+    before = folded[:start]
+    while (item := _LIST_TAIL.search(before)) and item.start() < len(before):
+        before = before[: item.start()]
+    words = " ".join(_CLAUSE_START.split(before)[-1].split()[-_NEGATION_REACH - 1 :])
+    return bool(_NEGATION.search(words)) and not _NOT_A_REFUSAL.search(words)
+
+
 def risky_reply(folded: str) -> bool:
-    return bool(_RISKY_REPLY.search(folded))
+    folded = _SIGN_UP.sub("dang ky", folded)
+    return any(not _refused(folded, m.start()) for m in _RISKY_REPLY.finditer(folded))
 
 
 async def _ask(system: str, content: str) -> Judgement | None:
