@@ -110,6 +110,7 @@ async def test_developer_metrics(client, db, admin_token):
                 trace_id="t-ok",
                 message="hi",
                 status="OK",
+                model="claude-sonnet-5-5",
                 latency_ms=1200,
                 prompt_tokens=100,
                 cache_read_tokens=80,
@@ -118,7 +119,17 @@ async def test_developer_metrics(client, db, admin_token):
                 tool_calls=2,
                 steps=steps,
             ),
-            AiTurn(trace_id="t-guest", message="hi", status="OK", guest=True, latency_ms=800, steps=[]),
+            AiTurn(
+                trace_id="t-guest",
+                message="hi",
+                status="OK",
+                guest=True,
+                latency_ms=800,
+                model="some-unpriced-model",
+                prompt_tokens=50,
+                completion_tokens=5,
+                steps=[],
+            ),
             AiTurn(
                 trace_id="t-err",
                 message="hi",
@@ -139,8 +150,13 @@ async def test_developer_metrics(client, db, admin_token):
     m = r.json()
     ai = m["ai"]
     assert (ai["turns"], ai["guest_turns"], ai["errors"]) == (3, 1, 1)
-    assert ai["prompt_tokens"] == 100 and ai["latency_p50_ms"] == 1000
+    assert ai["prompt_tokens"] == 150 and ai["latency_p50_ms"] == 1000
     assert ai["cache_read_tokens"] == 80
+    # Sonnet 5.5: 20 uncached in × $2 + 80 cached × $0.20 + 20 out × $10 per 1M; the unpriced model is not guessed
+    cost = ai["cost"]
+    assert cost["total_usd"] == pytest.approx(256e-6) and cost["per_turn_usd"] == pytest.approx(256e-6)
+    assert (cost["priced_turns"], cost["unpriced_turns"]) == (1, 1)
+    assert {m["model"]: m["cost_usd"] for m in cost["by_model"]}["some-unpriced-model"] is None
     assert len(ai["daily"]) == 7 and sum(d["turns"] for d in ai["daily"]) == 3
     assert {t["name"]: (t["calls"], t["failed"]) for t in ai["tools"]} == {
         "search_properties": (1, 0),

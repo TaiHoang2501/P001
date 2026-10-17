@@ -213,6 +213,10 @@ class Settings(BaseSettings):
     trusted_proxy_hops: int = Field(default=1, ge=0)
     # Developer traces of chat turns (ai_turns) and unclaimed guest conversations are kept this many days
     ai_trace_retention_days: int = Field(default=180, ge=1)
+    # Cost estimate on the developer page: extra model prices, USD per 1M tokens [input, output, cache read], e.g.
+    # LLM_PRICES='{"gemini-flash-lite-latest": [input, output, cache_read]}' with the provider's current rates.
+    # Claude prices are built in (src/services/llm_pricing.py)
+    llm_prices: dict[str, tuple[float, float, float]] = {}
     # Langfuse (LLM observability) for chat turns; off when the keys are empty and always off in tests
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""

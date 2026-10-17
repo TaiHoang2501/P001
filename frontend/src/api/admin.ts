@@ -32,6 +32,21 @@ export interface DevMetrics {
     cache_read_tokens: number;
     llm_calls: number;
     tool_calls: number;
+    /** Estimated model cost (USD) from the built-in price table + LLM_PRICES; null when no model is priced */
+    cost: {
+      total_usd: number | null;
+      per_turn_usd: number | null;
+      priced_turns: number;
+      unpriced_turns: number;
+      by_model: {
+        model: string | null;
+        turns: number;
+        prompt_tokens: number;
+        completion_tokens: number;
+        cache_read_tokens: number;
+        cost_usd: number | null;
+      }[];
+    };
     daily: { date: string; turns: number; errors: number }[];
     tools: { name: string; calls: number; failed: number }[];
     error_types: { type: string; count: number }[];

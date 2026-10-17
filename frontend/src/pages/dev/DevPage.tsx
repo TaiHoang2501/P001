@@ -251,6 +251,8 @@ function KillSwitch({ token, status }: { token: string; status: AssistantControl
 const number = new Intl.NumberFormat("vi-VN");
 const fmt = (n: number) => number.format(n);
 const seconds = (ms: number | null) => (ms == null ? "–" : `${(ms / 1000).toFixed(1)} s`);
+// A turn costs fractions of a cent, so small amounts keep 4 decimals
+const usd = (n: number | null) => (n == null ? "–" : `$${n < 1 ? n.toFixed(4) : n.toFixed(2)}`);
 
 function Stat({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: "danger" }) {
   return (
@@ -265,12 +267,13 @@ function Stat({ label, value, hint, tone }: { label: string; value: ReactNode; h
 function AiSection({ m }: { m: DevMetrics }) {
   const ai = m.ai;
   const highErrors = ai.turns > 0 && ai.error_rate >= 0.05;
+  const cost = ai.cost;
   return (
     <section className="space-y-4" aria-labelledby="ai-metrics">
       <h2 id="ai-metrics" className="text-lg font-semibold">
         Trợ lý AI · {m.days === 1 ? "24 giờ qua" : `${m.days} ngày qua`}
       </h2>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <Stat label="Lượt chat" value={fmt(ai.turns)} hint={`${fmt(ai.guest_turns)} từ khách chưa đăng nhập · ${fmt(ai.conversations)} hội thoại`} />
         <Stat
           label="Lỗi"
@@ -290,12 +293,38 @@ function AiSection({ m }: { m: DevMetrics }) {
           value={ai.prompt_tokens ? `${((ai.cache_read_tokens / ai.prompt_tokens) * 100).toFixed(0)}%` : "–"}
           hint={`${fmt(ai.cache_read_tokens)} / ${fmt(ai.prompt_tokens)} token vào đọc từ cache`}
         />
+        <Stat
+          label="Chi phí TB / lượt"
+          value={usd(cost.per_turn_usd)}
+          hint={
+            cost.total_usd == null
+              ? "Model đang dùng chưa có giá (đặt LLM_PRICES)"
+              : `Tổng ${usd(cost.total_usd)} · ${fmt(cost.priced_turns)} lượt${cost.unpriced_turns ? ` · ${fmt(cost.unpriced_turns)} lượt chưa có giá` : ""}`
+          }
+        />
       </div>
 
       <div className="card p-4">
         <h3 className="mb-3 text-sm font-semibold">Lượt chat mỗi ngày</h3>
         <DailyChart daily={ai.daily} />
       </div>
+
+      <Table
+        title="Chi phí theo model"
+        head={["Model", "Lượt", "Token TB / lượt (vào · từ cache · ra)", "Chi phí TB / lượt", "Tổng"]}
+        rows={cost.by_model.map((row) => {
+          const per = (n: number) => fmt(Math.round(n / row.turns));
+          return [
+            <code key="m">{row.model ?? "?"}</code>,
+            fmt(row.turns),
+            `${per(row.prompt_tokens)} · ${per(row.cache_read_tokens)} · ${per(row.completion_tokens)}`,
+            row.cost_usd == null ? <span key="c" className="text-muted">chưa có giá</span> : usd(row.cost_usd / row.turns),
+            usd(row.cost_usd),
+          ];
+        })}
+        empty="Chưa có lượt nào ghi nhận token."
+        footer="Ước tính theo giá USD / 1 triệu token (src/services/llm_pricing.py; model khác thêm bằng LLM_PRICES). Token ghi vào cache tính như token vào thường; chỉ tính model của agent trong trace, không tính giám khảo AI."
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Table

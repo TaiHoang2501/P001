@@ -21,7 +21,7 @@ from src.db.models import (
     Property,
     User,
 )
-from src.services import assistant_control
+from src.services import assistant_control, llm_pricing
 
 TIMEZONE = "Asia/Ho_Chi_Minh"
 RECENT_ERRORS = 10
@@ -83,6 +83,34 @@ def _ai(db: Session, since: datetime, days: int) -> dict[str, Any]:
         ).all()
     ]
 
+    # Estimated cost per model (turns that reported tokens); models without a price stay unpriced, not guessed
+    by_model = []
+    for model, n, p_in, p_out, p_cache in db.execute(
+        select(
+            AiTurn.model,
+            func.count(),
+            func.sum(AiTurn.prompt_tokens),
+            func.coalesce(func.sum(AiTurn.completion_tokens), 0),
+            func.coalesce(func.sum(AiTurn.cache_read_tokens), 0),
+        )
+        .where(in_window, AiTurn.prompt_tokens.is_not(None))
+        .group_by(AiTurn.model)
+        .order_by(func.count().desc())
+    ).all():
+        by_model.append(
+            {
+                "model": model,
+                "turns": n,
+                "prompt_tokens": int(p_in),
+                "completion_tokens": int(p_out),
+                "cache_read_tokens": int(p_cache),
+                "cost_usd": llm_pricing.cost_usd(model, int(p_in), int(p_out), int(p_cache)),
+            }
+        )
+    priced = [m for m in by_model if m["cost_usd"] is not None]
+    priced_turns = sum(m["turns"] for m in priced)
+    total_usd = sum(m["cost_usd"] for m in priced) if priced else None
+
     error_types = [
         {"type": t or "?", "count": n}
         for t, n in db.execute(
@@ -119,6 +147,13 @@ def _ai(db: Session, since: datetime, days: int) -> dict[str, Any]:
         "cache_read_tokens": int(cache_read),
         "llm_calls": int(llm_calls),
         "tool_calls": int(tool_calls),
+        "cost": {
+            "total_usd": total_usd,
+            "per_turn_usd": total_usd / priced_turns if priced_turns else None,
+            "priced_turns": priced_turns,
+            "unpriced_turns": sum(m["turns"] for m in by_model) - priced_turns,
+            "by_model": by_model,
+        },
         "daily": daily,
         "tools": tools,
         "error_types": error_types,
