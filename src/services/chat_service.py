@@ -73,6 +73,16 @@ def _pending_viewing(messages: list[BaseMessage]) -> PendingViewingRequest | Non
     return pending
 
 
+def _detailed(messages: list[BaseMessage]) -> list[int]:
+    """Homes opened with get_property_detail this turn (successfully), in order, once each."""
+    ids: list[int] = []
+    for m in messages:
+        if isinstance(m, ToolMessage) and m.name == "get_property_detail" and (data := _ok_data(m)) is not None:
+            if data.get("id") is not None and data["id"] not in ids:
+                ids.append(data["id"])
+    return ids
+
+
 def _extract(messages: list[BaseMessage]) -> tuple[list[Recommendation], ViewingTimesOut | None, list[BookingOut]]:
     recommendations: list[Recommendation] = []
     viewing_times: ViewingTimesOut | None = None
@@ -388,6 +398,7 @@ def _response(conversation_id: str, new_messages: list[BaseMessage], trace_id: s
         viewing_times=viewing_times,
         bookings=bookings,
         trace_id=trace_id,
+        property_ids=_detailed(new_messages),
     )
 
 

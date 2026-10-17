@@ -44,6 +44,10 @@ class ChatResponse(BaseModel):
         default=False, description="Guest chat only: the buyer asked for something that needs an account (booking)"
     )
     trace_id: str | None = Field(default=None, description="Developer trace of this turn (table ai_turns)")
+    property_ids: list[int] = Field(
+        default_factory=list,
+        description="Homes the agent looked at in detail this turn: the chat shows each as a card with its photo",
+    )
     pending_viewing: PendingViewingRequest | None = Field(
         default=None, description="Guest chat only: the viewing request to send after the guest signs up"
     )

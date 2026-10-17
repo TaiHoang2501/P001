@@ -63,6 +63,10 @@ def mask_pii(text: str) -> tuple[str, list[str]]:
     return text, found
 
 
+# Photo files or links written out in a reply ("/demo/homes/living-20.jpg", "https://…/x.webp")
+_MEDIA_PATH = re.compile(r"(?:https?://\S+?|/[\w./%-]+?)\.(?:jpe?g|png|webp|gif)\b", re.IGNORECASE)
+
+
 # ---------- Input ----------
 
 # Lines the system itself adds to buyer messages (graph.turn_context); a buyer typing them could fake the time
@@ -238,7 +242,8 @@ class OutputVerdict:
 
     @property
     def blocked(self) -> bool:
-        return any(not v.startswith("pii_") for v in self.violations)
+        # Masked contacts and removed photo links fix the reply in place; anything else replaces it
+        return any(not (v.startswith("pii_") or v == "media_paths") for v in self.violations)
 
 
 def _sentences(text: str) -> list[str]:
@@ -278,7 +283,13 @@ def screen_output(reply: str, history: Sequence[BaseMessage]) -> OutputVerdict:
         return OutputVerdict(text=_FALLBACK_PREFIX + _FALLBACKS[blocking[0]], violations=blocking)
 
     text, pii = mask_pii(reply)
-    return OutputVerdict(text=text, violations=[f"pii_{kind}" for kind in pii])
+    text, paths = _MEDIA_PATH.subn("", text)
+    if paths:
+        # What is left of a list of links ("a.jpg, b.jpg") is cleaned up, and the buyer told where the photos are
+        text = re.sub(r"[ \t]*,[ \t]*(?=,|$)", "", text)
+        text = re.sub(r"(?m)^[ \t,;:]*$\n?", "", text).strip()
+        text += "\n\n(Ảnh của từng căn có trong thẻ căn; bấm vào thẻ để xem đầy đủ.)"
+    return OutputVerdict(text=text, violations=[f"pii_{kind}" for kind in pii] + (["media_paths"] if paths else []))
 
 
 def confirmed_in_data(history: Sequence[BaseMessage]) -> bool:
@@ -371,6 +382,10 @@ class StreamGate:
         verdict = screen_output(sentence, history)
         if verdict.blocked:
             self.blocked = True
+            return None
+        if "media_paths" in verdict.violations:
+            # Photo links are taken out of the whole reply at the end (once), not sentence by sentence
+            self.held = True
             return None
         if guardrail_judge.enabled() and guardrail_judge.risky_reply(fold(sentence)):
             self.held = True

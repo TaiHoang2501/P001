@@ -1727,6 +1727,11 @@ export interface components {
              * @description Developer trace of this turn (table ai_turns)
              */
             trace_id?: string | null;
+            /**
+             * Property Ids
+             * @description Homes the agent looked at in detail this turn: the chat shows each as a card with its photo
+             */
+            property_ids?: number[];
             /** @description Guest chat only: the viewing request to send after the guest signs up */
             pending_viewing?: components["schemas"]["PendingViewingRequest"] | null;
         };

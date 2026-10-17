@@ -39,6 +39,7 @@ import { BuildingIcon, PlusIcon, SendIcon, SparkleIcon, UserIcon } from "./icons
 import { AiBot } from "./AiBot";
 import { HomeCard, HomeDetail, pickedIn, picksFirst, ResultsList } from "./HomeResults";
 import { PropertyDetailCard, useProperty } from "./PropertyDetailCard";
+import { imagesOf, PropertyImage } from "./shared";
 import { ViewingScheduler } from "./ViewingScheduler";
 
 type PendingViewing = components["schemas"]["PendingViewingRequest"];
@@ -424,6 +425,9 @@ export function BuyerChatPage() {
         bookings: res.bookings,
         needsAccount: res.needs_account,
         pendingViewing: res.pending_viewing,
+        // Homes the assistant opened (e.g. "cho tôi xem ảnh các căn"): a card with its photo each, unless already
+        // among this turn's recommendations
+        propertyIds: (res.property_ids ?? []).filter((id) => !(res.recommendations ?? []).some((r) => r.property.id === id)),
       });
       if (res.bookings?.length) queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
   }
@@ -1174,14 +1178,22 @@ function PropertyChip({
 }) {
   const property = useProperty(propertyId);
   const code = property.data?.unit_code;
+  // The home's first photo, so "xem ảnh căn…" shows photos, not file names; the card opens all of them
+  const photos = property.data ? imagesOf(property.data) : [];
   return (
     <button
       type="button"
-      className="rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 hover:border-brand-500"
+      className="flex items-center gap-2 rounded-xl border border-brand-200 bg-white p-1.5 pr-3 text-left text-xs font-medium text-brand-700 hover:border-brand-500"
       onClick={() => onOpen(propertyId, code)}
     >
-      Xem căn {code ?? `#${propertyId}`}
-      {property.data && ` · ${formatVnd(property.data.price_vnd)}`}
+      {photos.length > 0 && <PropertyImage src={photos[0].url} alt="" className="h-12 w-16 shrink-0 rounded-lg" />}
+      <span>
+        <span className="block">Xem căn {code ?? `#${propertyId}`}</span>
+        <span className="block font-normal text-muted">
+          {property.data && formatVnd(property.data.price_vnd)}
+          {photos.length > 1 && ` · ${photos.length} ảnh`}
+        </span>
+      </span>
     </button>
   );
 }
