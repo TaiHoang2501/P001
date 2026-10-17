@@ -43,13 +43,14 @@ def _ai(db: Session, since: datetime, days: int) -> dict[str, Any]:
             func.count(func.distinct(AiTurn.conversation_id)),
             func.coalesce(func.sum(AiTurn.prompt_tokens), 0),
             func.coalesce(func.sum(AiTurn.completion_tokens), 0),
+            func.coalesce(func.sum(AiTurn.cache_read_tokens), 0),
             func.coalesce(func.sum(AiTurn.llm_calls), 0),
             func.coalesce(func.sum(AiTurn.tool_calls), 0),
             func.percentile_cont(0.5).within_group(AiTurn.latency_ms).filter(ok),
             func.percentile_cont(0.95).within_group(AiTurn.latency_ms).filter(ok),
         ).where(in_window)
     ).one()
-    turns, guests, errors, conversations, tokens_in, tokens_out, llm_calls, tool_calls, p50, p95 = row
+    turns, guests, errors, conversations, tokens_in, tokens_out, cache_read, llm_calls, tool_calls, p50, p95 = row
 
     # Turns per day (Vietnam time), every day of the window present so the chart has no gaps
     day = func.date(func.timezone(TIMEZONE, AiTurn.created_at))
@@ -114,6 +115,8 @@ def _ai(db: Session, since: datetime, days: int) -> dict[str, Any]:
         "latency_p95_ms": round(p95) if p95 is not None else None,
         "prompt_tokens": int(tokens_in),
         "completion_tokens": int(tokens_out),
+        # Part of prompt_tokens served from the prompt cache
+        "cache_read_tokens": int(cache_read),
         "llm_calls": int(llm_calls),
         "tool_calls": int(tool_calls),
         "daily": daily,

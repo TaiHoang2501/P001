@@ -196,7 +196,7 @@ Bản đầy đủ gồm 27 bảng:
 - **Scheduling:** `availability_slots` (lịch trống Seller), `buyer_availability`
 - **Deal & Viewing:** `deals`, `bookings`, `property_holds`
 - **Post-viewing (post-MVP):** `purchase_requests`, `chats`, `messages`
-- **AI:** `ai_conversations`, `ai_messages`, `recommendations`, `ai_turns` (trace cho dev: mỗi lượt chat — cả khách chưa đăng nhập và lượt lỗi — kèm từng bước gọi model/công cụ, thời gian, token; xem bằng `python scripts/ai_traces.py`; tự xóa sau `AI_TRACE_RETENTION_DAYS`. Chỉ dành cho dev, không hiển thị cho Buyer/Seller/Operator)
+- **AI:** `ai_conversations`, `ai_messages`, `recommendations`, `ai_turns` (trace cho dev: mỗi lượt chat — cả khách chưa đăng nhập và lượt lỗi — kèm từng bước gọi model/công cụ, thời gian, token (cả phần đọc từ prompt cache, `cache_read_tokens`); xem bằng `python scripts/ai_traces.py`; tự xóa sau `AI_TRACE_RETENTION_DAYS`. Chỉ dành cho dev, không hiển thị cho Buyer/Seller/Operator)
 - **Operations:** `escalations`, `notifications`, `audit_logs`, `system_settings` (công tắc vận hành dùng chung mọi instance, vd. kill switch Trợ lý AI), `rate_limit_hits` (đếm tin nhắn chat cho rate limit)
 
 Quan hệ chính: Seller 1─N Property · Buyer 1─N Deal · Property 1─N Deal · Deal 1─N Booking · Booking 1─0..1 PropertyHold · Deal 1─0..1 PurchaseRequest · Deal 1─0..1 Chat.
