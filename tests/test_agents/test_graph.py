@@ -338,3 +338,34 @@ async def test_a_later_turn_resends_the_conversation_unchanged(monkeypatch):
     # What is stored (and shown in the chat history) is what the buyer typed
     stored = (await agent.aget_state(config)).values["messages"]
     assert [m.content for m in stored if m.type == "human"] == ["Chào em", "Tìm căn 2PN", "Hôm nay thì sao"]
+
+
+@pytest.mark.asyncio
+async def test_claude_caches_the_system_prompt_across_conversations(monkeypatch):
+    """With Claude the system prompt carries its own cache breakpoint, so a new conversation with the same prompt
+    reads it from cache; a fallback on another provider gets it as plain text."""
+    seen: list[list] = []
+
+    class Recording(ScriptedModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            seen.append(messages)
+            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    class Failing(ScriptedModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # noqa: ARG002
+            raise RuntimeError("overloaded")
+
+    monkeypatch.setattr(agent_graph, "_project_catalog", lambda: None)
+    reply = iter([AIMessage(content="Chào anh"), AIMessage(content="Chào chị")])
+    agent = agent_graph.build_graph(Recording(messages=reply), InMemorySaver(), cache_system_prompt=True)
+    await agent.ainvoke({"messages": [("human", "Chào em")]}, {"configurable": {"thread_id": "cached"}})
+    (block,) = seen[0][0].content
+    assert block["cache_control"] == {"type": "ephemeral"}
+    assert block["text"].startswith("Bạn là BookingBot")
+
+    fallback = Recording(messages=iter([AIMessage(content="Chào anh")]))
+    agent = agent_graph.build_graph(
+        Failing(messages=iter([])), InMemorySaver(), fallback_llm=fallback, cache_system_prompt=True
+    )
+    await agent.ainvoke({"messages": [("human", "Chào em")]}, {"configurable": {"thread_id": "fallback"}})
+    assert seen[-1][0].content == block["text"]
