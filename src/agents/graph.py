@@ -36,7 +36,10 @@ _SENT_AT = "sent_at"
 
 # Project codes go in the prompt, so searching needs no list_projects round (one LLM call less)
 _PROJECTS_TTL_SECONDS = 300
-_projects_cache: tuple[float, str | None] = (0.0, None)
+# Never fetched: not "fetched at 0", since time.monotonic() starts near 0 in a new container and the empty
+# catalog would then count as fresh for its first 5 minutes (every search paying a list_projects round)
+_PROJECTS_NOT_FETCHED: tuple[float, str | None] = (float("-inf"), None)
+_projects_cache = _PROJECTS_NOT_FETCHED
 
 
 def _project_catalog() -> str | None:

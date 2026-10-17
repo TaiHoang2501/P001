@@ -369,3 +369,12 @@ async def test_claude_caches_the_system_prompt_across_conversations(monkeypatch)
     )
     await agent.ainvoke({"messages": [("human", "Chào em")]}, {"configurable": {"thread_id": "fallback"}})
     assert seen[-1][0].content == block["text"]
+
+
+def test_project_catalog_is_fetched_right_after_start(monkeypatch):
+    """time.monotonic() starts near 0 in a new container: the first prompt must still list the projects."""
+    monkeypatch.setattr(agent_graph, "_projects_cache", agent_graph._PROJECTS_NOT_FETCHED)
+    monkeypatch.setattr(agent_graph.time, "monotonic", lambda: 12.0)
+    envelope = {"ok": True, "data": [{"code": "VHOP1", "name": "Vinhomes Ocean Park 1", "city": "Hà Nội"}]}
+    monkeypatch.setattr(agent_graph.agent_api, "list_projects", lambda: envelope)
+    assert agent_graph._project_catalog() == "- VHOP1: Vinhomes Ocean Park 1 (Hà Nội)"
